@@ -23,6 +23,10 @@ import { loadConfig } from '../config.js';
 import { SOURCES } from '../../src/constants/sources.js';
 import { contradictsWanted } from './workMode.js';
 import { ApifyBaseScraper } from './apifyBase.js';
+import { GreenhouseApifyScraper } from './greenhouseScraper.js';
+import { LeverApifyScraper } from './leverScraper.js';
+import { AshbyApifyScraper } from './ashbyScraper.js';
+import { WorkableApifyScraper } from './workableScraper.js';
 
 // Apify-powered sources — constructed from the shared registry (Task 1).
 const APIFY_SCRAPERS: Partial<Record<JobSource, () => ApifyBaseScraper>> = {
@@ -31,6 +35,10 @@ const APIFY_SCRAPERS: Partial<Record<JobSource, () => ApifyBaseScraper>> = {
   Naukri: () => new NaukriScraper(),
   Glassdoor: () => new GlassdoorScraper(),
   Upwork: () => new UpworkScraper(),
+  Greenhouse: () => new GreenhouseApifyScraper(),
+  Lever: () => new LeverApifyScraper(),
+  Ashby: () => new AshbyApifyScraper(),
+  Workable: () => new WorkableApifyScraper(),
 };
 
 export class ScraperFactory {

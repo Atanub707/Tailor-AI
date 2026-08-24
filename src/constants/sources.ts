@@ -19,6 +19,10 @@ export const SOURCES: Record<JobSource, SourceMeta> = {
   Naukri: { id: 'Naukri', label: 'Naukri', flag: '🇮🇳', country: 'India', region: 'asia', apifyActorId: 'valig~naukri-jobs-scraper', needsApify: true, pricePer1K: '$0.40' },
   Glassdoor: { id: 'Glassdoor', label: 'Glassdoor', flag: '🌐', country: 'Global', region: 'global', apifyActorId: 'valig~glassdoor-jobs-scraper', needsApify: true, pricePer1K: '$0.40' },
   Upwork: { id: 'Upwork', label: 'Upwork', flag: '🌐', country: 'Global freelance', region: 'global', apifyActorId: 'valig~upwork-jobs-scraper', needsApify: true, pricePer1K: '$0.20' },
+  Greenhouse: { id: 'Greenhouse', label: 'Greenhouse', flag: '🌱', country: 'Global', region: 'global', apifyActorId: 'apify~greenhouse-jobs-scraper', needsApify: true, pricePer1K: '$0.40' },
+  Lever: { id: 'Lever', label: 'Lever', flag: '🔷', country: 'Global', region: 'global', apifyActorId: 'apify~lever-jobs-scraper', needsApify: true, pricePer1K: '$0.40' },
+  Ashby: { id: 'Ashby', label: 'Ashby', flag: '🟣', country: 'Global', region: 'global', apifyActorId: 'apify~ashby-jobs-scraper', needsApify: true, pricePer1K: '$0.40' },
+  Workable: { id: 'Workable', label: 'Workable', flag: '🔧', country: 'Global', region: 'global', apifyActorId: 'apify~workable-jobs-scraper', needsApify: true, pricePer1K: '$0.40' },
 
   // ── Built-in free scrapers ──
   LinkedInPosts: { id: 'LinkedInPosts', label: 'LinkedIn Posts', flag: '📰', country: 'Global', region: 'global', pricePer1K: 'Free' },

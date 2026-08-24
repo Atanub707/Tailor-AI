@@ -607,6 +607,7 @@ export default function App() {
             isLoading={selectedJob ? loadingJobIds.has(selectedJob.id) : false}
             initialTab={selectedJobTab}
             cvTemplate={(masterCv?.templateId || 'harvard') as TemplateId}
+            masterCv={masterCv}
           />
 
           {/* Master Candidate CV — full screen (always mounted, URL-driven) */}

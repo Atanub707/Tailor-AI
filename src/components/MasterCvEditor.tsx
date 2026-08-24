@@ -343,6 +343,21 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
     setDragCertIdx(null);
   };
 
+  const [dragSkillIdx, setDragSkillIdx] = useState<number | null>(null);
+  const handleSkillDragStart = (e: React.DragEvent, idx: number) => { setDragSkillIdx(idx); e.dataTransfer.effectAllowed = 'move'; };
+  const handleSkillDragOver = (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; };
+  const handleSkillDrop = (e: React.DragEvent, targetIdx: number) => {
+    e.preventDefault();
+    if (dragSkillIdx === null || dragSkillIdx === targetIdx) { setDragSkillIdx(null); return; }
+    setFormData((prev) => {
+      const skills = [...(prev.skills || [])];
+      const [moved] = skills.splice(dragSkillIdx, 1);
+      skills.splice(targetIdx, 0, moved);
+      return { ...prev, skills };
+    });
+    setDragSkillIdx(null);
+  };
+
   const aiMark = (fn?: (t: string) => boolean, t?: string) =>
     fn && t && fn(t) ? (
       <span className="inline-flex items-center gap-0.5 ml-1 px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wide text-purple-700 bg-purple-100 border border-purple-200 align-middle shrink-0" title="AI-generated">✦ AI</span>
@@ -614,7 +629,8 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
         </div>
         <div className="space-y-2">
           {(formData.skills || []).map((sk, skIdx) => (
-            <div key={skIdx} className="flex items-center space-x-2 bg-white p-2 rounded border border-[var(--color-hairline)]">
+            <div key={skIdx} draggable onDragStart={(e) => handleSkillDragStart(e, skIdx)} onDragOver={handleSkillDragOver} onDrop={(e) => handleSkillDrop(e, skIdx)} className={`flex items-center space-x-2 bg-white p-2 rounded border cursor-grab active:cursor-grabbing transition-all ${dragSkillIdx === skIdx ? 'border-blue-400 ring-2 ring-blue-200 opacity-70' : 'border-[var(--color-hairline)] hover:border-[var(--color-brand-line)]'}`}>
+              <GripVertical className="w-3.5 h-3.5 text-[var(--color-faint)] shrink-0" />
               <input type="text" value={sk.category} onChange={(e) => { const updated = { ...formData } as MasterCv; updated.skills[skIdx].category = e.target.value; setFormData(updated); }} placeholder="Category Name" className="w-1/3 border border-[var(--color-hairline)] rounded px-2 py-1 font-bold text-[var(--color-ink)]" />
               <TagInput value={sk.items} onChange={(items) => { const updated = { ...formData } as MasterCv; updated.skills[skIdx].items = items; setFormData(updated); }} placeholder="Type a skill and press comma (,) or Enter…" />
               <button type="button" onClick={() => removeSkillCategory(skIdx)} className="p-1 text-[var(--color-faint)] hover:text-[var(--color-danger)] cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>

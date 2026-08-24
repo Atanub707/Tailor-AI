@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.8.4 (2026-08-19)
+
+### ✨ Enhancement
+- **Master CV — Skills are now draggable:** Skill categories in the Master CV editor can be reordered via drag-and-drop (grip handle, same as Projects / Experience / Certifications), so you can prioritize your strongest skills at the top.
+
 ## v1.8.3 (2026-08-19)
 
 ### 🐛 Fixes
