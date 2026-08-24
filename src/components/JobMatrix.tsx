@@ -119,6 +119,11 @@ const JobCard = React.memo(function JobCard({
             <span>{job.source}</span>
             <ExternalLink className="w-2.5 h-2.5 text-blue-500 ml-0.5" />
           </a>
+          {(job as any).atsPlatform && (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200 uppercase ml-1">
+              {(job as any).atsPlatform}
+            </span>
+          )}
 
           {/* Posted Relative Time — hidden when the real posting time is unknown */}
           {timeAgoStr && (

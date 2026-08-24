@@ -40,6 +40,22 @@ export interface Job {
 
   createdAt: string;
   updatedAt: string;
+
+  // V2 — ATS + provider extensions (additive, optional for V1 compat)
+  atsPlatform?: string;
+  externalId?: string;
+  companyId?: string;
+  locations?: string[];
+  department?: string;
+  employmentType?: string;
+  remote?: boolean;
+  atsCompanySlug?: string;
+  provider?: string;
+  providerRunId?: string;
+  fingerprint?: string;
+  isActive?: boolean;
+  scrapedAt?: string;
+  descriptionAvailable?: boolean;
 }
 
 export interface GapAnalysis {

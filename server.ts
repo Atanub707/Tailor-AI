@@ -1476,6 +1476,32 @@ Return valid JSON only — NO markdown, NO code fences:
     }
   });
 
+  // V2 — Santa Maria ATS search (DB-first, 25 ATS) — keeps V1 /api/jobs/scrape untouched
+  app.post('/api/jobs/search', async (req, res) => {
+    try {
+      const { keywords, location, remote, atsPlatforms, limit } = req.body;
+      if (!keywords || !String(keywords).trim()) {
+        res.status(400).json({ error: 'Keywords required' });
+        return;
+      }
+      const { searchJobsV2 } = await import('./server/services/jobSearchService.js');
+      const result = await searchJobsV2(
+        {
+          keywords: String(keywords).trim(),
+          location: location ? String(location).trim() : undefined,
+          remote: remote === true,
+          atsPlatforms: Array.isArray(atsPlatforms) ? atsPlatforms : undefined,
+          limit: limit ? Number(limit) : 25,
+        },
+        getCurrentUserId() || 'anonymous'
+      );
+      res.json(result);
+    } catch (err: any) {
+      console.error('V2 search error:', err);
+      res.status(500).json({ error: err.message || 'Search failed' });
+    }
+  });
+
   // Generic URL-based job description scraper
   app.post('/api/scrape-full-text', async (req, res) => {
     try {
@@ -2068,6 +2094,23 @@ Return valid JSON only, no markdown:
       }
 
       const masterCv = getMasterCv();
+
+      // Phase 5 — Tailor cache: reuse if fingerprint + CV version unchanged
+      const { fingerprintJob } = await import('./server/storage/v2Tables.js');
+      const currentFingerprint = (jobToTailor as any).fingerprint || fingerprintJob(jobToTailor as any);
+      const cvVersion = JSON.stringify(masterCv).slice(0, 32); // cheap hash for now
+      const cached = jobToTailor.tailoredCv && (jobToTailor as any).tailoredFingerprint === currentFingerprint && (jobToTailor as any).tailoredCvVersion === cvVersion;
+      if (cached) {
+        res.json({ success: true, tailoredCv: jobToTailor.tailoredCv, job: jobToTailor, cached: true });
+        return;
+      }
+
+      // Guard: description required for tailoring
+      if (!jobToTailor.description || jobToTailor.description.trim().length < 20 || jobToTailor.description === 'Description not available') {
+        res.status(422).json({ error: 'Job description unavailable — cannot tailor CV.', code: 'no_description' });
+        return;
+      }
+
       const tailorEngine = new LlmCvTailor();
 
       const tailoredCv = await tailorEngine.tailorCv(jobToTailor, masterCv);
@@ -2077,7 +2120,10 @@ Return valid JSON only, no markdown:
         tailoredCv,
         state: 'tailored',
         tailoredAt: new Date().toISOString(),
-      });
+        fingerprint: currentFingerprint,
+        tailoredFingerprint: currentFingerprint,
+        tailoredCvVersion: cvVersion,
+      } as any);
 
       res.json({
         success: true,
