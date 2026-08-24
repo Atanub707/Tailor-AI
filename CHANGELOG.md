@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.8.3 (2026-08-19)
+
+### 🐛 Fixes
+- **Manual JD — contact links now prefilled from Master CV:** Portfolio (website), LinkedIn, and GitHub are carried through the Manual JD Preview editor (`editableCv ↔ editorShape`), so the Preview shows the links you saved in Master CV instead of empty fields.
+- **Manual JD — PDF names include role & company:** Downloads are now `Atanu_Biswas_DevSecOps_Stripe_CV.pdf` (candidate + role + company from Stage 1) instead of `Atanu_Biswas_edited.pdf`. Both the token download and the edited Preview download use the same pattern, with server `Content-Disposition` aligned.
+
 ## v1.8.2 (2026-08-19)
 
 ### ✨ Features

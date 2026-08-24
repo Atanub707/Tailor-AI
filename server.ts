@@ -2355,6 +2355,7 @@ Return valid JSON only, no markdown:
       }
 
       const safeName = data.tailoredCv.candidateName.replace(/ /g, '_');
+      const safeRole = (data.title || data.tailoredCv.targetRole || '').replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_');
       const safeCompany = data.company.replace(/[^a-zA-Z0-9]/g, '_');
 
       // Template: explicit ?template= wins (Manual JD selector); otherwise
@@ -2366,12 +2367,12 @@ Return valid JSON only, no markdown:
       if (format === 'pdf') {
         const pdfBuffer = await generatePdfBuffer(data.tailoredCv, effectiveTemplate);
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="${safeName}_${safeCompany}.pdf"`);
+        res.setHeader('Content-Disposition', `attachment; filename="${safeName}${safeRole ? '_' + safeRole : ''}${safeCompany ? '_' + safeCompany : ''}_CV.pdf"`);
         res.send(pdfBuffer);
       } else if (format === 'txt') {
         const textCv = generatePlainTextCv(data.tailoredCv);
         res.setHeader('Content-Type', 'text/plain');
-        res.setHeader('Content-Disposition', `attachment; filename="${safeName}_${safeCompany}.txt"`);
+        res.setHeader('Content-Disposition', `attachment; filename="${safeName}${safeRole ? '_' + safeRole : ''}${safeCompany ? '_' + safeCompany : ''}_CV.txt"`);
         res.send(textCv);
       } else if (format === 'json') {
         // Used by the Manual JD comparison slider to render the new CV.
@@ -2379,7 +2380,7 @@ Return valid JSON only, no markdown:
       } else {
         const pdfBuffer = await generatePdfBuffer(data.tailoredCv, effectiveTemplate);
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="${safeName}_${safeCompany}.pdf"`);
+        res.setHeader('Content-Disposition', `attachment; filename="${safeName}${safeRole ? '_' + safeRole : ''}${safeCompany ? '_' + safeCompany : ''}_CV.pdf"`);
         res.send(pdfBuffer);
       }
     } catch (err: any) {
@@ -2402,16 +2403,18 @@ Return valid JSON only, no markdown:
       const requestedTemplate = req.body?.template;
       const effectiveTemplate = requestedTemplate && ['harvard', 'jake', 'atanu', 'atanu-pro'].includes(requestedTemplate) ? requestedTemplate : 'harvard';
       const safeName = (cv.candidateName || 'Candidate').replace(/ /g, '_');
+      const safeRole = (req.body?.title || cv.targetRole || '').toString().replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_');
+      const safeCompany = (req.body?.company || '').toString().replace(/[^a-zA-Z0-9]/g, '_');
 
       if (format === 'txt') {
         const textCv = generatePlainTextCv(cv);
         res.setHeader('Content-Type', 'text/plain');
-        res.setHeader('Content-Disposition', `attachment; filename="${safeName}_edited.txt"`);
+        res.setHeader('Content-Disposition', `attachment; filename="${safeName}${safeRole ? '_' + safeRole : ''}${safeCompany ? '_' + safeCompany : ''}_CV.txt"`);
         res.send(textCv);
       } else {
         const pdfBuffer = await generatePdfBuffer(cv, effectiveTemplate);
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="${safeName}_edited.pdf"`);
+        res.setHeader('Content-Disposition', `attachment; filename="${safeName}${safeRole ? '_' + safeRole : ''}${safeCompany ? '_' + safeCompany : ''}_CV.pdf"`);
         res.send(pdfBuffer);
       }
     } catch (err: any) {

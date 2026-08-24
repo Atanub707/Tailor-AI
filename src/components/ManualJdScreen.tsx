@@ -242,6 +242,9 @@ export function editableCvToEditorShape(cv: EditableCv): MasterCv {
     email: cv.contactInfo?.email || '',
     phone: cv.contactInfo?.phone || '',
     location: cv.contactInfo?.location || '',
+    linkedin: (cv.contactInfo as any)?.linkedin || '',
+    github: (cv.contactInfo as any)?.github || '',
+    website: (cv.contactInfo as any)?.website || '',
     summary: cv.summary || '',
     skills: (cv.skills || []).map((g) => ({ category: g.category, items: g.items.map((x) => x.text) })),
     experiences: (cv.experiences || []).map((e) => ({
@@ -288,6 +291,9 @@ export function editorShapeToEditableCv(editor: MasterCv, prev: EditableCv): Edi
       email: editor.email,
       phone: editor.phone,
       location: editor.location,
+      linkedin: (editor as any).linkedin || (prev.contactInfo as any)?.linkedin || '',
+      github: (editor as any).github || (prev.contactInfo as any)?.github || '',
+      website: (editor as any).website || (prev.contactInfo as any)?.website || '',
     },
     summary: editor.summary || '',
     skills: (editor.skills || []).map((g) => ({
@@ -556,14 +562,18 @@ export const ManualJdScreen: React.FC<ManualJdScreenProps> = ({ isOpen, onClose,
       const res = await fetch('/api/analyze-jd/preview-download', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cv: editableNewCv, format, template: previewTemplate }),
+        body: JSON.stringify({ cv: editableNewCv, title, company, format, template: previewTemplate }),
       });
       if (!res.ok) { alert('Could not generate the file.'); return; }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${(editableNewCv.candidateName || 'CV').replace(/ /g, '_')}_edited.${format}`;
+      const safe = (s: string) => s.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_');
+      const base = (editableNewCv.candidateName || 'CV').replace(/ /g, '_');
+      const rolePart = title.trim() ? '_' + safe(title.trim()) : '';
+      const compPart = company.trim() ? '_' + safe(company.trim()) : '';
+      a.download = `${base}${rolePart}${compPart}_CV.${format}`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e: any) {
