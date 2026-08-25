@@ -10,7 +10,7 @@ interface ScraperBarProps {
     postedWithin: 'all' | '24h' | '7d' | '30d';
     remote?: boolean;
     limit: number;
-  }) => Promise<{ jobs: number; cacheHit: boolean; providersCalled: string[] } | void>;
+  }) => Promise<{ jobs: number; cacheHit: boolean; providersCalled: string[]; exhausted?: boolean; seenCount?: number; totalStored?: number } | void>;
   isLoading: boolean;
 }
 
@@ -40,7 +40,12 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading }) =
     if (result && result.jobs > 0) {
       const cacheNote = result.cacheHit ? ' — from cache, 0 credits' : '';
       const providers = result.providersCalled.length > 0 ? ` (${result.providersCalled.join(' + ')})` : '';
-      setScrapeSuccessMsg(`Found ${result.jobs} jobs for "${keywords.trim()}"${providers}${cacheNote}.`);
+      const unseen = result.seenCount && result.totalStored
+        ? ` · showing next ${result.seenCount} unseen · ${result.totalStored} stored in the last 24h`
+        : '';
+      setScrapeSuccessMsg(`Found ${result.jobs} jobs for "${keywords.trim()}"${providers}${cacheNote}${unseen}.`);
+    } else if (result?.exhausted) {
+      setScrapeSuccessMsg('No more new jobs in the last 24h — widen the window or check back later.');
     } else {
       setScrapeSuccessMsg('No results found in the selected window. Try different keywords, a wider posted window, or search again later.');
     }

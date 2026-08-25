@@ -1503,7 +1503,15 @@ Return valid JSON only — NO markdown, NO code fences:
       const result = await searchWithCache(searchRequest, (providerId: string, fetchLimit: number) =>
         routeProvider(searchRequest, providerId, fetchLimit)
       );
-      res.json(result);
+      res.json({
+        ...result,
+        jobs: result.jobs,
+        providersCalled: result.providersCalled,
+        cacheHit: result.cacheHit,
+        exhausted: (result as any).exhausted === true,
+        seenCount: (result as any).seenCount ?? 0,
+        totalStored: (result as any).totalStored ?? 0,
+      });
     } catch (err: any) {
       console.error('V2 search error:', err);
       res.status(500).json({ error: err.message || 'Search failed' });

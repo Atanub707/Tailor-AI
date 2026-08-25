@@ -270,6 +270,9 @@ export default function App() {
           jobs: data.jobs?.length || 0,
           cacheHit: data.cacheHit === true,
           providersCalled: data.providersCalled || [],
+          exhausted: data.exhausted === true,
+          seenCount: data.seenCount || 0,
+          totalStored: data.totalStored || 0,
         };
       } else {
         const err = await res.json();
