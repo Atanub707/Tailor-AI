@@ -99,25 +99,42 @@ export class SantaMariaApifyProvider implements JobProvider {
         ? params.atsPlatforms.map((p) => String(p).toLowerCase())
         : null;
       const cap = 8;
-      // Priority boards — the hand-verified big-tech companies with real
-      // DevOps hiring (Stripe, GitLab, MongoDB, Twilio…). Always queried so
-      // results are never empty; remaining slots rotate through the long tail
-      // of the 6k-company official list.
-      const PRIORITY_IDS = ['stripe', 'airbnb', 'datadog', 'reddit', 'dropbox', 'coinbase', 'instacart', 'roblox', 'duolingo', 'gitlab', 'mongodb', 'twilio', 'webflow', 'vercel', 'databricks', 'chime', 'gusto', 'brex', 'nubank', 'asana', 'okta'];
+      // Priority boards — hand-verified big-tech companies with real DevOps
+      // hiring (Stripe, GitLab, MongoDB, Twilio…; Palantir on Lever; OpenAI,
+      // Notion, Linear on Ashby; Amazon on SmartRecruiters; etc.). Always
+      // queried so results are never empty; remaining slots rotate through the
+      // long tail of the official per-ATS lists (41k companies total).
+      const PRIORITY_BY_PLATFORM: Record<string, string[]> = {
+        greenhouse: ['stripe', 'airbnb', 'datadog', 'reddit', 'dropbox', 'coinbase', 'instacart', 'roblox', 'duolingo', 'gitlab', 'mongodb', 'twilio', 'webflow', 'vercel', 'databricks', 'chime', 'gusto', 'brex', 'nubank', 'asana', 'okta'],
+        lever: ['lever-palantir', 'lever-kraken'],
+        ashby: ['ashby-openai', 'ashby-notion', 'ashby-perplexity', 'ashby-linear', 'ashby-reddit'],
+        smartrecruiters: ['smartrecruiters-amazon', 'smartrecruiters-airbnb', 'smartrecruiters-dropbox', 'smartrecruiters-palantir', 'smartrecruiters-perplexity'],
+        bamboohr: ['bamboohr-openai', 'bamboohr-asana', 'bamboohr-vercel', 'bamboohr-linear', 'bamboohr-palantir'],
+        teamtailor: ['teamtailor-shopify', 'teamtailor-uber'],
+        workday: ['workday-salesforce/slack'],
+        personio: ['personio-amazon'],
+      };
+      const priorityIds = platforms
+        ? platforms.flatMap((p) => PRIORITY_BY_PLATFORM[p] ?? [])
+        : Object.values(PRIORITY_BY_PLATFORM).flat();
       const placeholders = platforms ? platforms.map(() => '?').join(',') : null;
       const platformWhere = placeholders ? `AND LOWER(atsPlatform) IN (${placeholders})` : '';
       const platformArgs = platforms ? platforms : [];
 
-      const priorityRows = db.prepare(
-        `SELECT careerUrl FROM company_career_sites WHERE isActive = 1 ${platformWhere} AND id IN (${PRIORITY_IDS.map(() => '?').join(',')}) LIMIT 3`
-      ).all(...platformArgs, ...PRIORITY_IDS) as { careerUrl: string }[];
+      const priorityRows = priorityIds.length
+        ? (db.prepare(
+            `SELECT careerUrl FROM company_career_sites WHERE isActive = 1 ${platformWhere} AND id IN (${priorityIds.map(() => '?').join(',')}) LIMIT 3`
+          ).all(...platformArgs, ...priorityIds) as { careerUrl: string }[])
+        : [];
 
-      const total = (db.prepare(`SELECT count(*) c FROM company_career_sites WHERE isActive = 1 ${platformWhere} AND id NOT IN (${PRIORITY_IDS.map(() => '?').join(',')})`).get(...platformArgs, ...PRIORITY_IDS) as any).c;
+      const notPriority = priorityIds.length ? `AND id NOT IN (${priorityIds.map(() => '?').join(',')})` : '';
+      const notPriorityArgs = priorityIds.length ? priorityIds : [];
+      const total = (db.prepare(`SELECT count(*) c FROM company_career_sites WHERE isActive = 1 ${platformWhere} ${notPriority}`).get(...platformArgs, ...notPriorityArgs) as any).c;
       const tailCap = cap - priorityRows.length;
       const offset = (Math.floor(Date.now() / (30 * 60 * 1000)) * tailCap) % Math.max(total, tailCap);
       const tailRows = db.prepare(
-        `SELECT careerUrl FROM company_career_sites WHERE isActive = 1 ${platformWhere} AND id NOT IN (${PRIORITY_IDS.map(() => '?').join(',')}) ORDER BY rowid LIMIT ${tailCap} OFFSET ${offset}`
-      ).all(...platformArgs, ...PRIORITY_IDS) as { careerUrl: string }[];
+        `SELECT careerUrl FROM company_career_sites WHERE isActive = 1 ${platformWhere} ${notPriority} ORDER BY rowid LIMIT ${tailCap} OFFSET ${offset}`
+      ).all(...platformArgs, ...notPriorityArgs) as { careerUrl: string }[];
 
       return [...priorityRows, ...tailRows].map((r) => r.careerUrl);
     } catch {
