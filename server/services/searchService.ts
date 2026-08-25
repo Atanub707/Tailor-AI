@@ -1,5 +1,5 @@
 import { getAllJobs, getCurrentUserId, saveNewJobs, getDb } from '../storage/fileStorage.js';
-import { isJobFresh, fingerprintJob } from '../storage/v2Tables.js';
+import { isJobFresh, fingerprintJob, markSeen, getSeenFingerprints } from '../storage/v2Tables.js';
 import { getFetchBudget } from '../providers/searchBudget.js';
 import type { SearchRequest } from '../providers/searchBudget.js';
 
@@ -41,19 +41,18 @@ function getSearchFingerprint(req: SearchRequest): string {
 export async function searchWithCache(
   req: SearchRequest,
   fetchFn: (providerId: string, limit: number) => Promise<{ jobs: any[]; runId?: string }>,
-): Promise<{ jobs: any[]; providersCalled: string[]; cacheHit: boolean; providerResults: ProviderResult[] }> {
+): Promise<{ jobs: any[]; providersCalled: string[]; cacheHit: boolean; providerResults: ProviderResult[]; queryFp: string; seenCount: number; totalStored: number }> {
   const allJobs = getAllJobs() as any[];
+  const queryFp = getSearchFingerprint(req);
+  const seenSet = getSeenFingerprints(getCurrentUserId(), queryFp);
   const freshJobs = allJobs.filter((j) => {
     if ((j as any).isActive === false) return false;
     if (!isJobFresh((j as any).scrapedAt)) return false;
+    const fp = (j as any).fingerprint || fingerprintJob(j);
+    if (seenSet.has(fp)) return false; // seen in this walk → skip
     const hay = `${j.title} ${j.company} ${j.description || ''}`.toLowerCase();
     const terms = req.query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
     if (terms.length > 0 && !terms.some((t) => hay.includes(t))) return false;
-    if (req.location && req.location.toLowerCase() !== 'anywhere' && req.location.toLowerCase() !== 'worldwide') {
-      if (!hay.includes(req.location.toLowerCase())) {
-        // Keep if no location in job (unknown) — don't drop
-      }
-    }
     return true;
   });
 
@@ -65,11 +64,15 @@ export async function searchWithCache(
       if (aTitle !== bTitle) return aTitle - bTitle;
       return (b.postedDate || '').localeCompare(a.postedDate || '');
     });
+    markSeen(getCurrentUserId(), queryFp, ranked.slice(0, req.limit).map((j: any) => (j as any).fingerprint || fingerprintJob(j)));
     return {
       jobs: ranked.slice(0, req.limit),
       providersCalled: [],
       cacheHit: true,
       providerResults: [],
+      queryFp,
+      seenCount: ranked.length,
+      totalStored: allJobs.length,
     };
   }
 
@@ -179,10 +182,15 @@ export async function searchWithCache(
     }
   }
 
+  const returned = ranked.slice(0, req.limit);
+  markSeen(getCurrentUserId(), queryFp, returned.map((j: any) => (j as any).fingerprint || fingerprintJob(j)));
   return {
-    jobs: ranked.slice(0, req.limit),
+    jobs: returned,
     providersCalled,
     cacheHit: false,
     providerResults,
+    queryFp,
+    seenCount: deduped.length,
+    totalStored: allJobs.length,
   };
 }

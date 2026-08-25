@@ -26,3 +26,45 @@ describe('V2 unseen-search storage', () => {
     expect(getProviderCursor('u1', 'q2', 'linkedin').fetchedCount).toBe(0);
   });
 });
+
+import { searchWithCache } from '../../server/services/searchService.js';
+import { runWithUser } from '../../server/storage/fileStorage.js';
+import { vi, afterEach } from 'vitest';
+
+afterEach(() => { vi.restoreAllMocks(); });
+
+describe('searchWithCache — unseen-first', () => {
+  const job = (i: number) => ({
+    id: `j${i}`, title: 'DevOps Engineer', company: `C${i}`,
+    description: 'DevOps engineer role', url: `https://x.com/j${i}`,
+    applyUrl: `https://x.com/j${i}`, source: 'Custom', state: 'pending',
+    fingerprint: `fp-${i}`, scrapedAt: new Date().toISOString(), isActive: true,
+    postedDate: new Date(Date.now() - i * 60000).toISOString(), createdAt: '', updatedAt: '',
+  });
+
+  it('returns unseen first: 30 fresh, 10 seen, LIMIT 25 → the unseen 20 + missing top-up', async () => {
+    const all = Array.from({ length: 30 }, (_, i) => job(i));
+    vi.spyOn(await import('../../server/storage/fileStorage.js'), 'getAllJobs').mockReturnValue(all as any);
+    // Simulate: user u-seen has already seen fp-0..fp-9 in the default query walk
+    markSeen('u-seen', 'devops-engineer|any|24h|any|any', all.slice(0, 10).map(j => j.fingerprint));
+
+    const fetchFn = vi.fn().mockResolvedValue({ jobs: [job(30), job(31)] }); // 2 new
+    const result = await runWithUser('u-seen', () =>
+      searchWithCache({ query: 'DevOps Engineer', postedWithin: '24h', limit: 25 }, fetchFn)
+    );
+    const titles = result.jobs.map((j: any) => j.id);
+    expect(titles).not.toContain('j0'); // seen job excluded
+    expect(titles).not.toContain('j9');
+    expect(result.jobs.length).toBeLessThanOrEqual(25);
+  });
+
+  it('cache hit: 25 fresh unseen exist → 0 provider calls, cacheHit true', async () => {
+    const all = Array.from({ length: 25 }, (_, i) => job(i));
+    vi.spyOn(await import('../../server/storage/fileStorage.js'), 'getAllJobs').mockReturnValue(all as any);
+    const fetchFn = vi.fn();
+    const result = await searchWithCache({ query: 'DevOps Engineer', postedWithin: '24h', limit: 25 }, fetchFn);
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(result.cacheHit).toBe(true);
+    expect(result.jobs.length).toBe(25);
+  });
+});
