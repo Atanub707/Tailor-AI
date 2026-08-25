@@ -14,3 +14,5 @@ config.ini
 
 # internal planning — not for public repo
 docs/auto-apply-plan.md
+docs/v2-execution-plan.md
+docs/v2-optimization-report.md
