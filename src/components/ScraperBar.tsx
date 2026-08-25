@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { MagnifyingGlass, MapPin, Play, CaretDown, CheckCircle, Info } from '@phosphor-icons/react';
+import { MagnifyingGlass, MapPin, Play, CaretDown, CheckCircle, Info, X, DotsSixVertical } from '@phosphor-icons/react';
 import { JobSource } from '../types';
 import { getRoleSuggestions, getKeywordSuggestions } from '../constants/suggestions';
 import { getSourceFlag, getSourceCountry, getSourceMeta } from '../constants/sourceMeta';
@@ -24,10 +24,6 @@ interface ScraperBarProps {
 
 const ALL_SOURCES: JobSource[] = ['LinkedIn', 'Arbeitnow', 'SimplyHired', 'Dice', 'Reed', 'MyCareersFuture', 'Cutshort', 'Gupy', 'JobsCh', 'Daijob', 'MyJobMag', 'RemoteOK', 'WeWorkRemotely', 'Indeed', 'Naukri', 'Glassdoor', 'Upwork', 'Greenhouse', 'Lever', 'Ashby', 'Workable', 'Workday', 'SmartRecruiters', 'Teamtailor', 'Personio', 'BambooHR', 'Rippling', 'JazzHR', 'Recruitee', 'iCIMS', 'Comeet', 'Pinpoint', 'Join'];
 const COMING_SOON: JobSource[] = ['RemoteOK', 'WeWorkRemotely'];
-// Apify-powered sources stay visible in the main row (after LinkedIn);
-// the built-in sources live inside the "More" dropdown.
-const APIFY_SOURCES_VISIBLE = ALL_SOURCES.filter((src) => getSourceMeta(src)?.apifyActorId);
-const MORE_SOURCES = ALL_SOURCES.filter((src) => !getSourceMeta(src)?.apifyActorId);
 
 export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, apifyAvailable }) => {
   const [keywords, setKeywords] = useState('');
@@ -43,6 +39,11 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
   const [scrapeSuccessMsg, setScrapeSuccessMsg] = useState<string | null>(null);
   const [scrapeNewContacts, setScrapeNewContacts] = useState<{ name: string | null; email: string | null; phone: string | null; whatsapp: boolean; recruiterUrl: string | null }[]>([]);
   const [selectedSources, setSelectedSources] = useState<JobSource[]>(['LinkedIn']);
+  // Drag & drop state: the source currently being dragged, and whether the tray
+  // is a valid drop target (highlighted while a palette chip hovers it).
+  const [dragSource, setDragSource] = useState<JobSource | null>(null);
+  const [trayDragOver, setTrayDragOver] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const roleSuggestions = getRoleSuggestions(keywords);
   const keywordSuggestions = getKeywordSuggestions(keywords);
@@ -55,6 +56,38 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
       prev.includes(source) ? prev.filter((s) => s !== source) : [...prev, source]
     );
   };
+
+  // Palette → tray: append at the end (lowest priority).
+  const addSource = (source: JobSource) => {
+    if (COMING_SOON.includes(source) || isApifyGated(source)) return;
+    setSelectedSources((prev) => (prev.includes(source) ? prev : [...prev, source]));
+  };
+
+  // Tray → tray: reorder by swapping positions (order = search priority).
+  const moveSource = (from: JobSource, to: JobSource) => {
+    if (from === to) return;
+    setSelectedSources((prev) => {
+      const next = [...prev];
+      const fi = next.indexOf(from);
+      const ti = next.indexOf(to);
+      if (fi < 0 || ti < 0) return prev;
+      next.splice(fi, 1);
+      next.splice(ti, 0, from);
+      return next;
+    });
+  };
+
+  // Grouped palette: ATS-25 (Santa Maria actor), job boards (Valig actors), free built-ins.
+  const ATS_25_SOURCES = ALL_SOURCES.filter((s) => getSourceMeta(s)?.apifyActorId === 'santamaria-automations~career-site-jobs-scraper');
+  const BOARD_SOURCES = ALL_SOURCES.filter((s) => getSourceMeta(s)?.apifyActorId && getSourceMeta(s)?.apifyActorId !== 'santamaria-automations~career-site-jobs-scraper');
+  const FREE_SOURCES = ALL_SOURCES.filter((s) => !getSourceMeta(s)?.apifyActorId);
+
+  // Estimated Apify cost for the selection at the chosen per-source limit.
+  const costPerSearch = selectedSources.reduce((acc, s) => {
+    const meta = getSourceMeta(s);
+    const price = parseFloat(String(meta?.pricePer1K || '0').replace('$', '').replace(',', '')) || 0;
+    return acc + price * (maxJobsPerSource / 1000);
+  }, 0);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,9 +131,9 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
     'w-full appearance-none bg-white border-[1.5px] border-[var(--color-hairline2)] rounded-[10px] pl-3 pr-9 py-2.5 text-[12.5px] font-semibold text-[var(--color-ink)] cursor-pointer transition-colors hover:border-[var(--color-brand-line)] focus:outline-none focus:border-[var(--color-brand)] focus:ring-[3px] focus:ring-[var(--color-brand)]/12';
   const fieldLabelCls = 'text-[10px] font-extrabold uppercase tracking-[0.09em] text-[var(--color-faint)]';
 
-  const renderSourceChip = (src: JobSource) => {
+  // Palette chip — draggable, click toggles selection.
+  const renderPaletteChip = (src: JobSource) => {
     const isComingSoon = COMING_SOON.includes(src);
-    const isSelected = selectedSources.includes(src);
     const gated = isApifyGated(src);
     const meta = getSourceMeta(src);
     const disabled = isComingSoon || gated;
@@ -113,15 +146,18 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
       <button
         key={src}
         type="button"
+        draggable={!disabled}
+        onDragStart={(e) => { setDragSource(src); e.dataTransfer.effectAllowed = 'copy'; try { e.dataTransfer.setData('text/plain', src); } catch { /* ok */ } }}
+        onDragEnd={() => setDragSource(null)}
         onClick={() => toggleSource(src)}
         disabled={disabled}
         title={title}
-        className={`inline-flex items-center gap-2 pl-2.5 pr-3 py-[7px] rounded-full text-[11.5px] font-semibold border-[1.5px] transition-all whitespace-nowrap cursor-pointer ${
+        className={`inline-flex items-center gap-2 pl-2.5 pr-3 py-[7px] rounded-full text-[11.5px] font-semibold border-[1.5px] transition-all whitespace-nowrap cursor-pointer select-none ${
           disabled
             ? 'opacity-45 cursor-not-allowed bg-white border-[var(--color-hairline)] text-[var(--color-faint)]'
-            : isSelected
-            ? 'bg-[var(--color-brand-soft)] border-[var(--color-brand)] text-[var(--color-brand)] font-bold'
-            : 'bg-white border-[var(--color-hairline)] text-[var(--color-muted)] hover:border-[var(--color-brand-line)] hover:text-[var(--color-ink)]'
+            : dragSource === src
+            ? 'opacity-40 scale-95 bg-white border-[var(--color-brand-line)] text-[var(--color-muted)]'
+            : 'bg-white border-[var(--color-hairline)] text-[var(--color-muted)] hover:border-[var(--color-brand-line)] hover:text-[var(--color-ink)] hover:shadow-sm'
         }`}
       >
         <span className="text-[13px] leading-none">{getSourceFlag(src)}</span>
@@ -133,6 +169,40 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
           <span className="text-[8.5px] font-extrabold uppercase text-[var(--color-faint)]">Soon</span>
         )}
       </button>
+    );
+  };
+
+  // Selected chip — draggable to reorder, ✕ removes.
+  const renderSelectedChip = (src: JobSource, idx: number) => {
+    const meta = getSourceMeta(src);
+    return (
+      <div
+        key={src}
+        draggable
+        onDragStart={(e) => { setDragSource(src); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', src); } catch { /* ok */ } }}
+        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+        onDrop={(e) => { e.preventDefault(); if (dragSource) moveSource(dragSource, src); }}
+        onDragEnd={() => setDragSource(null)}
+        title={`${src} — search priority ${idx + 1}. Drag to reorder.`}
+        className={`inline-flex items-center gap-2 pl-2.5 pr-2 py-[7px] rounded-full text-[11.5px] font-bold border-[1.5px] whitespace-nowrap cursor-grab select-none transition-all ${
+          dragSource === src
+            ? 'opacity-50 scale-95 bg-[var(--color-brand-soft)] border-[var(--color-brand)] text-[var(--color-brand)]'
+            : 'bg-[var(--color-brand-soft)] border-[var(--color-brand)] text-[var(--color-brand)] shadow-sm'
+        }`}
+      >
+        <DotsSixVertical size={11} weight="bold" className="opacity-40 shrink-0" />
+        <span className="text-[13px] leading-none">{getSourceFlag(src)}</span>
+        <span>{src}</span>
+        {meta?.pricePer1K && <span className="text-[9px] font-extrabold text-[var(--color-faint)] bg-white/70 border border-[var(--color-brand-line)] rounded-full px-[6px] py-[1px]">{meta.pricePer1K}/1K</span>}
+        <button
+          type="button"
+          aria-label={`Remove ${src}`}
+          onClick={(e) => { e.stopPropagation(); toggleSource(src); }}
+          className="w-[15px] h-[15px] inline-flex items-center justify-center rounded-full bg-white/70 text-[var(--color-brand)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] transition-colors cursor-pointer shrink-0"
+        >
+          <X size={10} weight="bold" />
+        </button>
+      </div>
     );
   };
 
@@ -343,41 +413,86 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
               <span className="text-[12px] font-semibold text-[var(--color-muted)] truncate">Under 10 applicants</span>
             </label>
           </div>
-
         </div>
 
-        {/* ── Row 3: Source Pills with Flags ── */}
-        <div className="flex items-center justify-between gap-4 pt-4 border-t border-[var(--color-hairline)]">
-          <div className="flex items-start gap-3 min-w-0 flex-1">
-            <span className={`${fieldLabelCls} pt-[9px] whitespace-nowrap`}>Sources</span>
-            <div className="flex items-center gap-2 flex-nowrap min-w-0">
-              {APIFY_SOURCES_VISIBLE.map((src) => renderSourceChip(src))}
+        {/* ── Row 3: Source Tray + Palette (drag to select, drag to reorder) ── */}
+        <div className="pt-4 border-t border-[var(--color-hairline)] space-y-3">
+          {/* Selection tray — drop palette sources here; drag inside to reorder */}
+          <div
+            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = dragSource ? 'copy' : 'none'; setTrayDragOver(!!dragSource); }}
+            onDragLeave={() => setTrayDragOver(false)}
+            onDrop={(e) => { e.preventDefault(); setTrayDragOver(false); if (dragSource) addSource(dragSource); }}
+            className={`flex items-center gap-2 flex-wrap min-h-[50px] px-3 py-2 rounded-xl border-[1.5px] border-dashed transition-all duration-200 ${
+              trayDragOver
+                ? 'bg-[var(--color-brand-soft)] border-[var(--color-brand)]'
+                : selectedSources.length === 0
+                ? 'bg-[#FAFAF9] border-[var(--color-hairline2)]'
+                : 'bg-white border-[var(--color-hairline2)]'
+            }`}
+          >
+            {selectedSources.length === 0 ? (
+              <span className="text-[12.5px] font-semibold text-[var(--color-faint)] px-2">
+                Drag sources here — or click one below. Drag inside to set search priority.
+              </span>
+            ) : (
+              selectedSources.map((src, i) => renderSelectedChip(src, i))
+            )}
+          </div>
 
-              {/* More — hover/focus opens the built-in source list */}
-              <div className="relative group shrink-0">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 pl-2 pr-2.5 py-[7px] rounded-full text-[11.5px] font-semibold text-[var(--color-muted)] border border-[var(--color-hairline)] bg-white hover:border-[var(--color-brand-line)] transition-colors cursor-pointer whitespace-nowrap"
-                  title="Built-in sources this search can capture"
-                >
-                  <CaretDown size={12} style={{ color: 'var(--color-faint)' }} />
-                  <span>More</span>
-                  <span className="text-[10px] font-bold text-[var(--color-faint)]">({MORE_SOURCES.length})</span>
-                </button>
-                <div className="absolute right-0 top-full mt-1.5 z-30 w-[330px] bg-white border border-[var(--color-hairline)] rounded-xl p-3 opacity-0 invisible pointer-events-none group-hover:opacity-100 group-hover:visible group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:visible group-focus-within:pointer-events-auto transition-all" style={{ boxShadow: '0 12px 32px rgba(30,27,75,0.12)' }}>
-                  <p className="text-[10px] font-extrabold uppercase tracking-wide text-[var(--color-faint)] mb-2">
-                    Built-in sources this search can capture
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {MORE_SOURCES.map((src) => renderSourceChip(src))}
-                  </div>
-                </div>
+          {/* Cost hint — what this selection will cost at the chosen limit */}
+          <div className="flex items-center gap-2 text-[11px] font-semibold text-[var(--color-faint)]">
+            <span>~${costPerSearch.toFixed(3)} per search</span>
+            <span className="text-[var(--color-hairline2)]">|</span>
+            <span>{selectedSources.length} source{selectedSources.length === 1 ? '' : 's'} · order = priority</span>
+          </div>
+
+          {/* Palette groups */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {/* Job boards */}
+            <div className="rounded-xl border border-[var(--color-hairline)] p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className={`${fieldLabelCls}`}>Job Boards</span>
+                <span className="text-[10px] font-bold text-[var(--color-faint)] bg-[#F1F5F9] rounded-full px-2 py-0.5">{BOARD_SOURCES.length}</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {BOARD_SOURCES.map((src) => renderPaletteChip(src))}
+              </div>
+            </div>
+
+            {/* ATS career sites (25) */}
+            <div className="rounded-xl border border-[var(--color-hairline)] p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className={`${fieldLabelCls}`}>ATS Career Sites</span>
+                <span className="text-[10px] font-bold text-[var(--color-faint)] bg-[#F1F5F9] rounded-full px-2 py-0.5">{ATS_25_SOURCES.length}</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {ATS_25_SOURCES.map((src) => renderPaletteChip(src))}
               </div>
             </div>
           </div>
+
+          {/* Free built-ins — collapsible */}
+          <div className="rounded-xl border border-[var(--color-hairline)] p-3">
+            <button
+              type="button"
+              onClick={() => setMoreOpen((v) => !v)}
+              className="w-full flex items-center justify-between text-left cursor-pointer"
+            >
+              <span className={`${fieldLabelCls}`}>Free Built-in Sources</span>
+              <span className="flex items-center gap-1.5 text-[10px] font-bold text-[var(--color-faint)]">
+                <span className="bg-[#F1F5F9] rounded-full px-2 py-0.5">{FREE_SOURCES.length}</span>
+                <CaretDown size={11} className={`transition-transform duration-200 ${moreOpen ? 'rotate-180' : ''}`} />
+              </span>
+            </button>
+            {moreOpen && (
+              <div className="flex flex-wrap gap-2 pt-2.5">
+                {FREE_SOURCES.map((src) => renderPaletteChip(src))}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* ── Scrape result banner (own row — never overlaps the source chips) ── */}
+        {/* ── Scrape result banner ── */}
         {scrapeSuccessMsg && (
           <div className="flex items-start gap-2 w-full bg-[var(--color-cta-soft)] border border-[var(--color-cta-line)] rounded-[12px] px-3.5 py-2.5 text-[12.5px] font-semibold text-[#065F46]">
             <CheckCircle size={16} className="shrink-0 mt-[1px]" style={{ color: 'var(--color-cta)' }} weight="fill" />
