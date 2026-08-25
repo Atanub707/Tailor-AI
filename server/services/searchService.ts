@@ -1,4 +1,4 @@
-import { getAllJobs } from '../storage/fileStorage.js';
+import { getAllJobs, getCurrentUserId, saveNewJobs, getDb } from '../storage/fileStorage.js';
 import { isJobFresh, fingerprintJob } from '../storage/v2Tables.js';
 import { getFetchBudget } from '../providers/searchBudget.js';
 import type { SearchRequest } from '../providers/searchBudget.js';
@@ -135,6 +135,46 @@ export async function searchWithCache(
     if (aTitle !== bTitle) return aTitle - bTitle;
     return (b.postedDate || '').localeCompare(a.postedDate || '');
   });
+
+  // Persist provider results so the NEXT identical search within 24h hits the
+  // local DB and pays $0 (DB-first). Existing jobs (e.g. from V1) are enriched
+  // with V2 cache fields (scrapedAt/isActive/fingerprint) instead of being
+  // skipped — that's what makes isJobFresh() true on repeat searches.
+  if (deduped.length > 0) {
+    try {
+      const db = getDb();
+      const enrich = db.prepare(
+        "UPDATE jobs SET data = ? WHERE user_id = ? AND json_extract(data, '$.url') = ?"
+      );
+      const now = new Date().toISOString();
+      const tx = db.transaction(() => {
+        for (const j of deduped) {
+          const url = (j as any).applyUrl?.toLowerCase?.() || (j as any).url?.toLowerCase?.() || '';
+          if (!url) continue;
+          const existing = (db.prepare(
+            "SELECT data FROM jobs WHERE user_id = ? AND json_extract(data, '$.url') = ?"
+          ).get(getCurrentUserId(), url) as any)?.data;
+          if (existing) {
+            const parsed = JSON.parse(existing);
+            const updated = {
+              ...parsed,
+              ...j,
+              scrapedAt: (parsed as any).scrapedAt || now,
+              isActive: true,
+              fingerprint: (j as any).fingerprint || (parsed as any).fingerprint,
+            };
+            enrich.run(JSON.stringify(updated), getCurrentUserId(), url);
+          } else {
+            saveNewJobs([j as any]);
+          }
+        }
+      });
+      tx();
+      console.log(`[SearchService] Enriched/upserted ${deduped.length} jobs for "${req.query}" (next search → cache hit, $0)`);
+    } catch (err: any) {
+      console.warn('[SearchService] Persist failed (non-fatal):', err?.message);
+    }
+  }
 
   return {
     jobs: ranked.slice(0, req.limit),
