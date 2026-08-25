@@ -112,6 +112,15 @@ export class ScraperFactory {
     for (const source of sources) {
       const domain = SOURCE_DOMAINS[source];
       const meta = SOURCES[source];
+      // Locked sources (paid/enterprise-only ATS APIs — BambooHR, Workday,
+      // iCIMS, JazzHR, Jobvite, Personio, Recruitee, Rippling, Pinpoint,
+      // Teamtailor) are disabled until a free route exists. Enforced server-side
+      // too — never spend Apify credits on them.
+      if (meta?.locked) {
+        console.warn(`[ScraperFactory] ${source}: skipped — paid/enterprise-only API (locked)`);
+        ScraperFactory.lastSkippedSources.push({ source, reason: 'paid/enterprise-only API — locked until free access is available' });
+        continue;
+      }
       const isApifySource = !!meta?.apifyActorId;
       // robots.txt only governs sources WE crawl directly. Apify-powered
       // sources run on Apify's infrastructure — their actors do the crawling
