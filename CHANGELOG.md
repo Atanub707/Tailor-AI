@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.8.7 (2026-08-19)
+
+### 🐛 Fixes
+- **Windows installer (install.ps1) — no more "docker/git not recognized" after install:** The installer now refreshes the PATH in the same session after installing Docker Desktop and Git, locates `docker.exe` / `git.exe` by their real install paths (not just PATH), and retries the git install elevated if winget fails. Previously, on fresh machines (no Docker, no Git), the script claimed "Docker engine ready" while `docker`/`git` were not on PATH, then failed at `git clone`. Now it installs, refreshes PATH, finds the executables, and continues — no logout/restart needed mid-install.
+- **Windows installer no longer false-positives on `$LASTEXITCODE`:** `Test-DockerEngine` and the compose check now invoke the located `docker.exe` explicitly (a missing command no longer masquerades as a successful check).
+
 ## v1.8.6 (2026-08-19)
 
 ### ✨ Enhancement
