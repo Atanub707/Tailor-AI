@@ -431,6 +431,10 @@ async function startServer() {
 
   // Seed sample jobs if store is completely empty on initial startup.
   // Runs in the first user's context so the seed lands in a real account.
+  const { ensureV2Tables, seedCompanyCareerSites } = await import('./server/storage/v2Tables.js');
+  ensureV2Tables();
+  seedCompanyCareerSites();
+
   const seedUser = (getDb().prepare('SELECT id FROM users ORDER BY is_guest ASC, created_at ASC LIMIT 1').get() as any)?.id as string | undefined;
   if (seedUser) {
     runWithUser(seedUser, () => {
@@ -1473,6 +1477,36 @@ Return valid JSON only — NO markdown, NO code fences:
     } catch (err: any) {
       console.error('Scrape error:', err);
       res.status(500).json({ error: err.message || 'Scraping failed.' });
+    }
+  });
+
+  // V2 — unified ATS search (DB-first, budgeted Santa Maria + provider router).
+  // Additive: V1 POST /api/jobs/scrape stays untouched. Cost-safe by design:
+  // local DB hit → $0; provider calls always go through the central fetch budget.
+  app.post('/api/jobs/search', async (req, res) => {
+    try {
+      const { keywords, location, remote, postedWithin, limit } = req.body;
+      if (!keywords || !String(keywords).trim()) {
+        res.status(400).json({ error: 'Keywords required' });
+        return;
+      }
+      const userLimit = Math.min(Number(limit) || 25, 50);
+      const { searchWithCache } = await import('./server/services/searchService.js');
+      const { routeProvider } = await import('./server/services/providerRouter.js');
+      const searchRequest = {
+        query: String(keywords).trim(),
+        location: location ? String(location).trim() : undefined,
+        remote: remote === true,
+        postedWithin: (postedWithin as any) || 'all',
+        limit: userLimit,
+      };
+      const result = await searchWithCache(searchRequest, (providerId: string, fetchLimit: number) =>
+        routeProvider(searchRequest, providerId, fetchLimit)
+      );
+      res.json(result);
+    } catch (err: any) {
+      console.error('V2 search error:', err);
+      res.status(500).json({ error: err.message || 'Search failed' });
     }
   });
 

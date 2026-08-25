@@ -28,6 +28,49 @@ export interface ProviderRun {
 
 const JOB_CACHE_TTL_HOURS = 24;
 
+// 25 ATS career sites for Santa Maria — the registry Santa Maria queries.
+// Idempotent: INSERT OR IGNORE on every startup, so it only seeds once.
+const SEED_COMPANIES: Array<{ id: string; companyName: string; careerUrl: string; atsPlatform: string }> = [
+  { id: 'stripe', companyName: 'Stripe', careerUrl: 'https://boards.greenhouse.io/stripe', atsPlatform: 'greenhouse' },
+  { id: 'airbnb', companyName: 'Airbnb', careerUrl: 'https://boards.greenhouse.io/airbnb', atsPlatform: 'greenhouse' },
+  { id: 'datadog', companyName: 'Datadog', careerUrl: 'https://boards.greenhouse.io/datadog', atsPlatform: 'greenhouse' },
+  { id: 'notion', companyName: 'Notion', careerUrl: 'https://jobs.ashbyhq.com/notion', atsPlatform: 'ashby' },
+  { id: 'ramp', companyName: 'Ramp', careerUrl: 'https://jobs.ashbyhq.com/ramp', atsPlatform: 'ashby' },
+  { id: 'linear', companyName: 'Linear', careerUrl: 'https://jobs.ashbyhq.com/linear', atsPlatform: 'ashby' },
+  { id: 'spotify', companyName: 'Spotify', careerUrl: 'https://jobs.lever.co/spotify', atsPlatform: 'lever' },
+  { id: 'netflix', companyName: 'Netflix', careerUrl: 'https://jobs.lever.co/netflix', atsPlatform: 'lever' },
+  { id: 'wework', companyName: 'WeWork', careerUrl: 'https://jobs.lever.co/wework', atsPlatform: 'lever' },
+  { id: 'figma', companyName: 'Figma', careerUrl: 'https://jobs.ashbyhq.com/figma', atsPlatform: 'ashby' },
+  { id: 'deel', companyName: 'Deel', careerUrl: 'https://jobs.ashbyhq.com/deel', atsPlatform: 'ashby' },
+  { id: 'dover', companyName: 'Dover', careerUrl: 'https://jobs.ashbyhq.com/dover', atsPlatform: 'ashby' },
+  { id: 'reddit', companyName: 'Reddit', careerUrl: 'https://boards.greenhouse.io/reddit', atsPlatform: 'greenhouse' },
+  { id: 'dropbox', companyName: 'Dropbox', careerUrl: 'https://boards.greenhouse.io/dropbox', atsPlatform: 'greenhouse' },
+  { id: 'hashicorp', companyName: 'HashiCorp', careerUrl: 'https://boards.greenhouse.io/hashicorp', atsPlatform: 'greenhouse' },
+  { id: 'canva', companyName: 'Canva', careerUrl: 'https://jobs.lifeatcanva.com', atsPlatform: 'other' },
+  { id: 'personio', companyName: 'Personio', careerUrl: 'https://jobs.personio.com/search?q=', atsPlatform: 'personio' },
+  { id: 'teamtailor', companyName: 'Teamtailor', careerUrl: 'https://www.teamtailor.com/jobs', atsPlatform: 'teamtailor' },
+  { id: 'bamboo', companyName: 'BambooHR', careerUrl: 'https://www.bamboohr.com/careers', atsPlatform: 'bamboohr' },
+  { id: 'rippling', companyName: 'Rippling', careerUrl: 'https://ats.rippling.com/rippling/jobs', atsPlatform: 'rippling' },
+  { id: 'jazzhr', companyName: 'JazzHR', careerUrl: 'https://www.jazzhr.com/jobs', atsPlatform: 'jazzhr' },
+  { id: 'smartrecruiters', companyName: 'SmartRecruiters', careerUrl: 'https://jobs.smartrecruiters.com/SmartRecruiters', atsPlatform: 'smartrecruiters' },
+  { id: 'workday', companyName: 'Workday', careerUrl: 'https://workday.wd5.myworkdayjobs.com/Workday', atsPlatform: 'workday' },
+  { id: 'recruitee', companyName: 'Recruitee', careerUrl: 'https://jobs.recruitee.com', atsPlatform: 'recruitee' },
+  { id: 'comeet', companyName: 'Comeet', careerUrl: 'https://www.comeet.com/jobs', atsPlatform: 'comeet' },
+];
+
+export function seedCompanyCareerSites(): void {
+  const db = getDb();
+  const count = (db.prepare('SELECT count(*) AS c FROM company_career_sites').get() as any).c;
+  if (count > 0) return; // already seeded
+  const stmt = db.prepare(
+    `INSERT OR IGNORE INTO company_career_sites (id, companyName, careerUrl, atsPlatform, isActive, createdAt, updatedAt)
+     VALUES (@id, @companyName, @careerUrl, @atsPlatform, 1, @now, @now)`
+  );
+  const now = new Date().toISOString();
+  for (const c of SEED_COMPANIES) stmt.run({ ...c, now });
+  console.log(`[V2] Seeded ${SEED_COMPANIES.length} company career sites for Santa Maria`);
+}
+
 export function ensureV2Tables(): void {
   const db = getDb();
   db.exec(`

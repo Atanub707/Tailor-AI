@@ -2,6 +2,8 @@ import type { JobProvider, JobSearchParams, JobProviderResult } from './jobProvi
 import type { Job } from '../../src/types.js';
 import { loadConfig } from '../config.js';
 import { getProviderFetchLimit } from './searchBudget.js';
+import { getDb } from '../storage/fileStorage.js';
+import { ensureV2Tables } from '../storage/v2Tables.js';
 
 /**
  * Santa Maria Apify Provider — BYOK, provider-agnostic.
@@ -22,6 +24,11 @@ export class SantaMariaApifyProvider implements JobProvider {
 
     // Build Santa Maria input — queries can be career URLs or {platform, company}
     const queries = params.queries?.length ? params.queries : this.buildDefaultQueries(params);
+    if (queries.length === 0) {
+      // Never call Apify with an empty query list — it returns a 400 and
+      // burns a run attempt for nothing. Fail fast with a human-readable reason.
+      throw new Error('No company career sites configured for Santa Maria search. Please seed company_career_sites first.');
+    }
 
     // Central budget — the ONLY source of maxJobsPerCompany. Never a literal.
     const providerBudget = getProviderFetchLimit(params.limit, this.id);
@@ -36,10 +43,33 @@ export class SantaMariaApifyProvider implements JobProvider {
     const runId = await this.createRun(token, input);
     const items = await this.pollAndFetch(token, runId);
 
-    const jobs = items.map((item) => this.normalize(item, runId)).filter((j): j is Job => j !== null);
+    let jobs = items.map((item) => this.normalize(item, runId)).filter((j): j is Job => j !== null);
 
-    // Deduplicate + LIMIT enforcement is done by caller; we return raw normalized.
-    // Here we just slice to requested LIMIT as final guard.
+    // Keyword relevance (deterministic, no LLM): the FIRST term must appear in
+    // title or company (the strongest signal). Remaining terms can match
+    // description too. "DevOps engineer" → "DevOps" must be in title/company,
+    // so Account Executives whose description merely mentions engineers never
+    // sneak in. If title/company hits are too few, relax to description.
+    const terms = params.keywords.map((k) => String(k).toLowerCase()).filter((t) => t.length > 2);
+    if (terms.length > 0) {
+      const before = jobs.length;
+      const primary = terms[0];
+      const titleHits = jobs.filter((j) => {
+        const title = `${j.title} ${j.company}`.toLowerCase();
+        return title.includes(primary) && terms.every((t) => `${j.title} ${j.company} ${j.description || ''}`.toLowerCase().includes(t));
+      });
+      if (titleHits.length > 0) {
+        jobs = titleHits;
+      } else {
+        jobs = jobs.filter((j) => {
+          const hay = `${j.title} ${j.company} ${j.description || ''}`.toLowerCase();
+          return terms.every((t) => hay.includes(t));
+        });
+      }
+      console.log(`[SantaMaria] Keyword filter "${terms.join(' ')}" → ${before} → ${jobs.length} jobs (${titleHits.length > 0 ? 'title/company match' : 'description fallback'})`);
+    }
+
+    // Deduplicate + LIMIT enforcement is done by caller; we return filtered.
     const limited = jobs.slice(0, params.limit);
 
     return {
@@ -52,9 +82,14 @@ export class SantaMariaApifyProvider implements JobProvider {
   }
 
   private buildDefaultQueries(params: JobSearchParams): Array<string | { platform: string; company: string }> {
-    // For now, return empty — caller should supply company career URLs from registry.
-    // Future: CareerSiteDiscoveryProvider will populate this.
-    return [];
+    try {
+      ensureV2Tables();
+      const db = getDb();
+      const rows = db.prepare(`SELECT careerUrl FROM company_career_sites WHERE isActive = 1 LIMIT 25`).all() as any[];
+      return rows.map((r) => r.careerUrl);
+    } catch {
+      return [];
+    }
   }
 
   private async createRun(token: string, input: Record<string, unknown>): Promise<string> {
@@ -79,7 +114,7 @@ export class SantaMariaApifyProvider implements JobProvider {
     for (let i = 0; i < maxPolls; i++) {
       await new Promise((r) => setTimeout(r, 5000));
       const statusRes = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${encodeURIComponent(token)}`, {
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(15000),
       });
       if (!statusRes.ok) continue;
       const statusData: any = await statusRes.json();
@@ -88,7 +123,7 @@ export class SantaMariaApifyProvider implements JobProvider {
         const datasetId = statusData?.data?.defaultDatasetId;
         if (!datasetId) return [];
         const itemsRes = await fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?token=${encodeURIComponent(token)}`, {
-          signal: AbortSignal.timeout(30000),
+          signal: AbortSignal.timeout(60000),
         });
         if (!itemsRes.ok) throw new Error(`Dataset fetch failed ${itemsRes.status}`);
         const items = await itemsRes.json();
@@ -104,9 +139,11 @@ export class SantaMariaApifyProvider implements JobProvider {
   private normalize(item: any, runId: string): Job | null {
     const title = item.title || item.jobTitle;
     const company = item.company || item.companyName;
-    const jobUrl = item.jobUrl || item.url || item.applyUrl;
-    const applyUrl = item.applyUrl || item.jobUrl || item.url;
-    const atsPlatform = (item.atsPlatform || item.platform || 'other').toString().toLowerCase();
+    // Santa Maria returns snake_case fields (job_url, apply_url, ats_platform);
+    // the Valig actors return camelCase — handle both so no job is dropped.
+    const jobUrl = item.jobUrl || item.job_url || item.url || item.applyUrl || item.apply_url;
+    const applyUrl = item.applyUrl || item.apply_url || item.jobUrl || item.job_url || item.url;
+    const atsPlatform = (item.atsPlatform || item.ats_platform || item.platform || 'other').toString().toLowerCase();
     if (!title || !company || !jobUrl || !applyUrl) return null;
 
     const now = new Date().toISOString();
@@ -117,11 +154,11 @@ export class SantaMariaApifyProvider implements JobProvider {
       externalId: item.externalId || item.id,
       title: String(title).trim(),
       company: String(company).trim(),
-      companyId: item.companyId,
+      companyId: item.companyId || (item as any).company_id,
       location: item.location || (Array.isArray(item.locations) ? item.locations[0] : undefined),
       locations: Array.isArray(item.locations) ? item.locations : undefined,
       department: item.department,
-      employmentType: item.employmentType,
+      employmentType: item.employmentType || (item as any).employment_type,
       remote: item.remote,
       description: item.description || '',
       atsPlatform: atsPlatform as any,
@@ -129,8 +166,8 @@ export class SantaMariaApifyProvider implements JobProvider {
       applyUrl: String(applyUrl),
       url: String(applyUrl), // backward compat with existing Job.url
       source: 'Custom' as any, // will be mapped to ATS source later
-      createdAt: item.createdAt || now,
-      updatedAt: item.updatedAt || now,
+      createdAt: item.createdAt || (item as any).created_at || now,
+      updatedAt: item.updatedAt || (item as any).updated_at || now,
       scrapedAt: now,
       provider: this.id,
       providerRunId: runId,
