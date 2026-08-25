@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.9.1 (2026-08-26)
+
+### 🔒 Locked (paid/enterprise-only ATS)
+- **BambooHR, Workday, iCIMS, JazzHR, Jobvite, Personio, Recruitee, Rippling, Pinpoint, Teamtailor** are now locked — their APIs require a paid plan or enterprise agreement, so they are disabled until a free access route exists.
+- UI: chips show a 🔒 badge, are non-clickable, and tooltips explain the lock. Settings lists them as locked.
+- Server-side enforcement: requesting a locked source spends **zero Apify credits** — it is skipped with a clear reason shown in the search result.
+- **Active ATS (free public APIs):** Greenhouse, Lever, Ashby, SmartRecruiters, Workable.
+
 ## v1.9.0 (2026-08-26)
 
 ### ✨ Enhancements
