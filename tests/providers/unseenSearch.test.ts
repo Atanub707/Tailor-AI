@@ -42,6 +42,8 @@ describe('searchWithCache — unseen-first', () => {
     const db = getDb();
     db.prepare("DELETE FROM search_seen WHERE user_id = 'u-seen'").run();
     db.prepare("DELETE FROM provider_cursors WHERE user_id = 'u-seen'").run();
+    db.prepare("DELETE FROM search_seen WHERE user_id = 'u-window'").run();
+    db.prepare("DELETE FROM provider_cursors WHERE user_id = 'u-window'").run();
     db.prepare("DELETE FROM search_seen WHERE user_id = 'u-x'").run();
     db.prepare("DELETE FROM provider_cursors WHERE user_id = 'u-x'").run();
     db.prepare("DELETE FROM search_seen WHERE user_id = 'u-topup'").run();
@@ -119,6 +121,34 @@ describe('searchWithCache — unseen-first', () => {
     expect(result.jobs.length).toBe(24); // 10 DB + 10 main + 5 top-up − 1 seen top-up job
     expect(result.jobs.map((j: any) => j.fingerprint)).not.toContain('fp-62'); // seen-exclusion holds
     expect(result.jobs.map((j: any) => j.fingerprint)).toContain('fp-50'); // main-call jobs still included
+  });
+
+  it('postedWithin 24h excludes a fresh-scraped job posted 8 days ago (DB-first)', async () => {
+    const old = {
+      id: 'old-1', title: 'DevOps Engineer', company: 'LegacyCo',
+      description: 'DevOps engineer role', url: 'https://x.com/old-1', applyUrl: 'https://x.com/old-1',
+      source: 'Custom', state: 'pending', fingerprint: 'fp-old',
+      scrapedAt: new Date().toISOString(), isActive: true,
+      postedDate: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
+      postedDateParsed: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      createdAt: '', updatedAt: '',
+    };
+    const fresh = {
+      id: 'fresh-1', title: 'DevOps Engineer', company: 'NewCo',
+      description: 'DevOps engineer role', url: 'https://x.com/fresh-1', applyUrl: 'https://x.com/fresh-1',
+      source: 'Custom', state: 'pending', fingerprint: 'fp-fresh',
+      scrapedAt: new Date().toISOString(), isActive: true,
+      postedDate: new Date().toISOString(), postedDateParsed: new Date().toISOString().slice(0, 10),
+      createdAt: '', updatedAt: '',
+    };
+    const { getAllJobs } = await import('../../server/storage/fileStorage.js');
+    vi.spyOn(await import('../../server/storage/fileStorage.js'), 'getAllJobs').mockReturnValue([old, fresh] as any);
+    const fetchFn = vi.fn().mockResolvedValue({ jobs: [] });
+    const result = await runWithUser('u-window', () =>
+      searchWithCache({ query: 'DevOps Engineer', postedWithin: '24h', limit: 5 }, fetchFn)
+    );
+    expect(result.jobs.length).toBe(1);
+    expect(result.jobs.map((j: any) => j.id)).toEqual(['fresh-1']); // 8-day-old job excluded
   });
 });
 

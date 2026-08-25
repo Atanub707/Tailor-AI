@@ -38,6 +38,22 @@ export function getSearchFingerprint(req: SearchRequest): string {
   return `${q}|${loc}|${posted}|${remote}|${jobType}`;
 }
 
+// Same posted-window logic as V1 queryJobs (fileStorage.ts:1412) — the user's
+// "Last 24 hours" must filter by the JOB's posting time, not our scrape time.
+function isWithinPostedWindow(j: any, postedWithin?: string): boolean {
+  if (!postedWithin || postedWithin === 'all') return true;
+  const hours = { '24h': 24, '7d': 24 * 7, '30d': 24 * 30 }[postedWithin as '24h' | '7d' | '30d'];
+  if (!hours) return true;
+  const cutoff = Date.now() - hours * 60 * 60 * 1000;
+  let t = j.postedDateParsed ? new Date(`${String(j.postedDateParsed).slice(0, 10)}T23:59:59Z`).getTime() : NaN;
+  if (!Number.isFinite(t)) {
+    const m = String(j.postedDate || '').match(/^(\d{4}-\d{2}-\d{2})/);
+    t = m ? new Date(`${m[1]}T23:59:59Z`).getTime() : NaN;
+  }
+  if (!Number.isFinite(t)) t = j.postedDate ? new Date(j.postedDate).getTime() : NaN;
+  return Number.isFinite(t) && t >= cutoff;
+}
+
 export async function searchWithCache(
   req: SearchRequest,
   fetchFn: (providerId: string, limit: number) => Promise<{ jobs: any[]; runId?: string }>,
@@ -48,6 +64,7 @@ export async function searchWithCache(
   const freshJobs = allJobs.filter((j) => {
     if ((j as any).isActive === false) return false;
     if (!isJobFresh((j as any).scrapedAt)) return false;
+    if (!isWithinPostedWindow(j, req.postedWithin)) return false;
     const fp = (j as any).fingerprint || fingerprintJob(j);
     if (seenSet.has(fp)) return false; // seen in this walk → skip
     const hay = `${j.title} ${j.company} ${j.description || ''}`.toLowerCase();
@@ -97,6 +114,7 @@ export async function searchWithCache(
       const { jobs } = await fetchFn(providerId, providerLimit);
       const duration = Date.now() - start;
       const unique = jobs.filter((j: any) => {
+        if (!isWithinPostedWindow(j, req.postedWithin)) return false; // posting window
         const fp = (j as any).fingerprint || fingerprintJob(j);
         if (seenSet.has(fp)) return false;      // seen in this walk
         if (seenFinal.has(fp)) return false;    // already collected
@@ -146,6 +164,7 @@ export async function searchWithCache(
       try {
         const { jobs } = await fetchFn(next, topUpLimit);
         const fresh = jobs.filter((j: any) => {
+          if (!isWithinPostedWindow(j, req.postedWithin)) return false; // posting window
           const fp = (j as any).fingerprint || fingerprintJob(j);
           if (seenSet.has(fp) || seenFinal.has(fp)) return false;
           seenFinal.add(fp);
