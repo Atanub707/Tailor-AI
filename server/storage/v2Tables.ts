@@ -199,3 +199,20 @@ export function saveProviderCursor(userId: string, queryFp: string, provider: st
      ON CONFLICT(user_id, query_fp, provider) DO UPDATE SET cursor = excluded.cursor, fetched_count = excluded.fetched_count, updated_at = excluded.updated_at`
   ).run(userId, queryFp, provider, cursor ?? null, fetchedCount, new Date().toISOString());
 }
+
+// Posted-window check shared by V1 scrape and V2 search — the user's
+// "Last 24 hours" filters by the JOB's posting time, not our scrape time.
+// Unknown/absent dates FAIL the window (honest — can't prove freshness).
+export function isWithinPostedWindow(j: any, postedWithin?: string): boolean {
+  if (!postedWithin || postedWithin === 'all') return true;
+  const hours = { '24h': 24, '7d': 24 * 7, '30d': 24 * 30 }[postedWithin as '24h' | '7d' | '30d'];
+  if (!hours) return true;
+  const cutoff = Date.now() - hours * 60 * 60 * 1000;
+  let t = j.postedDateParsed ? new Date(`${String(j.postedDateParsed).slice(0, 10)}T23:59:59Z`).getTime() : NaN;
+  if (!Number.isFinite(t)) {
+    const m = String(j.postedDate || '').match(/^(\d{4}-\d{2}-\d{2})/);
+    t = m ? new Date(`${m[1]}T23:59:59Z`).getTime() : NaN;
+  }
+  if (!Number.isFinite(t)) t = j.postedDate ? new Date(j.postedDate).getTime() : NaN;
+  return Number.isFinite(t) && t >= cutoff;
+}

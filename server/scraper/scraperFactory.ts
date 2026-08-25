@@ -24,6 +24,7 @@ import { SOURCES } from '../../src/constants/sources.js';
 import { contradictsWanted } from './workMode.js';
 import { ApifyBaseScraper } from './apifyBase.js';
 import { SantaMariaApifyProvider } from '../providers/santaMariaProvider.js';
+import { isWithinPostedWindow } from '../storage/v2Tables.js';
 
 // Apify-powered sources — constructed from the shared registry (Task 1).
 const APIFY_SCRAPERS: Partial<Record<JobSource, () => ApifyBaseScraper>> = {
@@ -74,7 +75,7 @@ export class ScraperFactory {
   static lastSkippedSources: { source: string; reason: string }[] = [];
   static async runScrape(params: ScraperParams): Promise<Job[]> {
     const sources = params.sources || ['LinkedIn'];
-    const allJobs: Job[] = [];
+    let allJobs: Job[] = [];
     ScraperFactory.lastSkippedSources = [];
 
     // Good-faith crawler check: resolve robots.txt once per domain (parallel,
@@ -201,7 +202,38 @@ export class ScraperFactory {
       if (filtered.length !== before) {
         console.log(`[ScraperFactory] Work-mode guard: ${before - filtered.length} jobs dropped (contradict ${wanted} search)`);
       }
-      return filtered;
+      allJobs = filtered;
+    }
+
+    // Posted-window guarantee across ALL sources: "Last 24 hours" filters by
+    // the job's posting time, never the scrape time. Jobs with an unknown
+    // posting date fail the window (honest — can't prove freshness).
+    if (params.datePostedFilter && params.datePostedFilter !== 'all') {
+      const before = allJobs.length;
+      allJobs = allJobs.filter((j) => isWithinPostedWindow(j, params.datePostedFilter));
+      if (allJobs.length !== before) {
+        console.log(`[ScraperFactory] Posted-window guard: ${before - allJobs.length} jobs dropped (older than ${params.datePostedFilter})`);
+      }
+    }
+
+    // Relevance guarantee across ALL sources: the FIRST keyword term must
+    // appear in the title or company (the strongest signal). "DevOps Engineer"
+    // → "DevOps" in title/company; description-only matches are dropped so
+    // generic roles (Account Executive whose JD mentions engineers) never leak.
+    // If the strict match would return NOTHING, keep the full pool (a valid
+    // search with zero title hits is better served than an empty result).
+    const terms = (params.keywords || '').toLowerCase().split(/\s+/).filter((t) => t.length > 2);
+    if (terms.length > 0) {
+      const primary = terms[0];
+      const before = allJobs.length;
+      const relevant = allJobs.filter((j) => {
+        const title = `${j.title} ${j.company}`.toLowerCase();
+        return title.includes(primary);
+      });
+      if (relevant.length > 0) {
+        allJobs = relevant;
+        console.log(`[ScraperFactory] Relevance guard: ${before - allJobs.length} jobs dropped (no "${primary}" in title/company)`);
+      }
     }
 
     return allJobs;

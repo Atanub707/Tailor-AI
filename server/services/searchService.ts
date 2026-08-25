@@ -1,5 +1,5 @@
 import { getAllJobs, getCurrentUserId, saveNewJobs, getDb } from '../storage/fileStorage.js';
-import { isJobFresh, fingerprintJob, markSeen, getSeenFingerprints } from '../storage/v2Tables.js';
+import { isJobFresh, fingerprintJob, markSeen, getSeenFingerprints, isWithinPostedWindow } from '../storage/v2Tables.js';
 import { getFetchBudget } from '../providers/searchBudget.js';
 import type { SearchRequest } from '../providers/searchBudget.js';
 
@@ -36,22 +36,6 @@ export function getSearchFingerprint(req: SearchRequest): string {
   const remote = req.remote ? 'remote' : 'any';
   const jobType = req.jobType || 'any';
   return `${q}|${loc}|${posted}|${remote}|${jobType}`;
-}
-
-// Same posted-window logic as V1 queryJobs (fileStorage.ts:1412) — the user's
-// "Last 24 hours" must filter by the JOB's posting time, not our scrape time.
-function isWithinPostedWindow(j: any, postedWithin?: string): boolean {
-  if (!postedWithin || postedWithin === 'all') return true;
-  const hours = { '24h': 24, '7d': 24 * 7, '30d': 24 * 30 }[postedWithin as '24h' | '7d' | '30d'];
-  if (!hours) return true;
-  const cutoff = Date.now() - hours * 60 * 60 * 1000;
-  let t = j.postedDateParsed ? new Date(`${String(j.postedDateParsed).slice(0, 10)}T23:59:59Z`).getTime() : NaN;
-  if (!Number.isFinite(t)) {
-    const m = String(j.postedDate || '').match(/^(\d{4}-\d{2}-\d{2})/);
-    t = m ? new Date(`${m[1]}T23:59:59Z`).getTime() : NaN;
-  }
-  if (!Number.isFinite(t)) t = j.postedDate ? new Date(j.postedDate).getTime() : NaN;
-  return Number.isFinite(t) && t >= cutoff;
 }
 
 export async function searchWithCache(
