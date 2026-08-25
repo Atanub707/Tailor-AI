@@ -98,6 +98,22 @@ export function ensureV2Tables(): void {
       startedAt TEXT NOT NULL,
       completedAt TEXT
     );
+    CREATE TABLE IF NOT EXISTS search_seen (
+      user_id TEXT NOT NULL,
+      query_fp TEXT NOT NULL,
+      fingerprint TEXT NOT NULL,
+      seen_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, query_fp, fingerprint)
+    );
+    CREATE TABLE IF NOT EXISTS provider_cursors (
+      user_id TEXT NOT NULL,
+      query_fp TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      cursor TEXT,
+      fetched_count INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, query_fp, provider)
+    );
     CREATE INDEX IF NOT EXISTS idx_company_career_sites_ats ON company_career_sites(atsPlatform);
     CREATE INDEX IF NOT EXISTS idx_provider_runs_provider ON provider_runs(provider);
   `);
@@ -144,4 +160,40 @@ export function isJobFresh(scrapedAt?: string, ttlHours = JOB_CACHE_TTL_HOURS): 
   if (!scrapedAt) return false;
   const age = Date.now() - new Date(scrapedAt).getTime();
   return age < ttlHours * 60 * 60 * 1000;
+}
+
+export function markSeen(userId: string, queryFp: string, fingerprints: string[]): void {
+  if (!userId || !queryFp || fingerprints.length === 0) return;
+  const db = getDb();
+  const now = new Date().toISOString();
+  const stmt = db.prepare(
+    `INSERT OR IGNORE INTO search_seen (user_id, query_fp, fingerprint, seen_at) VALUES (?, ?, ?, ?)`
+  );
+  const tx = db.transaction(() => {
+    for (const fp of fingerprints) stmt.run(userId, queryFp, fp, now);
+  });
+  tx();
+}
+
+export function getSeenFingerprints(userId: string, queryFp: string): Set<string> {
+  if (!userId || !queryFp) return new Set();
+  const db = getDb();
+  const rows = db.prepare('SELECT fingerprint FROM search_seen WHERE user_id = ? AND query_fp = ?').all(userId, queryFp) as { fingerprint: string }[];
+  return new Set(rows.map((r) => r.fingerprint));
+}
+
+export function getProviderCursor(userId: string, queryFp: string, provider: string): { cursor?: string; fetchedCount: number } {
+  const db = getDb();
+  const row = db.prepare('SELECT cursor, fetched_count FROM provider_cursors WHERE user_id = ? AND query_fp = ? AND provider = ?')
+    .get(userId, queryFp, provider) as { cursor: string | null; fetched_count: number } | undefined;
+  return { cursor: row?.cursor ?? undefined, fetchedCount: row?.fetched_count ?? 0 };
+}
+
+export function saveProviderCursor(userId: string, queryFp: string, provider: string, cursor: string | undefined, fetchedCount: number): void {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO provider_cursors (user_id, query_fp, provider, cursor, fetched_count, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, query_fp, provider) DO UPDATE SET cursor = excluded.cursor, fetched_count = excluded.fetched_count, updated_at = excluded.updated_at`
+  ).run(userId, queryFp, provider, cursor ?? null, fetchedCount, new Date().toISOString());
 }
