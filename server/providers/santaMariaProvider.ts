@@ -45,28 +45,36 @@ export class SantaMariaApifyProvider implements JobProvider {
 
     let jobs = items.map((item) => this.normalize(item, runId)).filter((j): j is Job => j !== null);
 
-    // Keyword relevance (deterministic, no LLM): the FIRST term must appear in
-    // title or company (the strongest signal). Remaining terms can match
-    // description too. "DevOps engineer" → "DevOps" must be in title/company,
-    // so Account Executives whose description merely mentions engineers never
-    // sneak in. If title/company hits are too few, relax to description.
+    // Keyword relevance (deterministic, no LLM) — RANK, don't over-filter:
+    //   1. exact primary term in title/company (e.g. "devops" in "DevOps Engineer")
+    //   2. all terms in description (e.g. a Platform Engineer describing DevOps work)
+    //   3. DevOps-adjacent titles (SRE, Platform, Infrastructure, Cloud) as a
+    //      soft fallback so the 25 ATS never collapse to 1 job.
+    // Irrelevant roles (Account Executive, Sales) never sneak in — they match none.
     const terms = params.keywords.map((k) => String(k).toLowerCase()).filter((t) => t.length > 2);
     if (terms.length > 0) {
       const before = jobs.length;
       const primary = terms[0];
-      const titleHits = jobs.filter((j) => {
-        const title = `${j.title} ${j.company}`.toLowerCase();
-        return title.includes(primary) && terms.every((t) => `${j.title} ${j.company} ${j.description || ''}`.toLowerCase().includes(t));
-      });
-      if (titleHits.length > 0) {
-        jobs = titleHits;
+      const hay = (j: Job) => `${j.title} ${j.company} ${j.description || ''}`.toLowerCase();
+      const titleExact = jobs.filter((j) => `${j.title} ${j.company}`.toLowerCase().includes(primary) && terms.every((t) => hay(j).includes(t)));
+      if (titleExact.length >= Math.min(params.limit, 5)) {
+        jobs = titleExact;
+        console.log(`[SantaMaria] Keyword filter "${terms.join(' ')}" → ${before} → ${jobs.length} jobs (title/company exact)`);
       } else {
-        jobs = jobs.filter((j) => {
-          const hay = `${j.title} ${j.company} ${j.description || ''}`.toLowerCase();
-          return terms.every((t) => hay.includes(t));
-        });
+        const descMatch = jobs.filter((j) => terms.every((t) => hay(j).includes(t)));
+        if (descMatch.length >= 3) {
+          // Keep description matches, but push title-exact to the top.
+          const titleFirst = [...titleExact, ...descMatch.filter((j) => !titleExact.includes(j))];
+          jobs = titleFirst;
+          console.log(`[SantaMaria] Keyword filter "${terms.join(' ')}" → ${before} → ${jobs.length} jobs (title-exact first + description matches)`);
+        } else {
+          // Soft fallback: DevOps-adjacent titles (SRE/Platform/Infrastructure/Cloud).
+          const adjacent = /(sre|site reliability|platform|infrastructure|cloud|devops|deployment|release)/i;
+          const soft = jobs.filter((j) => adjacent.test(`${j.title} ${j.company}`) && terms.some((t) => hay(j).includes(t)));
+          jobs = [...titleExact, ...soft.filter((j) => !titleExact.includes(j))];
+          console.log(`[SantaMaria] Keyword filter "${terms.join(' ')}" → ${before} → ${jobs.length} jobs (soft fallback: DevOps-adjacent)`);
+        }
       }
-      console.log(`[SantaMaria] Keyword filter "${terms.join(' ')}" → ${before} → ${jobs.length} jobs (${titleHits.length > 0 ? 'title/company match' : 'description fallback'})`);
     }
 
     // Deduplicate + LIMIT enforcement is done by caller; we return filtered.
