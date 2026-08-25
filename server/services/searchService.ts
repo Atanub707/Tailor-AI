@@ -41,7 +41,7 @@ function getSearchFingerprint(req: SearchRequest): string {
 export async function searchWithCache(
   req: SearchRequest,
   fetchFn: (providerId: string, limit: number) => Promise<{ jobs: any[]; runId?: string }>,
-): Promise<{ jobs: any[]; providersCalled: string[]; cacheHit: boolean; providerResults: ProviderResult[]; queryFp: string; seenCount: number; totalStored: number }> {
+): Promise<{ jobs: any[]; providersCalled: string[]; cacheHit: boolean; providerResults: ProviderResult[]; queryFp: string; seenCount: number; totalStored: number; exhausted: boolean }> {
   const allJobs = getAllJobs() as any[];
   const queryFp = getSearchFingerprint(req);
   const seenSet = getSeenFingerprints(getCurrentUserId(), queryFp);
@@ -73,6 +73,7 @@ export async function searchWithCache(
       queryFp,
       seenCount: ranked.length,
       totalStored: allJobs.length,
+      exhausted: false,
     };
   }
 
@@ -83,7 +84,7 @@ export async function searchWithCache(
   const providersCalled: string[] = [];
   const providerResults: ProviderResult[] = [];
   let collected = [...freshJobs];
-  const seenFingerprints = new Set(freshJobs.map((j) => (j as any).fingerprint || fingerprintJob(j)));
+  const seenFinal = new Set(freshJobs.map((j) => (j as any).fingerprint || fingerprintJob(j)));
 
   for (const providerId of providerOrder) {
     if (collected.length >= req.limit) break;
@@ -97,8 +98,9 @@ export async function searchWithCache(
       const duration = Date.now() - start;
       const unique = jobs.filter((j: any) => {
         const fp = (j as any).fingerprint || fingerprintJob(j);
-        if (seenFingerprints.has(fp)) return false;
-        seenFingerprints.add(fp);
+        if (seenSet.has(fp)) return false;      // seen in this walk
+        if (seenFinal.has(fp)) return false;    // already collected
+        seenFinal.add(fp);
         return true;
       });
 
@@ -127,13 +129,27 @@ export async function searchWithCache(
   }
 
   // Final dedup + rank + slice
-  const seenFinal = new Set<string>();
-  const deduped = collected.filter((j) => {
-    const fp = (j as any).fingerprint || fingerprintJob(j);
-    if (seenFinal.has(fp)) return false;
-    seenFinal.add(fp);
-    return true;
-  });
+  const deduped = collected;
+
+  // One bounded top-up against the next provider when still short
+  if (deduped.length < req.limit && providersCalled.length < providerOrder.length) {
+    const next = providerOrder.find((p) => !providersCalled.includes(p));
+    if (next) {
+      const remaining = req.limit - deduped.length;
+      const topUpLimit = Math.min(Math.ceil(remaining * 1.2), budget.maxPerProvider);
+      try {
+        const { jobs } = await fetchFn(next, topUpLimit);
+        const fresh = jobs.filter((j: any) => {
+          const fp = (j as any).fingerprint || fingerprintJob(j);
+          if (seenSet.has(fp) || seenFinal.has(fp)) return false;
+          seenFinal.add(fp);
+          return true;
+        });
+        deduped.push(...fresh);
+        providersCalled.push(next);
+      } catch { /* top-up failure is non-fatal */ }
+    }
+  }
 
   const ranked = [...deduped].sort((a, b) => {
     const aTitle = a.title.toLowerCase().includes(req.query.toLowerCase()) ? 0 : 1;
@@ -184,13 +200,15 @@ export async function searchWithCache(
 
   const returned = ranked.slice(0, req.limit);
   markSeen(getCurrentUserId(), queryFp, returned.map((j: any) => (j as any).fingerprint || fingerprintJob(j)));
+  const exhausted = returned.length < req.limit && seenSet.size + seenFinal.size >= allJobs.length;
   return {
     jobs: returned,
     providersCalled,
     cacheHit: false,
     providerResults,
     queryFp,
-    seenCount: deduped.length,
+    seenCount: returned.length,
     totalStored: allJobs.length,
+    exhausted,
   };
 }

@@ -42,6 +42,8 @@ describe('searchWithCache — unseen-first', () => {
     const db = getDb();
     db.prepare("DELETE FROM search_seen WHERE user_id = 'u-seen'").run();
     db.prepare("DELETE FROM provider_cursors WHERE user_id = 'u-seen'").run();
+    db.prepare("DELETE FROM search_seen WHERE user_id = 'u-x'").run();
+    db.prepare("DELETE FROM provider_cursors WHERE user_id = 'u-x'").run();
   });
 
   const job = (i: number) => ({
@@ -76,6 +78,18 @@ describe('searchWithCache — unseen-first', () => {
     expect(fetchFn).not.toHaveBeenCalled();
     expect(result.cacheHit).toBe(true);
     expect(result.jobs.length).toBe(25);
+  });
+
+  it('exhausted: providers return only seen jobs → exhausted true, no crash', async () => {
+    const all = Array.from({ length: 25 }, (_, i) => job(i));
+    vi.spyOn(await import('../../server/storage/fileStorage.js'), 'getAllJobs').mockReturnValue(all as any);
+    markSeen('u-x', 'devops-engineer|any|24h|any|any', all.map(j => j.fingerprint));
+    const fetchFn = vi.fn().mockResolvedValue({ jobs: all.slice(0, 5) }); // all already seen
+    const result = await runWithUser('u-x', () =>
+      searchWithCache({ query: 'DevOps Engineer', postedWithin: '24h', limit: 25 }, fetchFn)
+    );
+    expect(result.jobs.length).toBe(0);
+    expect((result as any).exhausted).toBe(true);
   });
 });
 
