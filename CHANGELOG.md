@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.9.5 (2026-08-26)
+
+### ✨ Enhancements
+- **Source chips show official career-portal counts** — every ATS chip now displays the number of company boards in the registry (e.g. Greenhouse 6,032, Workable 4,752, Ashby 3,450) via the new /api/ats/company-counts endpoint.
+- **Sources ordered by popularity** — active ATS sorted by portal count (desc), locked ATS grouped at the end (also by count).
+- Jobvite chip now reports its real count (92 portals).
+
 ## v1.9.4 (2026-08-26)
 
 ### ✨ UI

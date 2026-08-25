@@ -38,7 +38,7 @@ const APIFY_SCRAPERS: Partial<Record<JobSource, () => ApifyBaseScraper>> = {
 // ATS-25 sources (Greenhouse, Lever, Ashby, Workable, Workday, SmartRecruiters,
 // …) all route through the ONE Santa Maria actor — never per-ATS scrapers.
 // The selected source's platform filters the company_career_sites registry.
-const ATS_PLATFORM_BY_SOURCE: Partial<Record<JobSource, string>> = {
+export const ATS_PLATFORM_BY_SOURCE: Partial<Record<JobSource, string>> = {
   Greenhouse: 'greenhouse',
   Lever: 'lever',
   Ashby: 'ashby',
@@ -52,6 +52,7 @@ const ATS_PLATFORM_BY_SOURCE: Partial<Record<JobSource, string>> = {
   JazzHR: 'jazzhr',
   Recruitee: 'recruitee',
   iCIMS: 'icims',
+  Jobvite: 'jobvite',
   Comeet: 'comeet',
   Pinpoint: 'pinpoint',
   Join: 'join',

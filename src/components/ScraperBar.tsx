@@ -25,10 +25,6 @@ interface ScraperBarProps {
 
 const ALL_SOURCES: JobSource[] = ['LinkedIn', 'Arbeitnow', 'SimplyHired', 'Dice', 'Reed', 'MyCareersFuture', 'Cutshort', 'Gupy', 'JobsCh', 'Daijob', 'MyJobMag', 'Indeed', 'Naukri', 'Glassdoor', 'Upwork', 'Greenhouse', 'Lever', 'Ashby', 'Workable', 'SmartRecruiters', 'Comeet', 'Join', 'Workday', 'Teamtailor', 'Personio', 'BambooHR', 'Rippling', 'JazzHR', 'Recruitee', 'iCIMS', 'Jobvite', 'Pinpoint'];
 const COMING_SOON: JobSource[] = [];
-// All sources live in the main row (wrap — never overflow); locked ATS at the end.
-const VISIBLE_SOURCES = [...ALL_SOURCES].sort(
-  (a, b) => Number(!!getSourceMeta(a)?.locked) - Number(!!getSourceMeta(b)?.locked)
-);
 
 export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, apifyAvailable }) => {
   const [keywords, setKeywords] = useState('');
@@ -44,6 +40,29 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
   const [scrapeSuccessMsg, setScrapeSuccessMsg] = useState<string | null>(null);
   const [scrapeNewContacts, setScrapeNewContacts] = useState<{ name: string | null; email: string | null; phone: string | null; whatsapp: boolean; recruiterUrl: string | null }[]>([]);
   const [selectedSources, setSelectedSources] = useState<JobSource[]>(['LinkedIn']);
+  const [atsCounts, setAtsCounts] = useState<Record<string, number>>({});
+
+  // Per-ATS official career-portal counts — orders ATS chips by popularity
+  // and labels each with its company-board count.
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch('/api/ats/company-counts')
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled && d?.counts) setAtsCounts(d.counts); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  // Non-ATS sources keep their fixed order; ATS (sources with official
+  // career-portal counts) sorted by count desc, locked last.
+  const visibleSources = React.useMemo(() => {
+    const isAts = (s: JobSource) => atsCounts[s] !== undefined;
+    const nonAts = ALL_SOURCES.filter((s) => !isAts(s));
+    const locked = ALL_SOURCES.filter((s) => isAts(s) && getSourceMeta(s)?.locked);
+    const activeAts = ALL_SOURCES.filter((s) => isAts(s) && !getSourceMeta(s)?.locked);
+    const byCount = (list: JobSource[]) => [...list].sort((a, b) => (atsCounts[b] ?? 0) - (atsCounts[a] ?? 0));
+    return [...nonAts, ...byCount(activeAts), ...byCount(locked)];
+  }, [atsCounts]);
 
   const roleSuggestions = getRoleSuggestions(keywords);
   const keywordSuggestions = getKeywordSuggestions(keywords);
@@ -138,8 +157,11 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
       >
         <SourceIcon source={src} size={15} />
         <span>{src}</span>
+        {meta?.apifyActorId && !locked && atsCounts[src] > 1 && (
+          <span className={`text-[9px] font-extrabold tabular-nums rounded-full px-[6px] py-[1px] ${isSelected ? 'bg-white/20 text-white' : 'bg-[var(--color-brand-soft)] text-[var(--color-brand-strong)] border border-[var(--color-brand-line)]'}`} title="Official career portals in registry">{atsCounts[src].toLocaleString()}</span>
+        )}
         {locked && (
-          <span className="text-[8.5px] font-extrabold uppercase text-[var(--color-faint)] bg-white/60 border border-[var(--color-hairline)] rounded-full px-[7px] py-[2px]">🔒 Locked</span>
+          <span className="text-[8.5px] font-extrabold uppercase text-[var(--color-faint)] bg-white/60 border border-[var(--color-hairline)] rounded-full px-[7px] py-[2px]">🔒 {atsCounts[src] > 0 ? atsCounts[src].toLocaleString() : ''}</span>
         )}
         {isComingSoon && (
           <span className="text-[8.5px] font-extrabold uppercase text-[var(--color-faint)] bg-white/60 border border-[var(--color-hairline)] rounded-full px-[7px] py-[2px]">Soon</span>
@@ -368,7 +390,7 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
         <div className="flex items-start gap-3 pt-4 border-t border-[var(--color-hairline)]">
           <span className={`${fieldLabelCls} pt-[9px] whitespace-nowrap shrink-0`}>Sources</span>
           <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
-            {VISIBLE_SOURCES.map((src) => renderSourceChip(src))}
+            {visibleSources.map((src) => renderSourceChip(src))}
           </div>
         </div>
 

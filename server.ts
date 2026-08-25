@@ -1543,6 +1543,26 @@ Return valid JSON only — NO markdown, NO code fences:
   });
 
   // Job stats for KPI dashboard (counts computed server-side from all jobs)
+  // Per-ATS official career-portal counts (source name → number of company boards)
+  app.get('/api/ats/company-counts', async (_req, res) => {
+    try {
+      const { ensureV2Tables } = await import('./server/storage/v2Tables.js');
+      const { getDb } = await import('./server/storage/fileStorage.js');
+      const { ATS_PLATFORM_BY_SOURCE } = await import('./server/scraper/scraperFactory.js');
+      ensureV2Tables();
+      const db = getDb();
+      const rows = db.prepare('SELECT LOWER(atsPlatform) p, count(*) c FROM company_career_sites WHERE isActive = 1 GROUP BY 1').all() as Array<{ p: string; c: number }>;
+      const byPlatform = new Map(rows.map((r) => [r.p, r.c]));
+      const counts: Record<string, number> = {};
+      for (const [source, platform] of Object.entries(ATS_PLATFORM_BY_SOURCE)) {
+        counts[source] = byPlatform.get(platform) || 0;
+      }
+      res.json({ counts });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get('/api/jobs/stats', (req, res) => {
     try {
       const all = getAllJobs();
