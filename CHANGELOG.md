@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.9.4 (2026-08-26)
+
+### ✨ UI
+- **Removed RemoteOK and WeWorkRemotely** from the source chips (they were "coming soon" placeholders). 32 portal chips remain, locked ATS still grouped at the end.
+
 ## v1.9.3 (2026-08-26)
 
 ### ✨ UI
