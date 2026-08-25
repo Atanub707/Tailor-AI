@@ -141,9 +141,6 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
         {locked && (
           <span className="text-[8.5px] font-extrabold uppercase text-[var(--color-faint)] bg-white/60 border border-[var(--color-hairline)] rounded-full px-[7px] py-[2px]">🔒 Locked</span>
         )}
-        {meta?.apifyActorId && !gated && !locked && (
-          <span className={`text-[8.5px] font-extrabold uppercase tracking-[0.06em] rounded-full px-[7px] py-[2px] ${isSelected ? 'bg-white/20 text-white' : 'bg-[var(--color-brand-soft)] text-[var(--color-brand-strong)] border border-[var(--color-brand-line)]'}`}>Apify</span>
-        )}
         {isComingSoon && (
           <span className="text-[8.5px] font-extrabold uppercase text-[var(--color-faint)] bg-white/60 border border-[var(--color-hairline)] rounded-full px-[7px] py-[2px]">Soon</span>
         )}

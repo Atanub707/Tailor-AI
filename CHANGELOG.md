@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.9.2 (2026-08-26)
+
+### 🧹 Cleanup
+- **Removed dead auto-apply scaffolding** (server/ats/browser.ts, detector.ts, queue.ts, adapters/, types.ts, shims.d.ts) — zero callers, Playwright not even installed; it type-checked only via a fake shim. The real ATS scraping path (Santa Maria provider + registry) is untouched.
+- **Removed unused providerCapabilities.ts** (zero callers).
+- **Source chips show portal names only** — the "Apify" badge is gone; chips are just Greenhouse, Lever, Ashby, … with the 🔒 badge for locked ATS.
+
 ## v1.9.1 (2026-08-26)
 
 ### 🔒 Locked (paid/enterprise-only ATS)
