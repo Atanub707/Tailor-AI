@@ -78,3 +78,24 @@ describe('searchWithCache — unseen-first', () => {
     expect(result.jobs.length).toBe(25);
   });
 });
+
+import { routeProvider } from '../../server/services/providerRouter.js';
+
+describe('providerRouter — cursor advance (mocked providers)', () => {
+  it('LinkedIn receives start = fetchedCount from the cursor', async () => {
+    const { ApifyLinkedInScraper } = await import('../../server/scraper/apifyScraper.js');
+    let captured: any = null;
+    vi.spyOn(ApifyLinkedInScraper.prototype, 'scrape').mockImplementation(async function (this: any, params: any) {
+      captured = params;
+      return [];
+    });
+    saveProviderCursor('u-c', 'devops|any|24h|any|any', 'linkedin', '25', 25);
+    await runWithUser('u-c', () =>
+      routeProvider({ query: 'DevOps', postedWithin: '24h', limit: 25 } as any, 'linkedin', 8)
+    );
+    expect(captured).not.toBeNull();
+    expect(captured.skipJobId ?? captured.start ?? captured.offset).toBeDefined();
+    expect(Number(captured.start ?? captured.offset ?? 0)).toBeGreaterThanOrEqual(25);
+    vi.restoreAllMocks();
+  });
+});
