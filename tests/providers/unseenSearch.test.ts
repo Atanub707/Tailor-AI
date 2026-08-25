@@ -44,6 +44,8 @@ describe('searchWithCache — unseen-first', () => {
     db.prepare("DELETE FROM provider_cursors WHERE user_id = 'u-seen'").run();
     db.prepare("DELETE FROM search_seen WHERE user_id = 'u-x'").run();
     db.prepare("DELETE FROM provider_cursors WHERE user_id = 'u-x'").run();
+    db.prepare("DELETE FROM search_seen WHERE user_id = 'u-topup'").run();
+    db.prepare("DELETE FROM provider_cursors WHERE user_id = 'u-topup'").run();
   });
 
   const job = (i: number) => ({
@@ -68,6 +70,9 @@ describe('searchWithCache — unseen-first', () => {
     expect(titles).not.toContain('j0'); // seen job excluded
     expect(titles).not.toContain('j9');
     expect(result.jobs.length).toBeLessThanOrEqual(25);
+    expect(result.queryFp).toBeTruthy();
+    expect(typeof result.seenCount).toBe('number');
+    expect(typeof result.totalStored).toBe('number');
   });
 
   it('cache hit: 25 fresh unseen exist → 0 provider calls, cacheHit true', async () => {
@@ -78,6 +83,10 @@ describe('searchWithCache — unseen-first', () => {
     expect(fetchFn).not.toHaveBeenCalled();
     expect(result.cacheHit).toBe(true);
     expect(result.jobs.length).toBe(25);
+    expect(result.queryFp).toBeTruthy();
+    expect(typeof result.seenCount).toBe('number');
+    expect(typeof result.totalStored).toBe('number');
+    expect(result.exhausted).toBe(false);
   });
 
   it('exhausted: providers return only seen jobs → exhausted true, no crash', async () => {
@@ -90,6 +99,26 @@ describe('searchWithCache — unseen-first', () => {
     );
     expect(result.jobs.length).toBe(0);
     expect((result as any).exhausted).toBe(true);
+  });
+
+  it('top-up: first provider under-delivers → one bounded top-up fills the gap', async () => {
+    const all = Array.from({ length: 10 }, (_, i) => job(i));
+    vi.spyOn(await import('../../server/storage/fileStorage.js'), 'getAllJobs').mockReturnValue(all as any);
+    // One top-up-returned job (fp-62) is already seen → the top-up's own seen-filter must exclude it
+    markSeen('u-topup', 'devops-engineer|any|24h|any|any', ['fp-62']);
+
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce({ jobs: Array.from({ length: 10 }, (_, i) => job(50 + i)) }) // main fan-out call
+      .mockResolvedValueOnce({ jobs: Array.from({ length: 5 }, (_, i) => job(60 + i)) });  // top-up call
+    const result = await runWithUser('u-topup', () =>
+      searchWithCache({ query: 'DevOps Engineer', postedWithin: '24h', limit: 25 }, fetchFn)
+    );
+
+    expect(fetchFn).toHaveBeenCalledTimes(2); // exactly one main call + one bounded top-up
+    expect(result.providersCalled).toEqual(['santa-maria', 'linkedin']); // 'linkedin' = the top-up provider
+    expect(result.jobs.length).toBe(24); // 10 DB + 10 main + 5 top-up − 1 seen top-up job
+    expect(result.jobs.map((j: any) => j.fingerprint)).not.toContain('fp-62'); // seen-exclusion holds
+    expect(result.jobs.map((j: any) => j.fingerprint)).toContain('fp-50'); // main-call jobs still included
   });
 });
 

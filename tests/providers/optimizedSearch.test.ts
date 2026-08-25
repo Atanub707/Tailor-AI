@@ -26,6 +26,10 @@ describe('Optimized Search — cost-optimized', () => {
     expect(result.jobs.length).toBe(25);
     expect(result.providersCalled.length).toBe(0);
     expect(result.cacheHit).toBe(true);
+    expect(result.queryFp).toBeTruthy();
+    expect(typeof result.seenCount).toBe('number');
+    expect(typeof result.totalStored).toBe('number');
+    expect(result.exhausted).toBe(false);
   });
 
   it('TEST 2: LIMIT 25 with 10 fresh jobs → providers called until >=25', async () => {
@@ -38,6 +42,9 @@ describe('Optimized Search — cost-optimized', () => {
     const result = await searchWithCache({ query: 'DevOps', limit: 25 }, fetchFn);
     expect(result.jobs.length).toBe(25);
     expect(result.providersCalled.length).toBeGreaterThan(0);
+    expect(result.queryFp).toBeTruthy();
+    expect(typeof result.seenCount).toBe('number');
+    expect(typeof result.totalStored).toBe('number');
   });
 
   it('TEST 3: LIMIT 10 → fetch budget does not become 500', async () => {

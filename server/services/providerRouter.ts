@@ -5,25 +5,13 @@ import { IndeedScraper } from '../scraper/indeedScraper.js';
 import { getProviderFetchLimit } from '../providers/searchBudget.js';
 import { getProviderCursor, saveProviderCursor } from '../storage/v2Tables.js';
 import { getCurrentUserId } from '../storage/fileStorage.js';
+import { getSearchFingerprint } from './searchService.js';
 import type { SearchRequest } from '../providers/searchBudget.js';
 
-// Local mirror of searchService.getSearchFingerprint — kept local (not
-// exported) so providerRouter owns the exact key used for cursor storage.
-function getSearchFingerprintLocal(req: SearchRequest): string {
-  const q = req.query.toLowerCase().trim().replace(/\s+/g, '-');
-  const loc = (req.location || 'any').toLowerCase().trim().replace(/\s+/g, '-');
-  const posted = req.postedWithin || 'all';
-  const remote = req.remote ? 'remote' : 'any';
-  const jobType = req.jobType || 'any';
-  return `${q}|${loc}|${posted}|${remote}|${jobType}`;
-}
-
-/**
- * Provider Router — the ONLY place that decides which provider to call and
- * with what fetch limit. Every provider's limit comes from the central budget
- * (searchBudget.ts); no provider can exceed it. One failure never kills the
- * whole search — callers receive { jobs, error } per provider.
- */
+// Provider Router — the ONLY place that decides which provider to call and
+// with what fetch limit. Every provider's limit comes from the central budget
+// (searchBudget.ts); no provider can exceed it. One failure never kills the
+// whole search — callers receive { jobs, error } per provider.
 
 export interface RouterResult {
   jobs: any[];
@@ -58,7 +46,7 @@ export async function routeProvider(req: SearchRequest, providerId: string, limi
       }
       case 'linkedin': {
         const scraper = new ApifyLinkedInScraper();
-        const cursor = getProviderCursor(getCurrentUserId(), getSearchFingerprintLocal(req), 'linkedin');
+        const cursor = getProviderCursor(getCurrentUserId(), getSearchFingerprint(req), 'linkedin');
         const jobs = await scraper.scrape({
           keywords: req.query,
           location: req.location,
@@ -68,7 +56,7 @@ export async function routeProvider(req: SearchRequest, providerId: string, limi
           skipJobId: undefined, // LinkedIn actor accepts 'start' via this input
           start: cursor.fetchedCount, // page offset = jobs already fetched in this walk
         } as any);
-        saveProviderCursor(getCurrentUserId(), getSearchFingerprintLocal(req), 'linkedin', String(cursor.fetchedCount + jobs.length), cursor.fetchedCount + jobs.length);
+        saveProviderCursor(getCurrentUserId(), getSearchFingerprint(req), 'linkedin', String(cursor.fetchedCount + jobs.length), cursor.fetchedCount + jobs.length);
         return { jobs, requested: providerLimit, returned: jobs.length };
       }
       case 'naukri': {

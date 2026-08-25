@@ -29,7 +29,7 @@ function getProviderOrder(location?: string, remote?: boolean): string[] {
   return PROVIDER_PRIORITY.default;
 }
 
-function getSearchFingerprint(req: SearchRequest): string {
+export function getSearchFingerprint(req: SearchRequest): string {
   const q = req.query.toLowerCase().trim().replace(/\s+/g, '-');
   const loc = (req.location || 'any').toLowerCase().trim().replace(/\s+/g, '-');
   const posted = req.postedWithin || 'all';
@@ -114,6 +114,12 @@ export async function searchWithCache(
       });
 
       collected.push(...unique);
+
+      // Provider under-delivered (unique < remaining) → it is tapped out for
+      // this walk. Stop the main fan-out here; the bounded top-up below makes
+      // ONE more attempt against the next uncalled provider instead of burning
+      // every provider's budget in the main loop.
+      if (unique.length < remaining) break;
     } catch (err: any) {
       providersCalled.push(providerId);
       providerResults.push({

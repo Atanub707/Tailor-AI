@@ -183,6 +183,7 @@ export function getSeenFingerprints(userId: string, queryFp: string): Set<string
 }
 
 export function getProviderCursor(userId: string, queryFp: string, provider: string): { cursor?: string; fetchedCount: number } {
+  if (!userId || !queryFp) return { cursor: undefined, fetchedCount: 0 };
   const db = getDb();
   const row = db.prepare('SELECT cursor, fetched_count FROM provider_cursors WHERE user_id = ? AND query_fp = ? AND provider = ?')
     .get(userId, queryFp, provider) as { cursor: string | null; fetched_count: number } | undefined;
@@ -190,6 +191,7 @@ export function getProviderCursor(userId: string, queryFp: string, provider: str
 }
 
 export function saveProviderCursor(userId: string, queryFp: string, provider: string, cursor: string | undefined, fetchedCount: number): void {
+  if (!userId || !queryFp) return;
   const db = getDb();
   db.prepare(
     `INSERT INTO provider_cursors (user_id, query_fp, provider, cursor, fetched_count, updated_at)

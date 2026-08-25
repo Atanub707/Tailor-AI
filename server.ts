@@ -1508,9 +1508,9 @@ Return valid JSON only — NO markdown, NO code fences:
         jobs: result.jobs,
         providersCalled: result.providersCalled,
         cacheHit: result.cacheHit,
-        exhausted: (result as any).exhausted === true,
-        seenCount: (result as any).seenCount ?? 0,
-        totalStored: (result as any).totalStored ?? 0,
+        exhausted: result.exhausted === true,
+        seenCount: result.seenCount ?? 0,
+        totalStored: result.totalStored ?? 0,
       });
     } catch (err: any) {
       console.error('V2 search error:', err);
