@@ -34,6 +34,16 @@ import { vi, afterEach } from 'vitest';
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe('searchWithCache — unseen-first', () => {
+  // Hermetic: test 1 runs under runWithUser('u-seen'), so searchWithCache's
+  // final markSeen(...) persists fingerprints for u-seen to the real DB.
+  // Remove that user's rows after every test so a second run of this file
+  // still sees "30 fresh, 10 seen" instead of a polluted search_seen table.
+  afterEach(() => {
+    const db = getDb();
+    db.prepare("DELETE FROM search_seen WHERE user_id = 'u-seen'").run();
+    db.prepare("DELETE FROM provider_cursors WHERE user_id = 'u-seen'").run();
+  });
+
   const job = (i: number) => ({
     id: `j${i}`, title: 'DevOps Engineer', company: `C${i}`,
     description: 'DevOps engineer role', url: `https://x.com/j${i}`,
