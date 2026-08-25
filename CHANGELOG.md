@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.9.0 (2026-08-26)
+
+### ✨ Enhancements
+- **Full official ATS company coverage — no more guessing.** Replaced hand-typed company lists with the community-maintained official dataset (kalil0321/ats-scrapers): **41,255 career sites** across all 15 ATS — Greenhouse 6,032, BambooHR 5,632, Workable 4,752, Workday 3,530, Ashby 3,448, SmartRecruiters 2,747, JazzHR 2,689, Lever 2,402, iCIMS 2,498, Personio 2,463, Rippling 1,923, Teamtailor 1,464, Recruitee 1,164, Pinpoint 406, Jobvite 92. Every slug comes from a real ATS career URL — no hand-guessing, no 404s.
+- **Smart search coverage:** Each search always checks your platform's priority boards (Stripe/GitLab/MongoDB/Twilio on Greenhouse, Palantir/Kraken on Lever, OpenAI/Notion/Linear on Ashby, Amazon/Airbnb on SmartRecruiters, Vercel/Asana/OpenAI on BambooHR, Shopify/Uber on Teamtailor, Slack on Workday) **plus** a rotating slice of the remaining companies (advances every 30 min), so repeated searches gradually cover every company on every ATS.
+- **Generic seeder** (`server/ats/seedCompanies.ts`): imports any company-list JSON from `server/ats/data/` into the registry — idempotent (INSERT OR IGNORE), existing installs upgrade automatically.
+
 ## v1.8.8 (2026-08-19)
 
 ### 🐛 Fixes
