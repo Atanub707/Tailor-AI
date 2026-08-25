@@ -28,7 +28,7 @@ export interface PdfCvShape {
 export function masterCvToPdfShape(m: MasterCv): PdfCvShape {
   return {
     candidateName: m.fullName || 'CANDIDATE NAME',
-    targetRole: m.experiences?.[0]?.title || '',
+    targetRole: (m as any).designation || m.experiences?.[0]?.title || '',
     contactInfo: {
       email: m.email,
       phone: m.phone,

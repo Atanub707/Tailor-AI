@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.8.6 (2026-08-19)
+
+### ✨ Enhancement
+- **Master CV — Contact Information now includes Designation:** Added **Designation** input to Contact Information (alongside Full Name, Email, Phone, Location, Portfolio, LinkedIn, GitHub). It prefills from Master CV and flows through Manual JD Preview and PDF generation (as `targetRole`).
+
 ## v1.8.4 (2026-08-19)
 
 ### ✨ Enhancement

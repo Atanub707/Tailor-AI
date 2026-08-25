@@ -137,6 +137,7 @@ export interface CertificationItem {
 
 export interface MasterCv {
   fullName: string;
+  designation?: string;
   email: string;
   phone: string;
   location: string;
