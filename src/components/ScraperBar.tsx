@@ -49,6 +49,13 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
 
   const isApifyGated = (source: JobSource) => !!getSourceMeta(source)?.needsApify && !apifyAvailable;
 
+  // Estimated Apify cost for the current selection at the chosen per-source limit.
+  const costPerSearch = selectedSources.reduce((acc, s) => {
+    const meta = getSourceMeta(s);
+    const price = parseFloat(String(meta?.pricePer1K || '0').replace('$', '').replace(',', '')) || 0;
+    return acc + price * (maxJobsPerSource / 1000);
+  }, 0);
+
   const toggleSource = (source: JobSource) => {
     if (COMING_SOON.includes(source) || isApifyGated(source)) return;
     setSelectedSources((prev) =>
@@ -116,28 +123,38 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
         onClick={() => toggleSource(src)}
         disabled={disabled}
         title={title}
-        className={`inline-flex items-center gap-2 pl-2.5 pr-3 py-[7px] rounded-full text-[11.5px] font-semibold border-[1.5px] transition-all whitespace-nowrap cursor-pointer ${
+        aria-pressed={isSelected}
+        className={`inline-flex items-center gap-2 pl-2.5 pr-3 py-[7px] rounded-full text-[11.5px] font-semibold border-[1.5px] whitespace-nowrap cursor-pointer select-none transition-all duration-200 ${
           disabled
             ? 'opacity-45 cursor-not-allowed bg-white border-[var(--color-hairline)] text-[var(--color-faint)]'
             : isSelected
-            ? 'bg-[var(--color-brand-soft)] border-[var(--color-brand)] text-[var(--color-brand)] font-bold'
-            : 'bg-white border-[var(--color-hairline)] text-[var(--color-muted)] hover:border-[var(--color-brand-line)] hover:text-[var(--color-ink)]'
+            ? 'bg-[var(--color-brand)] border-[var(--color-brand)] text-white font-bold shadow-sm sc-chip-pop'
+            : 'bg-white border-[var(--color-hairline)] text-[var(--color-muted)] hover:border-[var(--color-brand-line)] hover:text-[var(--color-ink)] hover:shadow-sm'
         }`}
       >
         <span className="text-[13px] leading-none">{getSourceFlag(src)}</span>
         <span>{src}</span>
         {meta?.apifyActorId && !gated && (
-          <span className="text-[8.5px] font-extrabold uppercase tracking-[0.06em] text-white bg-[var(--color-brand)] rounded-full px-[7px] py-[2px]">Apify</span>
+          <span className={`text-[8.5px] font-extrabold uppercase tracking-[0.06em] rounded-full px-[7px] py-[2px] ${isSelected ? 'bg-white/20 text-white' : 'bg-[var(--color-brand-soft)] text-[var(--color-brand-strong)] border border-[var(--color-brand-line)]'}`}>Apify</span>
+        )}
+        {meta?.pricePer1K && !isComingSoon && (
+          <span className={`text-[9px] font-extrabold rounded-full px-[6px] py-[1px] ${isSelected ? 'bg-white/20 text-white' : 'bg-[var(--color-canvas)] text-[var(--color-faint)]'}`}>{meta.pricePer1K}/1K</span>
         )}
         {isComingSoon && (
-          <span className="text-[8.5px] font-extrabold uppercase text-[var(--color-faint)]">Soon</span>
+          <span className="text-[8.5px] font-extrabold uppercase text-[var(--color-faint)] bg-white/60 border border-[var(--color-hairline)] rounded-full px-[7px] py-[2px]">Soon</span>
         )}
+        <span className={`w-[15px] h-[15px] inline-flex items-center justify-center rounded-full text-[9px] font-black transition-all ${isSelected ? 'bg-white/25 text-white' : 'hidden'}`}>✓</span>
       </button>
     );
   };
 
   return (
     <div className="bg-white border-b border-[var(--color-hairline)] py-5">
+      <style>{`
+        @keyframes sc-chip-pop { 0% { transform: scale(.85); } 60% { transform: scale(1.06); } 100% { transform: scale(1); } }
+        .sc-chip-pop { animation: sc-chip-pop .28s cubic-bezier(.22,1,.36,1); }
+        @media (prefers-reduced-motion: reduce) { .sc-chip-pop { animation: none; } }
+      `}</style>
       {/* Datalists for Native Auto-completion */}
       <datalist id="datalist-roles-keywords">
         {Array.from(new Set([...roleSuggestions, ...keywordSuggestions])).map((s) => (
@@ -375,6 +392,15 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
               </div>
             </div>
           </div>
+        </div>
+
+        {/* ── Cost pill — estimated Apify spend for the selection at the chosen limit ── */}
+        <div className="flex items-center gap-2 pt-1 text-[11.5px] font-semibold text-[var(--color-faint)]">
+          <span>Estimated cost</span>
+          <span className={`inline-flex items-center gap-1 px-2.5 py-[3px] rounded-full text-[11px] font-extrabold border ${costPerSearch <= 0.001 ? 'bg-[var(--color-cta-soft)] border-[var(--color-cta-line)] text-[var(--color-cta)]' : 'bg-[var(--color-tint-amber,#FFFBEB)] border-[#FDE68A] text-[#B45309]'}`}>
+            {costPerSearch <= 0.001 ? 'Free' : `~$${costPerSearch.toFixed(3)}`}
+          </span>
+          <span>for {maxJobsPerSource} jobs · {selectedSources.length} source{selectedSources.length === 1 ? '' : 's'} selected</span>
         </div>
 
         {/* ── Scrape result banner (own row — never overlaps the source chips) ── */}

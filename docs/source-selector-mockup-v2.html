@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tailor AI — Source Selection Mockup (Simple Click-to-Select)</title>
+<style>
+  :root {
+    --bg: #F8FAFC;
+    --surface: #FFFFFF;
+    --ink: #0F172A;
+    --muted: #475569;
+    --faint: #94A3B8;
+    --hairline: #E2E8F0;
+    --accent: #2563EB;
+    --accent-strong: #1D4ED8;
+    --accent-soft: #EFF6FF;
+    --accent-line: #BFDBFE;
+    --ok: #059669;
+    --ok-soft: #ECFDF5;
+    --ok-line: #A7F3D0;
+    --amber: #D97706;
+    --amber-soft: #FFFBEB;
+    --amber-line: #FDE68A;
+    --shadow-sm: 0 1px 2px rgba(15,23,42,.05), 0 1px 3px rgba(15,23,42,.08);
+    --shadow-md: 0 4px 12px rgba(15,23,42,.08), 0 2px 4px rgba(15,23,42,.06);
+    --r-sm: 8px; --r-md: 12px; --r-lg: 16px;
+    --spring: cubic-bezier(.22,1,.36,1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 24px 80px; }
+
+  .variant-bar { display: flex; gap: 8px; align-items: center; justify-content: center; margin-bottom: 28px; flex-wrap: wrap; }
+  .variant-bar span { font-size: 12px; font-weight: 700; color: var(--faint); text-transform: uppercase; letter-spacing: .08em; }
+  .variant-btn { padding: 8px 18px; border-radius: 999px; border: 1.5px solid var(--hairline); background: var(--surface); font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; transition: all .25s var(--spring); font-family: inherit; }
+  .variant-btn:hover { border-color: var(--accent-line); color: var(--ink); }
+  .variant-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .variant { display: none; animation: fadeUp .4s var(--spring) both; }
+  .variant.active { display: block; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+  /* ── Search bar ── */
+  .search-card { background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-lg); box-shadow: var(--shadow-md); padding: 20px; margin-bottom: 16px; }
+  .search-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .09em; color: var(--faint); }
+  .field input, .field select { border: 1.5px solid var(--hairline); border-radius: var(--r-sm); padding: 10px 12px; font-size: 13px; font-weight: 600; font-family: inherit; color: var(--ink); background: var(--surface); outline: none; transition: border-color .2s, box-shadow .2s; }
+  .field input:focus, .field select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+  .field-role { flex: 2; min-width: 220px; }
+  .search-btn { background: var(--accent); color: #fff; border: none; border-radius: var(--r-sm); padding: 11px 24px; font-size: 14px; font-weight: 800; font-family: inherit; cursor: pointer; transition: transform .2s var(--spring), box-shadow .2s; box-shadow: var(--shadow-sm); }
+  .search-btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+
+  /* ── Shared chip ── */
+  .chip { display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px 8px 10px; border-radius: 999px; border: 1.5px solid var(--hairline); background: var(--surface); font-size: 12.5px; font-weight: 700; color: var(--muted); cursor: pointer; user-select: none; transition: all .22s var(--spring); position: relative; white-space: nowrap; }
+  .chip:hover { border-color: var(--accent-line); box-shadow: var(--shadow-sm); transform: translateY(-1px); }
+  .chip .flag { font-size: 15px; line-height: 1; }
+  .chip .badge { font-size: 8.5px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; background: var(--accent-soft); color: var(--accent-strong); border: 1px solid var(--accent-line); padding: 1.5px 6px; border-radius: 999px; }
+  .chip .price { font-size: 9.5px; font-weight: 800; color: var(--faint); background: var(--bg); padding: 2px 6px; border-radius: 999px; }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: var(--shadow-sm); }
+  .chip.on .badge { background: rgba(255,255,255,.18); color: #fff; border-color: rgba(255,255,255,.3); }
+  .chip.on .price { background: rgba(255,255,255,.18); color: #fff; }
+  .chip.on .check { display: inline-flex; }
+  .chip .check { display: none; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 999px; background: rgba(255,255,255,.25); color: #fff; font-size: 9px; font-weight: 900; margin-left: 2px; }
+  .chip:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+  .chip.on { animation: pop .3s var(--spring); }
+  @keyframes pop { 0% { transform: scale(.85); } 60% { transform: scale(1.05); } 100% { transform: scale(1); } }
+
+  /* ── Variant A — grouped palette with sticky selected summary ── */
+  .vA-summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-md); padding: 10px 14px; margin-bottom: 14px; box-shadow: var(--shadow-sm); }
+  .vA-summary-label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); }
+  .vA-summary .chip.on { animation: none; }
+  .vA-summary-empty { font-size: 12.5px; font-weight: 600; color: var(--faint); }
+  .vA-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .vA-group { background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-md); padding: 14px; }
+  .vA-group h3 { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; }
+  .vA-group h3 .count { background: var(--bg); padding: 2px 8px; border-radius: 999px; font-size: 10px; }
+  .vA-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .vA-full { grid-column: 1 / -1; }
+
+  /* ── Variant B — single flat chip row (like current) with More dropdown ── */
+  .vB-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .vB-more { position: relative; }
+  .vB-more-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; border: 1.5px solid var(--hairline); background: var(--surface); font-size: 12.5px; font-weight: 700; color: var(--muted); cursor: pointer; transition: all .2s; }
+  .vB-more-btn:hover { border-color: var(--accent-line); }
+  .vB-more-panel { display: none; position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; width: 340px; background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-md); box-shadow: var(--shadow-md); padding: 12px; }
+  .vB-more.open .vB-more-panel { display: block; animation: fadeUp .25s var(--spring); }
+  .vB-more-panel .chip { font-size: 11.5px; padding: 6px 10px 6px 8px; }
+
+  /* ── Variant C — checkbox list (most explicit) ── */
+  .vC-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .vC-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1.5px solid var(--hairline); border-radius: var(--r-sm); background: var(--surface); cursor: pointer; transition: all .2s var(--spring); }
+  .vC-item:hover { border-color: var(--accent-line); }
+  .vC-item.on { background: var(--accent-soft); border-color: var(--accent); }
+  .vC-item .box { width: 18px; height: 18px; border-radius: 5px; border: 2px solid var(--hairline2, #CBD5E1); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 900; color: #fff; transition: all .2s; background: var(--surface); }
+  .vC-item.on .box { background: var(--accent); border-color: var(--accent); }
+  .vC-item .flag { font-size: 15px; }
+  .vC-item .name { font-size: 12.5px; font-weight: 700; color: var(--ink); }
+  .vC-item .meta { font-size: 10px; color: var(--faint); }
+  .vC-item .right { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+
+  /* ── Cost summary ── */
+  .cost { display: flex; align-items: center; gap: 10px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--hairline); font-size: 12px; font-weight: 700; color: var(--muted); }
+  .cost b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .cost .pill { background: var(--ok-soft); border: 1px solid var(--ok-line); color: var(--ok); padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; }
+  .cost .pill.warn { background: var(--amber-soft); border-color: var(--amber-line); color: var(--amber); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="variant-bar">
+    <span>Layout</span>
+    <button class="variant-btn active" data-variant="A">A · Grouped palette</button>
+    <button class="variant-btn" data-variant="B">B · Flat chips + More</button>
+    <button class="variant-btn" data-variant="C">C · Checkbox list</button>
+  </div>
+
+  <!-- ════ VARIANT A — Grouped palette ════ -->
+  <div class="variant active" id="variant-A">
+    <div class="search-card">
+      <div class="search-row">
+        <div class="field field-role"><label>What</label><input value="DevOps Engineer" placeholder="e.g. DevOps Engineer"></div>
+        <div class="field"><label>Where</label><input value="India" placeholder="Worldwide"></div>
+        <div class="field"><label>Posted</label><select><option selected>Last 24 hours</option><option>Last 7 days</option><option>Anytime</option></select></div>
+        <div class="field"><label>Limit</label><select><option>10</option><option selected>25</option><option>50</option></select></div>
+        <button class="search-btn">Search Jobs</button>
+      </div>
+    </div>
+    <div class="search-card">
+      <div class="vA-summary">
+        <span class="vA-summary-label">Selected sources</span>
+        <span class="vA-summary-empty" id="sum-empty-A">Click any source below to select it.</span>
+        <div id="sum-chips-A" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+      </div>
+      <div class="vA-groups">
+        <div class="vA-group">
+          <h3>Job Boards <span class="count" data-count-A="boards">0/5</span></h3>
+          <div class="vA-chips" data-group="boards">
+            <button class="chip" data-src="LinkedIn" data-flag="🌐" data-price="0.40"><span class="flag">🌐</span>LinkedIn<span class="badge">Apify</span><span class="price">$0.40</span><span class="check">✓</span></button>
+            <button class="chip" data-src="Indeed" data-flag="🇺🇸" data-price="0.10"><span class="flag">🇺🇸</span>Indeed<span class="badge">Apify</span><span class="price">$0.10</span><span class="check">✓</span></button>
+            <button class="chip" data-src="Naukri" data-flag="🇮🇳" data-price="0.40"><span class="flag">🇮🇳</span>Naukri<span class="badge">Apify</span><span class="price">$0.40</span><span class="check">✓</span></button>
+            <button class="chip" data-src="Glassdoor" data-flag="🌐" data-price="0.40"><span class="flag">🌐</span>Glassdoor<span class="badge">Apify</span><span class="price">$0.40</span><span class="check">✓</span></button>
+            <button class="chip" data-src="Upwork" data-flag="🌐" data-price="0.20"><span class="flag">🌐</span>Upwork<span class="badge">Apify</span><span class="price">$0.20</span><span class="check">✓</span></button>
+          </div>
+        </div>
+        <div class="vA-group">
+          <h3>ATS Career Sites <span class="count" data-count-A="ats">0/16</span></h3>
+          <div class="vA-chips" data-group="ats">
+            <button class="chip" data-src="Greenhouse" data-flag="🌱" data-price="0.40"><span class="flag">🌱</span>Greenhouse<span class="badge">Apify</span><span class="price">$0.40</span><span class="check">✓</span></button>
+            <button class="chip" data-src="Lever" data-flag="🔷" data-price="0.40"><span class="flag">🔷</span>Lever<span class="badge">Apify</span><span class="price">$0.40</span><span class="check">✓</span></button>
+            <button class="chip" data-src="Ashby" data-flag="🟣" data-price="0.40"><span class="flag">🟣</span>Ashby<span class="badge">Apify</span><span class="price">$0.40</span><span class="check">✓</span></button>
+            <button class="chip" data-src="Workable" data-flag="🔧" data-price="0.40"><span class="flag">🔧</span>Workable<span class="badge">Apify</span><span class="price">$0.40</span><span class="check">✓</span></button>
+            <button class="chip" data-src="Workday" data-flag="🏢" data-price="0.40"><span class="flag">🏢</span>Workday<span class="badge">Apify</span><span class="price">$0.40</span><span class="check">✓</span></button>
+            <button class="chip" data-src="SmartRecruiters" data-flag="🧠" data-price="0.40"><span class="flag">🧠</span>SmartRecruiters<span class="badge">Apify</span><span class="price">$0.40</span><span class="check">✓</span></button>
+            <button class="chip" data-src="Rippling" data-flag="🔁" data-price="0.40"><span class="flag">🔁</span>Rippling<span class="badge">Apify</span><span class="price">$0.40</span><span class="check">✓</span></button>
+          </div>
+        </div>
+        <div class="vA-group vA-full">
+          <h3>Free Built-in Sources <span class="count" data-count-A="free">0/12</span></h3>
+          <div class="vA-chips" data-group="free">
+            <button class="chip" data-src="Arbeitnow" data-flag="🌍" data-price="0"><span class="flag">🌍</span>Arbeitnow<span class="check">✓</span></button>
+            <button class="chip" data-src="Dice" data-flag="🇺🇸" data-price="0"><span class="flag">🇺🇸</span>Dice<span class="check">✓</span></button>
+            <button class="chip" data-src="Reed" data-flag="🇬🇧" data-price="0"><span class="flag">🇬🇧</span>Reed<span class="check">✓</span></button>
+            <button class="chip" data-src="RemoteOK" data-flag="🌍" data-price="0" disabled><span class="flag">🌍</span>RemoteOK<span class="badge" style="background:#FEF2F2;color:#DC2626;border-color:#FECACA">Soon</span></button>
+            <button class="chip" data-src="MyCareersFuture" data-flag="🇸🇬" data-price="0"><span class="flag">🇸🇬</span>MyCareersFuture<span class="check">✓</span></button>
+            <button class="chip" data-src="Cutshort" data-flag="🇮🇳" data-price="0"><span class="flag">🇮🇳</span>Cutshort<span class="check">✓</span></button>
+          </div>
+        </div>
+      </div>
+      <div class="cost"><span>Estimated Apify cost</span><b id="cost-A">$0.000</b><span>for 25 jobs</span><span class="pill" id="cost-pill-A">Free</span></div>
+    </div>
+  </div>
+
+  <!-- ════ VARIANT B — Flat chips + More ════ -->
+  <div class="variant" id="variant-B">
+    <div class="search-card">
+      <div class="search-row">
+        <div class="field field-role"><label>What</label><input value="DevOps Engineer" placeholder="e.g. DevOps Engineer"></div>
+        <div class="field"><label>Where</label><input value="India" placeholder="Worldwide"></div>
+        <div class="field"><label>Posted</label><select><option selected>Last 24 hours</option><option>Last 7 days</option><option>Anytime</option></select></div>
+        <div class="field"><label>Limit</label><select><option>10</option><option selected>25</option><option>50</option></select></div>
+        <button class="search-btn">Search Jobs</button>
+      </div>
+    </div>
+    <div class="search-card">
+      <div class="vB-row" data-vbrow>
+        <button class="chip" data-src="LinkedIn" data-flag="🌐" data-price="0.40"><span class="flag">🌐</span>LinkedIn<span class="badge">Apify</span><span class="check">✓</span></button>
+        <button class="chip" data-src="Indeed" data-flag="🇺🇸" data-price="0.10"><span class="flag">🇺🇸</span>Indeed<span class="badge">Apify</span><span class="check">✓</span></button>
+        <button class="chip" data-src="Naukri" data-flag="🇮🇳" data-price="0.40"><span class="flag">🇮🇳</span>Naukri<span class="badge">Apify</span><span class="check">✓</span></button>
+        <button class="chip" data-src="Glassdoor" data-flag="🌐" data-price="0.40"><span class="flag">🌐</span>Glassdoor<span class="badge">Apify</span><span class="check">✓</span></button>
+        <button class="chip" data-src="Upwork" data-flag="🌐" data-price="0.20"><span class="flag">🌐</span>Upwork<span class="badge">Apify</span><span class="check">✓</span></button>
+        <button class="chip" data-src="Greenhouse" data-flag="🌱" data-price="0.40"><span class="flag">🌱</span>Greenhouse<span class="badge">Apify</span><span class="check">✓</span></button>
+        <button class="chip" data-src="Lever" data-flag="🔷" data-price="0.40"><span class="flag">🔷</span>Lever<span class="badge">Apify</span><span class="check">✓</span></button>
+        <button class="chip" data-src="Ashby" data-flag="🟣" data-price="0.40"><span class="flag">🟣</span>Ashby<span class="badge">Apify</span><span class="check">✓</span></button>
+        <button class="chip" data-src="Workday" data-flag="🏢" data-price="0.40"><span class="flag">🏢</span>Workday<span class="badge">Apify</span><span class="check">✓</span></button>
+        <button class="chip" data-src="SmartRecruiters" data-flag="🧠" data-price="0.40"><span class="flag">🧠</span>SmartRecruiters<span class="badge">Apify</span><span class="check">✓</span></button>
+        <button class="chip" data-src="Rippling" data-flag="🔁" data-price="0.40"><span class="flag">🔁</span>Rippling<span class="badge">Apify</span><span class="check">✓</span></button>
+        <div class="vB-more" id="more-B">
+          <button type="button" class="vB-more-btn" onclick="document.getElementById('more-B').classList.toggle('open')">More ▾</button>
+          <div class="vB-more-panel">
+            <div style="display:flex;flex-wrap:wrap;gap:8px;">
+              <button class="chip" data-src="Arbeitnow" data-flag="🌍" data-price="0"><span class="flag">🌍</span>Arbeitnow<span class="check">✓</span></button>
+              <button class="chip" data-src="Dice" data-flag="🇺🇸" data-price="0"><span class="flag">🇺🇸</span>Dice<span class="check">✓</span></button>
+              <button class="chip" data-src="Reed" data-flag="🇬🇧" data-price="0"><span class="flag">🇬🇧</span>Reed<span class="check">✓</span></button>
+              <button class="chip" data-src="Cutshort" data-flag="🇮🇳" data-price="0"><span class="flag">🇮🇳</span>Cutshort<span class="check">✓</span></button>
+              <button class="chip" data-src="MyCareersFuture" data-flag="🇸🇬" data-price="0"><span class="flag">🇸🇬</span>MyCareersFuture<span class="check">✓</span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="cost"><span>Estimated Apify cost</span><b id="cost-B">$0.000</b><span>for 25 jobs</span><span class="pill" id="cost-pill-B">Free</span></div>
+    </div>
+  </div>
+
+  <!-- ════ VARIANT C — Checkbox list ════ -->
+  <div class="variant" id="variant-C">
+    <div class="search-card">
+      <div class="search-row">
+        <div class="field field-role"><label>What</label><input value="DevOps Engineer" placeholder="e.g. DevOps Engineer"></div>
+        <div class="field"><label>Where</label><input value="India" placeholder="Worldwide"></div>
+        <div class="field"><label>Posted</label><select><option selected>Last 24 hours</option><option>Last 7 days</option><option>Anytime</option></select></div>
+        <div class="field"><label>Limit</label><select><option>10</option><option selected>25</option><option>50</option></select></div>
+        <button class="search-btn">Search Jobs</button>
+      </div>
+    </div>
+    <div class="search-card">
+      <div class="vC-list" data-vclist>
+        <div class="vC-item" data-src="LinkedIn" data-flag="🌐" data-price="0.40"><div class="box">✓</div><span class="flag">🌐</span><div><div class="name">LinkedIn</div><div class="meta">Apify · $0.40/1K</div></div><div class="right"><span class="pill" style="background:var(--ok-soft);color:var(--ok);border:1px solid var(--ok-line);padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800">Popular</span></div></div>
+        <div class="vC-item" data-src="Indeed" data-flag="🇺🇸" data-price="0.10"><div class="box">✓</div><span class="flag">🇺🇸</span><div><div class="name">Indeed</div><div class="meta">Apify · $0.10/1K</div></div></div>
+        <div class="vC-item" data-src="Naukri" data-flag="🇮🇳" data-price="0.40"><div class="box">✓</div><span class="flag">🇮🇳</span><div><div class="name">Naukri</div><div class="meta">Apify · $0.40/1K · India</div></div></div>
+        <div class="vC-item" data-src="Greenhouse" data-flag="🌱" data-price="0.40"><div class="box">✓</div><span class="flag">🌱</span><div><div class="name">Greenhouse</div><div class="meta">ATS · $0.40/1K</div></div></div>
+        <div class="vC-item" data-src="Lever" data-flag="🔷" data-price="0.40"><div class="box">✓</div><span class="flag">🔷</span><div><div class="name">Lever</div><div class="meta">ATS · $0.40/1K</div></div></div>
+        <div class="vC-item" data-src="Ashby" data-flag="🟣" data-price="0.40"><div class="box">✓</div><span class="flag">🟣</span><div><div class="name">Ashby</div><div class="meta">ATS · $0.40/1K</div></div></div>
+        <div class="vC-item" data-src="Workday" data-flag="🏢" data-price="0.40"><div class="box">✓</div><span class="flag">🏢</span><div><div class="name">Workday</div><div class="meta">ATS · $0.40/1K</div></div></div>
+        <div class="vC-item" data-src="SmartRecruiters" data-flag="🧠" data-price="0.40"><div class="box">✓</div><span class="flag">🧠</span><div><div class="name">SmartRecruiters</div><div class="meta">ATS · $0.40/1K</div></div></div>
+        <div class="vC-item" data-src="Rippling" data-flag="🔁" data-price="0.40"><div class="box">✓</div><span class="flag">🔁</span><div><div class="name">Rippling</div><div class="meta">ATS · $0.40/1K</div></div></div>
+        <div class="vC-item" data-src="Arbeitnow" data-flag="🌍" data-price="0"><div class="box">✓</div><span class="flag">🌍</span><div><div class="name">Arbeitnow</div><div class="meta">Free</div></div></div>
+        <div class="vC-item" data-src="Dice" data-flag="🇺🇸" data-price="0"><div class="box">✓</div><span class="flag">🇺🇸</span><div><div class="name">Dice</div><div class="meta">Free</div></div></div>
+        <div class="vC-item" data-src="Reed" data-flag="🇬🇧" data-price="0"><div class="box">✓</div><span class="flag">🇬🇧</span><div><div class="name">Reed</div><div class="meta">Free</div></div></div>
+        <div class="vC-item" data-src="Cutshort" data-flag="🇮🇳" data-price="0"><div class="box">✓</div><span class="flag">🇮🇳</span><div><div class="name">Cutshort</div><div class="meta">Free</div></div></div>
+        <div class="vC-item" data-src="MyCareersFuture" data-flag="🇸🇬" data-price="0"><div class="box">✓</div><span class="flag">🇸🇬</span><div><div class="name">MyCareersFuture</div><div class="meta">Free</div></div></div>
+        <div class="vC-item" data-src="RemoteOK" data-flag="🌍" data-price="0" style="opacity:.4;pointer-events:none"><div class="box">✓</div><span class="flag">🌍</span><div><div class="name">RemoteOK</div><div class="meta">Coming soon</div></div></div>
+      </div>
+      <div class="cost"><span>Estimated Apify cost</span><b id="cost-C">$0.000</b><span>for 25 jobs</span><span class="pill" id="cost-pill-C">Free</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  // Variant switcher
+  var btns = document.querySelectorAll('.variant-btn');
+  btns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      btns.forEach(function (x) { x.classList.remove('active'); });
+      b.classList.add('active');
+      document.querySelectorAll('.variant').forEach(function (v) { v.classList.remove('active'); });
+      document.getElementById('variant-' + b.dataset.variant).classList.add('active');
+    });
+  });
+
+  // Shared: click to toggle (chips + checkbox items)
+  document.addEventListener('click', function (e) {
+    var chip = e.target.closest('.chip');
+    if (chip) {
+      chip.classList.toggle('on');
+      recalc();
+      return;
+    }
+    var item = e.target.closest('.vC-item');
+    if (item) {
+      item.classList.toggle('on');
+      recalc();
+      return;
+    }
+  });
+
+  // Per-variant cost + counts
+  var LIMIT = 25;
+  function recalc() {
+    ['A', 'B', 'C'].forEach(function (v) {
+      var root = document.getElementById('variant-' + v);
+      var on = root.querySelectorAll('.chip.on, .vC-item.on');
+      var total = 0;
+      on.forEach(function (c) {
+        var price = parseFloat(c.dataset.price) || 0;
+        total += price * (LIMIT / 1000);
+      });
+      var el = document.getElementById('cost-' + v);
+      var pill = document.getElementById('cost-pill-' + v);
+      if (el) el.textContent = '$' + total.toFixed(3);
+      if (pill) {
+        if (total === 0) { pill.textContent = 'Free'; pill.className = 'pill'; }
+        else if (total < 0.05) { pill.textContent = '~' + total.toFixed(3) + ' only'; pill.className = 'pill'; }
+        else { pill.textContent = '~' + total.toFixed(2) + ' / search'; pill.className = 'pill warn'; }
+      }
+    });
+    // Variant A group counts
+    var counts = { boards: 0, ats: 0, free: 0 };
+    var totals = { boards: 5, ats: 16, free: 12 };
+    document.querySelectorAll('#variant-A .vA-group').forEach(function (g) {
+      var group = g.querySelector('.vA-chips').dataset.group;
+      var n = g.querySelectorAll('.chip.on').length;
+      counts[group] = n;
+      var c = g.querySelector('.count');
+      if (c) c.textContent = n + '/' + totals[group];
+    });
+    // Variant A summary
+    var sumChips = document.getElementById('sum-chips-A');
+    var sumEmpty = document.getElementById('sum-empty-A');
+    var selA = document.querySelectorAll('#variant-A .vA-chips .chip.on');
+    sumChips.innerHTML = '';
+    selA.forEach(function (c) {
+      var s = document.createElement('span');
+      s.className = 'chip on';
+      s.dataset.src = c.dataset.src;
+      s.innerHTML = '<span class="flag">' + c.dataset.flag + '</span>' + c.dataset.src;
+      sumChips.appendChild(s);
+    });
+    sumEmpty.style.display = selA.length ? 'none' : '';
+  }
+
+  // Seed default selection: LinkedIn on in all variants
+  ['A', 'B', 'C'].forEach(function (v) {
+    var li = document.querySelector('#variant-' + v + ' [data-src="LinkedIn"]');
+    if (li) li.classList.add('on');
+  });
+  recalc();
+})();
+</script>
+</body>
+</html>
