@@ -212,6 +212,21 @@ Ok 'docker compose v2 found'
 
 # ── 5. Get the app ──────────────────────────────────────────────────────────
 if (-not (Test-Path (Join-Path $AppDir 'docker-compose.yml'))) {
+  # A folder exists but the app isn't there → it's a stale/partial install
+  # (e.g. a failed clone, a leftover .git, or junk from an aborted run).
+  # git clone refuses to clone into a non-empty directory, so clean it first
+  # while PRESERVING config.ini (API keys) if the user already set them up.
+  if (Test-Path $AppDir) {
+    Warn "A previous incomplete install was found at $AppDir — cleaning it up before downloading fresh."
+    $cfgKeep = Join-Path $AppDir 'config.ini'
+    $cfgBackup = Join-Path $env:TEMP 'tailor-cv-config.ini.bak'
+    if (Test-Path $cfgKeep -and -not (Get-Item $cfgKeep).PSIsContainer) {
+      Copy-Item $cfgKeep $cfgBackup -Force
+      Warn 'Your existing config.ini (API keys) was backed up and will be restored.'
+    }
+    Remove-Item $AppDir -Recurse -Force
+  }
+
   Say "Downloading Tailor CV to $AppDir"
   $gitExe = Find-Git
   if (-not $gitExe) {
@@ -236,6 +251,16 @@ if (-not (Test-Path (Join-Path $AppDir 'docker-compose.yml'))) {
   & $gitExe clone --depth 1 $RepoUrl $AppDir
   if ($LASTEXITCODE -ne 0) { Fail 'Could not download the app. Check your connection, or clone the repo manually.' }
   Ok 'App downloaded'
+}
+
+# Restore a backed-up config.ini (from the stale-folder cleanup above) so the
+# user's API keys are not lost.
+$cfgBackup = Join-Path $env:TEMP 'tailor-cv-config.ini.bak'
+$cfgPath2 = Join-Path $AppDir 'config.ini'
+if (Test-Path $cfgBackup -and -not (Test-Path $cfgPath2)) {
+  Copy-Item $cfgBackup $cfgPath2 -Force
+  Remove-Item $cfgBackup -Force
+  Ok 'Restored your previous config.ini (API keys kept intact)'
 }
 
 # ── 6. Prepare config.ini ───────────────────────────────────────────────────

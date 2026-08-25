@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.8.8 (2026-08-19)
+
+### 🐛 Fixes
+- **Installers now recover from a stale/partial `tailor-cv` folder:** If a previous run left a non-empty folder without `docker-compose.yml` (e.g. a failed clone or an interrupted install), `git clone` refused with "destination path already exists and is not an empty directory". Both `install.ps1` (Windows) and `install.sh` (macOS/Linux) now detect that state, **back up `config.ini` (API keys), clean the stale folder, clone fresh, and restore your keys** — no manual deletion needed.
+
 ## v1.8.7 (2026-08-19)
 
 ### 🐛 Fixes
