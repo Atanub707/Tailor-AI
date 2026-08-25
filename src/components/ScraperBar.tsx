@@ -23,12 +23,12 @@ interface ScraperBarProps {
   apifyAvailable?: boolean; // Apify enabled + token saved — lights up Apify-only sources
 }
 
-const ALL_SOURCES: JobSource[] = ['LinkedIn', 'Arbeitnow', 'SimplyHired', 'Dice', 'Reed', 'MyCareersFuture', 'Cutshort', 'Gupy', 'JobsCh', 'Daijob', 'MyJobMag', 'RemoteOK', 'WeWorkRemotely', 'Indeed', 'Naukri', 'Glassdoor', 'Upwork', 'Greenhouse', 'Lever', 'Ashby', 'Workable', 'Workday', 'SmartRecruiters', 'Teamtailor', 'Personio', 'BambooHR', 'Rippling', 'JazzHR', 'Recruitee', 'iCIMS', 'Comeet', 'Pinpoint', 'Join'];
+const ALL_SOURCES: JobSource[] = ['LinkedIn', 'Arbeitnow', 'SimplyHired', 'Dice', 'Reed', 'MyCareersFuture', 'Cutshort', 'Gupy', 'JobsCh', 'Daijob', 'MyJobMag', 'RemoteOK', 'WeWorkRemotely', 'Indeed', 'Naukri', 'Glassdoor', 'Upwork', 'Greenhouse', 'Lever', 'Ashby', 'Workable', 'SmartRecruiters', 'Comeet', 'Join', 'Workday', 'Teamtailor', 'Personio', 'BambooHR', 'Rippling', 'JazzHR', 'Recruitee', 'iCIMS', 'Jobvite', 'Pinpoint'];
 const COMING_SOON: JobSource[] = ['RemoteOK', 'WeWorkRemotely'];
-// Apify-powered sources stay visible in the main row (after LinkedIn);
-// the built-in sources live inside the "More" dropdown.
-const APIFY_SOURCES_VISIBLE = ALL_SOURCES.filter((src) => getSourceMeta(src)?.apifyActorId);
-const MORE_SOURCES = ALL_SOURCES.filter((src) => !getSourceMeta(src)?.apifyActorId);
+// All sources live in the main row (wrap — never overflow); locked ATS at the end.
+const VISIBLE_SOURCES = [...ALL_SOURCES].sort(
+  (a, b) => Number(!!getSourceMeta(a)?.locked) - Number(!!getSourceMeta(b)?.locked)
+);
 
 export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, apifyAvailable }) => {
   const [keywords, setKeywords] = useState('');
@@ -368,28 +368,7 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
         <div className="flex items-start gap-3 pt-4 border-t border-[var(--color-hairline)]">
           <span className={`${fieldLabelCls} pt-[9px] whitespace-nowrap shrink-0`}>Sources</span>
           <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
-            {APIFY_SOURCES_VISIBLE.map((src) => renderSourceChip(src))}
-
-            {/* More — hover/focus opens the built-in source list */}
-            <div className="relative group shrink-0">
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 pl-2 pr-2.5 py-[7px] rounded-full text-[11.5px] font-semibold text-[var(--color-muted)] border border-[var(--color-hairline)] bg-white hover:border-[var(--color-brand-line)] transition-colors cursor-pointer whitespace-nowrap"
-                title="Built-in sources this search can capture"
-              >
-                <CaretDown size={12} style={{ color: 'var(--color-faint)' }} />
-                <span>More</span>
-                <span className="text-[10px] font-bold text-[var(--color-faint)]">({MORE_SOURCES.length})</span>
-              </button>
-              <div className="absolute right-0 top-full mt-1.5 z-30 w-[330px] bg-white border border-[var(--color-hairline)] rounded-xl p-3 opacity-0 invisible pointer-events-none group-hover:opacity-100 group-hover:visible group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:visible group-focus-within:pointer-events-auto transition-all" style={{ boxShadow: '0 12px 32px rgba(30,27,75,0.12)' }}>
-                <p className="text-[10px] font-extrabold uppercase tracking-wide text-[var(--color-faint)] mb-2">
-                  Built-in sources this search can capture
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {MORE_SOURCES.map((src) => renderSourceChip(src))}
-                </div>
-              </div>
-            </div>
+            {VISIBLE_SOURCES.map((src) => renderSourceChip(src))}
           </div>
         </div>
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.9.3 (2026-08-26)
+
+### ✨ UI
+- **All sources shown directly in the row** — the "More" dropdown is gone. Every portal chip (LinkedIn → Join, ATS + built-in) is now visible at once and wraps to fit.
+- **Locked ATS grouped at the end** of the source row (Workday, Teamtailor, Personio, BambooHR, Rippling, JazzHR, Recruitee, iCIMS, Jobvite, Pinpoint — all 🔒).
+
 ## v1.9.2 (2026-08-26)
 
 ### 🧹 Cleanup
