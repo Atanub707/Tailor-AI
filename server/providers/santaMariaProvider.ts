@@ -93,7 +93,18 @@ export class SantaMariaApifyProvider implements JobProvider {
     try {
       ensureV2Tables();
       const db = getDb();
-      const rows = db.prepare(`SELECT careerUrl FROM company_career_sites WHERE isActive = 1 LIMIT 25`).all() as any[];
+      // When the caller filters by ATS platform (Plan B source chips), only
+      // query that platform's career sites — never the whole 25.
+      const platforms = params.atsPlatforms?.length
+        ? params.atsPlatforms.map((p) => String(p).toLowerCase())
+        : null;
+      let rows: { careerUrl: string }[];
+      if (platforms) {
+        const placeholders = platforms.map(() => '?').join(',');
+        rows = db.prepare(`SELECT careerUrl FROM company_career_sites WHERE isActive = 1 AND LOWER(atsPlatform) IN (${placeholders}) LIMIT 25`).all(...platforms) as any[];
+      } else {
+        rows = db.prepare(`SELECT careerUrl FROM company_career_sites WHERE isActive = 1 LIMIT 25`).all() as any[];
+      }
       return rows.map((r) => r.careerUrl);
     } catch {
       return [];

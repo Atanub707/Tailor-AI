@@ -23,10 +23,7 @@ import { loadConfig } from '../config.js';
 import { SOURCES } from '../../src/constants/sources.js';
 import { contradictsWanted } from './workMode.js';
 import { ApifyBaseScraper } from './apifyBase.js';
-import { GreenhouseApifyScraper } from './greenhouseScraper.js';
-import { LeverApifyScraper } from './leverScraper.js';
-import { AshbyApifyScraper } from './ashbyScraper.js';
-import { WorkableApifyScraper } from './workableScraper.js';
+import { SantaMariaApifyProvider } from '../providers/santaMariaProvider.js';
 
 // Apify-powered sources — constructed from the shared registry (Task 1).
 const APIFY_SCRAPERS: Partial<Record<JobSource, () => ApifyBaseScraper>> = {
@@ -35,11 +32,42 @@ const APIFY_SCRAPERS: Partial<Record<JobSource, () => ApifyBaseScraper>> = {
   Naukri: () => new NaukriScraper(),
   Glassdoor: () => new GlassdoorScraper(),
   Upwork: () => new UpworkScraper(),
-  Greenhouse: () => new GreenhouseApifyScraper(),
-  Lever: () => new LeverApifyScraper(),
-  Ashby: () => new AshbyApifyScraper(),
-  Workable: () => new WorkableApifyScraper(),
 };
+
+// ATS-25 sources (Greenhouse, Lever, Ashby, Workable, Workday, SmartRecruiters,
+// …) all route through the ONE Santa Maria actor — never per-ATS scrapers.
+// The selected source's platform filters the company_career_sites registry.
+const ATS_PLATFORM_BY_SOURCE: Partial<Record<JobSource, string>> = {
+  Greenhouse: 'greenhouse',
+  Lever: 'lever',
+  Ashby: 'ashby',
+  Workable: 'workable',
+  Workday: 'workday',
+  SmartRecruiters: 'smartrecruiters',
+  Teamtailor: 'teamtailor',
+  Personio: 'personio',
+  BambooHR: 'bamboohr',
+  Rippling: 'rippling',
+  JazzHR: 'jazzhr',
+  Recruitee: 'recruitee',
+  iCIMS: 'icims',
+  Comeet: 'comeet',
+  Pinpoint: 'pinpoint',
+  Join: 'join',
+};
+
+async function scrapeAtsViaSantaMaria(source: JobSource, params: ScraperParams): Promise<Job[]> {
+  const platform = ATS_PLATFORM_BY_SOURCE[source];
+  const provider = new SantaMariaApifyProvider();
+  const result = await provider.search({
+    keywords: params.keywords.trim().split(/\s+/).filter(Boolean),
+    locations: params.location && params.location !== 'Remote' ? [params.location] : undefined,
+    atsPlatforms: platform ? [platform as any] : undefined,
+    limit: Math.min(params.maxJobsPerSource || 15, 50),
+    queries: [], // provider reads the registry itself (filtered by platform)
+  });
+  return result.jobs;
+}
 
 export class ScraperFactory {
   // Populated by the last runScrape: sources skipped (robots.txt or Apify gate).
@@ -96,7 +124,16 @@ export class ScraperFactory {
       try {
         let jobs: Job[] = [];
 
-        if (meta?.apifyActorId) {
+        // Plan B: ATS-25 sources route through the single Santa Maria actor.
+        if (ATS_PLATFORM_BY_SOURCE[source]) {
+          const apifyConfig = loadConfig().apify;
+          const apifyAvailable = apifyConfig.enabled && !!apifyConfig.token?.trim();
+          if (!apifyAvailable) {
+            ScraperFactory.lastSkippedSources.push({ source, reason: 'requires Apify API key — enable in Settings' });
+            continue;
+          }
+          jobs = await scrapeAtsViaSantaMaria(source, params);
+        } else if (meta?.apifyActorId) {
           // Apify path — generic for all Apify-powered sources.
           const apifyConfig = loadConfig().apify;
           const apifyAvailable = apifyConfig.enabled && !!apifyConfig.token?.trim();
