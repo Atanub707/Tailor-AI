@@ -137,9 +137,6 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
         {meta?.apifyActorId && !gated && (
           <span className={`text-[8.5px] font-extrabold uppercase tracking-[0.06em] rounded-full px-[7px] py-[2px] ${isSelected ? 'bg-white/20 text-white' : 'bg-[var(--color-brand-soft)] text-[var(--color-brand-strong)] border border-[var(--color-brand-line)]'}`}>Apify</span>
         )}
-        {meta?.pricePer1K && !isComingSoon && (
-          <span className={`text-[9px] font-extrabold rounded-full px-[6px] py-[1px] ${isSelected ? 'bg-white/20 text-white' : 'bg-[var(--color-canvas)] text-[var(--color-faint)]'}`}>{meta.pricePer1K}/1K</span>
-        )}
         {isComingSoon && (
           <span className="text-[8.5px] font-extrabold uppercase text-[var(--color-faint)] bg-white/60 border border-[var(--color-hairline)] rounded-full px-[7px] py-[2px]">Soon</span>
         )}
@@ -363,44 +360,33 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
 
         </div>
 
-        {/* ── Row 3: Source Pills with Flags ── */}
-        <div className="flex items-center justify-between gap-4 pt-4 border-t border-[var(--color-hairline)]">
-          <div className="flex items-start gap-3 min-w-0 flex-1">
-            <span className={`${fieldLabelCls} pt-[9px] whitespace-nowrap`}>Sources</span>
-            <div className="flex items-center gap-2 flex-nowrap min-w-0">
-              {APIFY_SOURCES_VISIBLE.map((src) => renderSourceChip(src))}
+        {/* ── Row 3: Source Pills with Flags (wrap — never overflow) ── */}
+        <div className="flex items-start gap-3 pt-4 border-t border-[var(--color-hairline)]">
+          <span className={`${fieldLabelCls} pt-[9px] whitespace-nowrap shrink-0`}>Sources</span>
+          <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
+            {APIFY_SOURCES_VISIBLE.map((src) => renderSourceChip(src))}
 
-              {/* More — hover/focus opens the built-in source list */}
-              <div className="relative group shrink-0">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 pl-2 pr-2.5 py-[7px] rounded-full text-[11.5px] font-semibold text-[var(--color-muted)] border border-[var(--color-hairline)] bg-white hover:border-[var(--color-brand-line)] transition-colors cursor-pointer whitespace-nowrap"
-                  title="Built-in sources this search can capture"
-                >
-                  <CaretDown size={12} style={{ color: 'var(--color-faint)' }} />
-                  <span>More</span>
-                  <span className="text-[10px] font-bold text-[var(--color-faint)]">({MORE_SOURCES.length})</span>
-                </button>
-                <div className="absolute right-0 top-full mt-1.5 z-30 w-[330px] bg-white border border-[var(--color-hairline)] rounded-xl p-3 opacity-0 invisible pointer-events-none group-hover:opacity-100 group-hover:visible group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:visible group-focus-within:pointer-events-auto transition-all" style={{ boxShadow: '0 12px 32px rgba(30,27,75,0.12)' }}>
-                  <p className="text-[10px] font-extrabold uppercase tracking-wide text-[var(--color-faint)] mb-2">
-                    Built-in sources this search can capture
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {MORE_SOURCES.map((src) => renderSourceChip(src))}
-                  </div>
+            {/* More — hover/focus opens the built-in source list */}
+            <div className="relative group shrink-0">
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 pl-2 pr-2.5 py-[7px] rounded-full text-[11.5px] font-semibold text-[var(--color-muted)] border border-[var(--color-hairline)] bg-white hover:border-[var(--color-brand-line)] transition-colors cursor-pointer whitespace-nowrap"
+                title="Built-in sources this search can capture"
+              >
+                <CaretDown size={12} style={{ color: 'var(--color-faint)' }} />
+                <span>More</span>
+                <span className="text-[10px] font-bold text-[var(--color-faint)]">({MORE_SOURCES.length})</span>
+              </button>
+              <div className="absolute right-0 top-full mt-1.5 z-30 w-[330px] bg-white border border-[var(--color-hairline)] rounded-xl p-3 opacity-0 invisible pointer-events-none group-hover:opacity-100 group-hover:visible group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:visible group-focus-within:pointer-events-auto transition-all" style={{ boxShadow: '0 12px 32px rgba(30,27,75,0.12)' }}>
+                <p className="text-[10px] font-extrabold uppercase tracking-wide text-[var(--color-faint)] mb-2">
+                  Built-in sources this search can capture
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {MORE_SOURCES.map((src) => renderSourceChip(src))}
                 </div>
               </div>
             </div>
           </div>
-        </div>
-
-        {/* ── Cost pill — estimated Apify spend for the selection at the chosen limit ── */}
-        <div className="flex items-center gap-2 pt-1 text-[11.5px] font-semibold text-[var(--color-faint)]">
-          <span>Estimated cost</span>
-          <span className={`inline-flex items-center gap-1 px-2.5 py-[3px] rounded-full text-[11px] font-extrabold border ${costPerSearch <= 0.001 ? 'bg-[var(--color-cta-soft)] border-[var(--color-cta-line)] text-[var(--color-cta)]' : 'bg-[var(--color-tint-amber,#FFFBEB)] border-[#FDE68A] text-[#B45309]'}`}>
-            {costPerSearch <= 0.001 ? 'Free' : `~$${costPerSearch.toFixed(3)}`}
-          </span>
-          <span>for {maxJobsPerSource} jobs · {selectedSources.length} source{selectedSources.length === 1 ? '' : 's'} selected</span>
         </div>
 
         {/* ── Scrape result banner (own row — never overlaps the source chips) ── */}
