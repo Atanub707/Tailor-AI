@@ -1,95 +1,48 @@
 import React, { useState } from 'react';
-import { MagnifyingGlass, MapPin, Play, CaretDown, CheckCircle, Info } from '@phosphor-icons/react';
-import { JobSource } from '../types';
+import { MagnifyingGlass, MapPin, Play, CaretDown, CheckCircle } from '@phosphor-icons/react';
 import { getRoleSuggestions, getKeywordSuggestions } from '../constants/suggestions';
-import { getSourceFlag, getSourceCountry, getSourceMeta } from '../constants/sourceMeta';
 import { searchLocations } from '../lib/locations';
 
 interface ScraperBarProps {
   onScrape: (params: {
     keywords: string;
     location: string;
-    sources: JobSource[];
-    datePostedFilter: 'all' | '24h' | '7d' | '30d';
-    jobType?: 'all' | 'remote' | 'onsite' | 'hybrid';
-    minSalary?: number;
-    maxJobsPerSource?: number;
-    contractType?: string;
-    experienceLevel?: string;
-    under10Applicants?: boolean;
-  }) => Promise<{ scrapedTotal: number; addedCount: number; skippedDuplicates: number; filteredOutCount?: number; skippedSources?: { source: string; reason: string }[]; newContacts?: { name: string | null; email: string | null; phone: string | null; whatsapp: boolean; recruiterUrl: string | null; company: string }[] } | void>;
+    postedWithin: 'all' | '24h' | '7d' | '30d';
+    remote?: boolean;
+    limit: number;
+  }) => Promise<{ jobs: number; cacheHit: boolean; providersCalled: string[] } | void>;
   isLoading: boolean;
-  apifyAvailable?: boolean; // Apify enabled + token saved — lights up Apify-only sources
 }
 
-const ALL_SOURCES: JobSource[] = ['LinkedIn', 'Arbeitnow', 'SimplyHired', 'Dice', 'Reed', 'MyCareersFuture', 'Cutshort', 'Gupy', 'JobsCh', 'Daijob', 'MyJobMag', 'RemoteOK', 'WeWorkRemotely', 'Indeed', 'Naukri', 'Glassdoor', 'Upwork'];
-const COMING_SOON: JobSource[] = ['RemoteOK', 'WeWorkRemotely'];
-// Apify-powered sources stay visible in the main row (after LinkedIn);
-// the built-in sources live inside the "More" dropdown.
-const APIFY_SOURCES_VISIBLE = ALL_SOURCES.filter((src) => getSourceMeta(src)?.apifyActorId);
-const MORE_SOURCES = ALL_SOURCES.filter((src) => !getSourceMeta(src)?.apifyActorId);
-
-export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, apifyAvailable }) => {
+export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading }) => {
   const [keywords, setKeywords] = useState('');
   const [location, setLocation] = useState('');
   const [locationOptions, setLocationOptions] = useState<string[]>([]);
   const [datePostedFilter, setDatePostedFilter] = useState<'all' | '24h' | '7d' | '30d'>('24h');
-  const [jobType, setJobType] = useState<'all' | 'remote' | 'onsite' | 'hybrid'>('remote');
-  const [jobTypeInfoOpen, setJobTypeInfoOpen] = useState(false);
-  const [experienceLevel, setExperienceLevel] = useState('');
-  const [contractType, setContractType] = useState('');
-  const [maxJobsPerSource, setMaxJobsPerSource] = useState<number>(10);
-  const [under10Applicants, setUnder10Applicants] = useState(false);
+  const [maxJobs, setMaxJobs] = useState<number>(10);
   const [scrapeSuccessMsg, setScrapeSuccessMsg] = useState<string | null>(null);
-  const [scrapeNewContacts, setScrapeNewContacts] = useState<{ name: string | null; email: string | null; phone: string | null; whatsapp: boolean; recruiterUrl: string | null }[]>([]);
-  const [selectedSources, setSelectedSources] = useState<JobSource[]>(['LinkedIn']);
 
   const roleSuggestions = getRoleSuggestions(keywords);
   const keywordSuggestions = getKeywordSuggestions(keywords);
-
-  const isApifyGated = (source: JobSource) => !!getSourceMeta(source)?.needsApify && !apifyAvailable;
-
-  const toggleSource = (source: JobSource) => {
-    if (COMING_SOON.includes(source) || isApifyGated(source)) return;
-    setSelectedSources((prev) =>
-      prev.includes(source) ? prev.filter((s) => s !== source) : [...prev, source]
-    );
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!keywords.trim()) return;
 
     setScrapeSuccessMsg(null);
-    setScrapeNewContacts([]);
     const result = await onScrape({
       keywords: keywords.trim(),
       location,
-      sources: selectedSources,
-      datePostedFilter,
-      jobType,
-      maxJobsPerSource,
-      contractType: contractType || undefined,
-      experienceLevel: experienceLevel || undefined,
-      under10Applicants,
+      postedWithin: datePostedFilter,
+      limit: maxJobs,
     });
 
-    if (result && result.scrapedTotal > 0) {
-      const filterNote = result.filteredOutCount && result.filteredOutCount > 0
-        ? ` (${result.filteredOutCount} filtered out — over 10 applicants)`
-        : '';
-      setScrapeNewContacts(result.newContacts || []);
-      if (result.addedCount > 0) {
-        setScrapeSuccessMsg(`Scraped ${result.scrapedTotal} live postings! Added ${result.addedCount} new jobs to top (${result.skippedDuplicates} duplicates skipped).${filterNote}`);
-      } else {
-        setScrapeSuccessMsg(`Scraped ${result.scrapedTotal} live postings! (All ${result.skippedDuplicates} were already in your job list).${filterNote}`);
-      }
-    } else if (result?.skippedSources && result.skippedSources.length > 0) {
-      const skippedNames = result.skippedSources.map((s) => `${s.source} (${s.reason})`).join(', ');
-      setScrapeSuccessMsg(`Searched — skipped: ${skippedNames}.`);
+    if (result && result.jobs > 0) {
+      const cacheNote = result.cacheHit ? ' — from cache, 0 credits' : '';
+      const providers = result.providersCalled.length > 0 ? ` (${result.providersCalled.join(' + ')})` : '';
+      setScrapeSuccessMsg(`Found ${result.jobs} jobs for "${keywords.trim()}"${providers}${cacheNote}.`);
     } else {
-      const srcList = selectedSources.join(' + ');
-      setScrapeSuccessMsg(`Searched ${srcList} — No results found in the selected window. Try different keywords, a wider posted window, or search again later.`);
+      setScrapeSuccessMsg('No results found in the selected window. Try different keywords, a wider posted window, or search again later.');
     }
     setTimeout(() => setScrapeSuccessMsg(null), 10000);
   };
@@ -97,44 +50,6 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
   const selectClass =
     'w-full appearance-none bg-white border-[1.5px] border-[var(--color-hairline2)] rounded-[10px] pl-3 pr-9 py-2.5 text-[12.5px] font-semibold text-[var(--color-ink)] cursor-pointer transition-colors hover:border-[var(--color-brand-line)] focus:outline-none focus:border-[var(--color-brand)] focus:ring-[3px] focus:ring-[var(--color-brand)]/12';
   const fieldLabelCls = 'text-[10px] font-extrabold uppercase tracking-[0.09em] text-[var(--color-faint)]';
-
-  const renderSourceChip = (src: JobSource) => {
-    const isComingSoon = COMING_SOON.includes(src);
-    const isSelected = selectedSources.includes(src);
-    const gated = isApifyGated(src);
-    const meta = getSourceMeta(src);
-    const disabled = isComingSoon || gated;
-    const title = isComingSoon
-      ? `${src} — Coming soon`
-      : gated
-      ? `${src} — requires Apify API key — enable in Settings`
-      : `${src} — ${getSourceCountry(src)}${meta?.pricePer1K ? ` · ${meta.pricePer1K}/1K jobs` : ''}`;
-    return (
-      <button
-        key={src}
-        type="button"
-        onClick={() => toggleSource(src)}
-        disabled={disabled}
-        title={title}
-        className={`inline-flex items-center gap-2 pl-2.5 pr-3 py-[7px] rounded-full text-[11.5px] font-semibold border-[1.5px] transition-all whitespace-nowrap cursor-pointer ${
-          disabled
-            ? 'opacity-45 cursor-not-allowed bg-white border-[var(--color-hairline)] text-[var(--color-faint)]'
-            : isSelected
-            ? 'bg-[var(--color-brand-soft)] border-[var(--color-brand)] text-[var(--color-brand)] font-bold'
-            : 'bg-white border-[var(--color-hairline)] text-[var(--color-muted)] hover:border-[var(--color-brand-line)] hover:text-[var(--color-ink)]'
-        }`}
-      >
-        <span className="text-[13px] leading-none">{getSourceFlag(src)}</span>
-        <span>{src}</span>
-        {meta?.apifyActorId && !gated && (
-          <span className="text-[8.5px] font-extrabold uppercase tracking-[0.06em] text-white bg-[var(--color-brand)] rounded-full px-[7px] py-[2px]">Apify</span>
-        )}
-        {isComingSoon && (
-          <span className="text-[8.5px] font-extrabold uppercase text-[var(--color-faint)]">Soon</span>
-        )}
-      </button>
-    );
-  };
 
   return (
     <div className="bg-white border-b border-[var(--color-hairline)] py-5">
@@ -181,17 +96,17 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
             ) : (
               <>
                 <Play size={13} weight="fill" />
-                <span>Search Jobs</span>
+                <span>Find Jobs</span>
               </>
             )}
           </button>
         </div>
 
-        {/* ── Row 2: Filter Grid ── */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        {/* ── Row 2: Unified filters — no source picker ── */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {/* Location */}
           <div className="flex flex-col gap-[6px]">
-            <label className={fieldLabelCls}>Location</label>
+            <label className={fieldLabelCls}>Where</label>
             <div className="relative">
               <MapPin size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--color-faint)' }} />
               <input
@@ -216,41 +131,6 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
             </div>
           </div>
 
-          {/* Job Type */}
-          <div className="flex flex-col gap-[6px]">
-            <label className={`${fieldLabelCls} flex items-center gap-1`}>
-              Job Type
-              <span className="relative inline-flex group">
-                <button
-                  type="button"
-                  aria-label="Job type may not be accurate"
-                  onClick={() => setJobTypeInfoOpen((v) => !v)}
-                  className="inline-flex items-center justify-center w-[15px] h-[15px] rounded-full border border-[var(--color-hairline2)] bg-[#F1F5F9] text-[var(--color-faint)] cursor-pointer transition-colors hover:border-[var(--color-brand)] hover:bg-[var(--color-brand-soft)] hover:text-[var(--color-brand)]"
-                >
-                  <Info size={9} weight="bold" />
-                </button>
-                <span
-                  className={`absolute top-full left-1/2 -translate-x-1/2 mt-1.5 w-52 bg-[var(--color-ink)] text-white text-[10.5px] font-medium leading-relaxed rounded-[10px] px-2.5 py-2 shadow-lg z-20 pointer-events-none transition-opacity duration-150 ${jobTypeInfoOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
-                >
-                  Job-type labels are detected from descriptions and may not always be accurate.
-                </span>
-              </span>
-            </label>
-            <div className="relative">
-              <select
-                value={jobType}
-                onChange={(e) => setJobType(e.target.value as any)}
-                className={selectClass}
-              >
-                <option value="remote">Remote</option>
-                <option value="hybrid">Hybrid</option>
-                <option value="onsite">On-site</option>
-                <option value="all">All</option>
-              </select>
-              <CaretDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--color-faint)' }} />
-            </div>
-          </div>
-
           {/* Posted */}
           <div className="flex flex-col gap-[6px]">
             <label className={fieldLabelCls}>Posted</label>
@@ -269,55 +149,14 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
             </div>
           </div>
 
-          {/* Level */}
-          <div className="flex flex-col gap-[6px]">
-            <label className={fieldLabelCls}>Level</label>
-            <div className="relative">
-              <select
-                value={experienceLevel}
-                onChange={(e) => setExperienceLevel(e.target.value as any)}
-                className={selectClass}
-              >
-                <option value="">Any level</option>
-                <option value="1">Internship</option>
-                <option value="2">Entry</option>
-                <option value="3">Associate</option>
-                <option value="4">Mid-Senior</option>
-                <option value="5">Director</option>
-                <option value="6">Executive</option>
-              </select>
-              <CaretDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--color-faint)' }} />
-            </div>
-          </div>
-
-          {/* Contract type */}
-          <div className="flex flex-col gap-[6px]">
-            <label className={fieldLabelCls}>Contract</label>
-            <div className="relative">
-              <select
-                value={contractType}
-                onChange={(e) => setContractType(e.target.value as any)}
-                className={selectClass}
-              >
-                <option value="">Any contract</option>
-                <option value="F">Full-time</option>
-                <option value="P">Part-time</option>
-                <option value="C">Contract</option>
-                <option value="T">Temporary</option>
-                <option value="I">Internship</option>
-              </select>
-              <CaretDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--color-faint)' }} />
-            </div>
-          </div>
-
           {/* Limit */}
           <div className="flex flex-col gap-[6px]">
             <label className={fieldLabelCls}>Limit</label>
             <div className="relative">
               <select
                 id="select-scrape-limit"
-                value={maxJobsPerSource}
-                onChange={(e) => setMaxJobsPerSource(Number(e.target.value))}
+                value={maxJobs}
+                onChange={(e) => setMaxJobs(Number(e.target.value))}
                 className={selectClass}
               >
                 <option value={5}>5</option>
@@ -330,75 +169,19 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
             </div>
           </div>
 
-          {/* Under 10 applicants */}
-          <div className="flex flex-col gap-[6px]">
-            <label className={fieldLabelCls}>Competition</label>
-            <label className="flex items-center gap-2 bg-white border border-[var(--color-hairline)] rounded-[10px] px-3 py-2.5 cursor-pointer transition-colors hover:border-[var(--color-brand-line)]" title="Only show jobs with 10 or fewer applicants — low-competition roles (LinkedIn only; other sources are skipped when enabled)">
-              <input
-                type="checkbox"
-                checked={under10Applicants}
-                onChange={(e) => setUnder10Applicants(e.target.checked)}
-                className="accent-[var(--color-brand)] w-[15px] h-[15px] cursor-pointer"
-              />
-              <span className="text-[12px] font-semibold text-[var(--color-muted)] truncate">Under 10 applicants</span>
-            </label>
-          </div>
-
-        </div>
-
-        {/* ── Row 3: Source Pills with Flags ── */}
-        <div className="flex items-center justify-between gap-4 pt-4 border-t border-[var(--color-hairline)]">
-          <div className="flex items-start gap-3 min-w-0 flex-1">
-            <span className={`${fieldLabelCls} pt-[9px] whitespace-nowrap`}>Sources</span>
-            <div className="flex items-center gap-2 flex-nowrap min-w-0">
-              {APIFY_SOURCES_VISIBLE.map((src) => renderSourceChip(src))}
-
-              {/* More — hover/focus opens the built-in source list */}
-              <div className="relative group shrink-0">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 pl-2 pr-2.5 py-[7px] rounded-full text-[11.5px] font-semibold text-[var(--color-muted)] border border-[var(--color-hairline)] bg-white hover:border-[var(--color-brand-line)] transition-colors cursor-pointer whitespace-nowrap"
-                  title="Built-in sources this search can capture"
-                >
-                  <CaretDown size={12} style={{ color: 'var(--color-faint)' }} />
-                  <span>More</span>
-                  <span className="text-[10px] font-bold text-[var(--color-faint)]">({MORE_SOURCES.length})</span>
-                </button>
-                <div className="absolute right-0 top-full mt-1.5 z-30 w-[330px] bg-white border border-[var(--color-hairline)] rounded-xl p-3 opacity-0 invisible pointer-events-none group-hover:opacity-100 group-hover:visible group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:visible group-focus-within:pointer-events-auto transition-all" style={{ boxShadow: '0 12px 32px rgba(30,27,75,0.12)' }}>
-                  <p className="text-[10px] font-extrabold uppercase tracking-wide text-[var(--color-faint)] mb-2">
-                    Built-in sources this search can capture
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {MORE_SOURCES.map((src) => renderSourceChip(src))}
-                  </div>
-                </div>
-              </div>
-            </div>
+          {/* Hint — no source picker */}
+          <div className="flex flex-col justify-end">
+            <p className="text-[10.5px] font-medium text-[var(--color-faint)] leading-snug">
+              Searches all job sources (25+ ATS + job boards) automatically — no source selection needed.
+            </p>
           </div>
         </div>
 
-        {/* ── Scrape result banner (own row — never overlaps the source chips) ── */}
+        {/* ── Scrape result banner ── */}
         {scrapeSuccessMsg && (
           <div className="flex items-start gap-2 w-full bg-[var(--color-cta-soft)] border border-[var(--color-cta-line)] rounded-[12px] px-3.5 py-2.5 text-[12.5px] font-semibold text-[#065F46]">
             <CheckCircle size={16} className="shrink-0 mt-[1px]" style={{ color: 'var(--color-cta)' }} weight="fill" />
-            <div className="min-w-0">
-              <span>{scrapeSuccessMsg}</span>
-              {scrapeNewContacts.length > 0 && (
-                <div className="mt-1 flex items-start gap-1.5 text-[11.5px]">
-                  <span className="font-bold whitespace-nowrap">
-                    +{scrapeNewContacts.length} recruiter{scrapeNewContacts.length > 1 ? 's' : ''}:
-                  </span>
-                  <span className="text-[#047857]">
-                    {scrapeNewContacts.slice(0, 6).map((c) => {
-                      const value = c.email || c.phone || c.recruiterUrl || '';
-                      const label = value.replace(/^https?:\/\//, '');
-                      return c.name ? `${c.name} (${label})` : label;
-                    }).join(' · ')}
-                    {scrapeNewContacts.length > 6 ? ` · +${scrapeNewContacts.length - 6} more` : ''}
-                  </span>
-                </div>
-              )}
-            </div>
+            <span>{scrapeSuccessMsg}</span>
           </div>
         )}
       </form>

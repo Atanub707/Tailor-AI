@@ -247,43 +247,38 @@ export default function App() {
   const handleScrape = async (params: {
     keywords: string;
     location: string;
-    sources: JobSource[];
-    datePostedFilter: 'all' | '24h' | '7d' | '30d';
-    jobType?: 'all' | 'remote' | 'onsite' | 'hybrid';
-    minSalary?: number;
-    maxJobsPerSource?: number;
-    under10Applicants?: boolean;
+    postedWithin: 'all' | '24h' | '7d' | '30d';
+    remote?: boolean;
+    limit: number;
   }) => {
     setIsScrapingLoading(true);
     try {
-      const res = await fetch('/api/jobs/scrape', {
+      const res = await fetch('/api/jobs/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params),
       });
       if (res.ok) {
         const data = await res.json();
-        // Searching ADDS jobs to the store. The list always shows your full
-        // library (newest scraped first) — the search never narrows or hides
-        // existing jobs. Use the toolbar search box / source / sort controls
-        // to filter the view manually.
+        // V2 search persists into the store, then we reload the list (newest
+        // first). The search never narrows or hides existing jobs — use the
+        // toolbar search/sort controls to filter the view manually.
         setActiveStateTab('all');
         setPage(1);
         await fetchJobs();
-        // Notification badge: new recruiters found in this scrape's
-        // descriptions (accumulates until the Recruiters screen is opened).
-        if (data.newContacts?.length > 0) {
-          setRecruiterBadge((prev) => prev + data.newContacts.length);
-        }
-        return { scrapedTotal: data.scrapedTotal || 0, addedCount: data.addedCount || 0, skippedDuplicates: data.skippedDuplicates || 0, filteredOutCount: data.filteredOutCount || 0, skippedSources: data.skippedSources || [], newContacts: data.newContacts || [] };
+        return {
+          jobs: data.jobs?.length || 0,
+          cacheHit: data.cacheHit === true,
+          providersCalled: data.providersCalled || [],
+        };
       } else {
         const err = await res.json();
-        alert(`Scrape error: ${err.error}`);
-        return { scrapedTotal: 0, addedCount: 0, skippedDuplicates: 0 };
+        alert(`Search error: ${err.error}`);
+        return { jobs: 0, cacheHit: false, providersCalled: [] };
       }
     } catch (err: any) {
-      alert(`Scrape request failed: ${err.message}`);
-      return { scrapedTotal: 0, addedCount: 0, skippedDuplicates: 0 };
+      alert(`Search request failed: ${err.message}`);
+      return { jobs: 0, cacheHit: false, providersCalled: [] };
     } finally {
       setIsScrapingLoading(false);
     }
@@ -558,11 +553,10 @@ export default function App() {
             </div>
           )}
 
-          {/* Live Job Scraper Bar */}
+          {/* Live Job Search Bar */}
           <ScraperBar
             onScrape={handleScrape}
             isLoading={isScrapingLoading}
-            apifyAvailable={!!config?.apify.enabled && !!config?.apify.token}
           />
 
           {/* Main Jobs Matrix View */}
