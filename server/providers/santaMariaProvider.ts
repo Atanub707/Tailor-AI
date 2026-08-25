@@ -95,22 +95,31 @@ export class SantaMariaApifyProvider implements JobProvider {
     try {
       ensureV2Tables();
       const db = getDb();
-      // When the caller filters by ATS platform (Plan B source chips), only
-      // query that platform's career sites — capped so one sync run stays fast
-      // (8 boards × ~20 jobs ≈ 160 raw, ~20-40s). Repeat searches can advance
-      // through the remaining boards later.
       const platforms = params.atsPlatforms?.length
         ? params.atsPlatforms.map((p) => String(p).toLowerCase())
         : null;
-      let rows: { careerUrl: string }[];
       const cap = 8;
-      if (platforms) {
-        const placeholders = platforms.map(() => '?').join(',');
-        rows = db.prepare(`SELECT careerUrl FROM company_career_sites WHERE isActive = 1 AND LOWER(atsPlatform) IN (${placeholders}) LIMIT ${cap}`).all(...platforms) as any[];
-      } else {
-        rows = db.prepare(`SELECT careerUrl FROM company_career_sites WHERE isActive = 1 LIMIT ${cap}`).all() as any[];
-      }
-      return rows.map((r) => r.careerUrl);
+      // Priority boards — the hand-verified big-tech companies with real
+      // DevOps hiring (Stripe, GitLab, MongoDB, Twilio…). Always queried so
+      // results are never empty; remaining slots rotate through the long tail
+      // of the 6k-company official list.
+      const PRIORITY_IDS = ['stripe', 'airbnb', 'datadog', 'reddit', 'dropbox', 'coinbase', 'instacart', 'roblox', 'duolingo', 'gitlab', 'mongodb', 'twilio', 'webflow', 'vercel', 'databricks', 'chime', 'gusto', 'brex', 'nubank', 'asana', 'okta'];
+      const placeholders = platforms ? platforms.map(() => '?').join(',') : null;
+      const platformWhere = placeholders ? `AND LOWER(atsPlatform) IN (${placeholders})` : '';
+      const platformArgs = platforms ? platforms : [];
+
+      const priorityRows = db.prepare(
+        `SELECT careerUrl FROM company_career_sites WHERE isActive = 1 ${platformWhere} AND id IN (${PRIORITY_IDS.map(() => '?').join(',')}) LIMIT 3`
+      ).all(...platformArgs, ...PRIORITY_IDS) as { careerUrl: string }[];
+
+      const total = (db.prepare(`SELECT count(*) c FROM company_career_sites WHERE isActive = 1 ${platformWhere} AND id NOT IN (${PRIORITY_IDS.map(() => '?').join(',')})`).get(...platformArgs, ...PRIORITY_IDS) as any).c;
+      const tailCap = cap - priorityRows.length;
+      const offset = (Math.floor(Date.now() / (30 * 60 * 1000)) * tailCap) % Math.max(total, tailCap);
+      const tailRows = db.prepare(
+        `SELECT careerUrl FROM company_career_sites WHERE isActive = 1 ${platformWhere} AND id NOT IN (${PRIORITY_IDS.map(() => '?').join(',')}) ORDER BY rowid LIMIT ${tailCap} OFFSET ${offset}`
+      ).all(...platformArgs, ...PRIORITY_IDS) as { careerUrl: string }[];
+
+      return [...priorityRows, ...tailRows].map((r) => r.careerUrl);
     } catch {
       return [];
     }
