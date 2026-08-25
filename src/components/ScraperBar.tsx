@@ -4,6 +4,7 @@ import { JobSource } from '../types';
 import { getRoleSuggestions, getKeywordSuggestions } from '../constants/suggestions';
 import { getSourceFlag, getSourceCountry, getSourceMeta } from '../constants/sourceMeta';
 import { searchLocations } from '../lib/locations';
+import { SourceIcon } from './SourceIcon';
 
 interface ScraperBarProps {
   onScrape: (params: {
@@ -132,7 +133,7 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
             : 'bg-white border-[var(--color-hairline)] text-[var(--color-muted)] hover:border-[var(--color-brand-line)] hover:text-[var(--color-ink)] hover:shadow-sm'
         }`}
       >
-        <span className="text-[13px] leading-none">{getSourceFlag(src)}</span>
+        <SourceIcon source={src} size={15} />
         <span>{src}</span>
         {meta?.apifyActorId && !gated && (
           <span className={`text-[8.5px] font-extrabold uppercase tracking-[0.06em] rounded-full px-[7px] py-[2px] ${isSelected ? 'bg-white/20 text-white' : 'bg-[var(--color-brand-soft)] text-[var(--color-brand-strong)] border border-[var(--color-brand-line)]'}`}>Apify</span>
