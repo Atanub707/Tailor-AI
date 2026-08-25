@@ -31,21 +31,40 @@ const JOB_CACHE_TTL_HOURS = 24;
 // 25 ATS career sites for Santa Maria — the registry Santa Maria queries.
 // Idempotent: INSERT OR IGNORE on every startup, so it only seeds once.
 const SEED_COMPANIES: Array<{ id: string; companyName: string; careerUrl: string; atsPlatform: string }> = [
+  // ── Greenhouse (largest ATS) — slugs verified live against boards-api.greenhouse.io ──
   { id: 'stripe', companyName: 'Stripe', careerUrl: 'https://boards.greenhouse.io/stripe', atsPlatform: 'greenhouse' },
   { id: 'airbnb', companyName: 'Airbnb', careerUrl: 'https://boards.greenhouse.io/airbnb', atsPlatform: 'greenhouse' },
   { id: 'datadog', companyName: 'Datadog', careerUrl: 'https://boards.greenhouse.io/datadog', atsPlatform: 'greenhouse' },
+  { id: 'reddit', companyName: 'Reddit', careerUrl: 'https://boards.greenhouse.io/reddit', atsPlatform: 'greenhouse' },
+  { id: 'dropbox', companyName: 'Dropbox', careerUrl: 'https://boards.greenhouse.io/dropbox', atsPlatform: 'greenhouse' },
+  { id: 'coinbase', companyName: 'Coinbase', careerUrl: 'https://boards.greenhouse.io/coinbase', atsPlatform: 'greenhouse' },
+  { id: 'instacart', companyName: 'Instacart', careerUrl: 'https://boards.greenhouse.io/instacart', atsPlatform: 'greenhouse' },
+  { id: 'roblox', companyName: 'Roblox', careerUrl: 'https://boards.greenhouse.io/roblox', atsPlatform: 'greenhouse' },
+  { id: 'duolingo', companyName: 'Duolingo', careerUrl: 'https://boards.greenhouse.io/duolingo', atsPlatform: 'greenhouse' },
+  { id: 'gitlab', companyName: 'GitLab', careerUrl: 'https://boards.greenhouse.io/gitlab', atsPlatform: 'greenhouse' },
+  { id: 'mongodb', companyName: 'MongoDB', careerUrl: 'https://boards.greenhouse.io/mongodb', atsPlatform: 'greenhouse' },
+  { id: 'twilio', companyName: 'Twilio', careerUrl: 'https://boards.greenhouse.io/twilio', atsPlatform: 'greenhouse' },
+  { id: 'webflow', companyName: 'Webflow', careerUrl: 'https://boards.greenhouse.io/webflow', atsPlatform: 'greenhouse' },
+  { id: 'vercel', companyName: 'Vercel', careerUrl: 'https://boards.greenhouse.io/vercel', atsPlatform: 'greenhouse' },
+  { id: 'databricks', companyName: 'Databricks', careerUrl: 'https://boards.greenhouse.io/databricks', atsPlatform: 'greenhouse' },
+  { id: 'chime', companyName: 'Chime', careerUrl: 'https://boards.greenhouse.io/chime', atsPlatform: 'greenhouse' },
+  { id: 'gusto', companyName: 'Gusto', careerUrl: 'https://boards.greenhouse.io/gusto', atsPlatform: 'greenhouse' },
+  { id: 'brex', companyName: 'Brex', careerUrl: 'https://boards.greenhouse.io/brex', atsPlatform: 'greenhouse' },
+  { id: 'nubank', companyName: 'Nubank', careerUrl: 'https://boards.greenhouse.io/nubank', atsPlatform: 'greenhouse' },
+  { id: 'asana', companyName: 'Asana', careerUrl: 'https://boards.greenhouse.io/asana', atsPlatform: 'greenhouse' },
+  { id: 'okta', companyName: 'Okta', careerUrl: 'https://boards.greenhouse.io/okta', atsPlatform: 'greenhouse' },
+  // ── Ashby (verified slugs on jobs.ashbyhq.com) ──
   { id: 'notion', companyName: 'Notion', careerUrl: 'https://jobs.ashbyhq.com/notion', atsPlatform: 'ashby' },
   { id: 'ramp', companyName: 'Ramp', careerUrl: 'https://jobs.ashbyhq.com/ramp', atsPlatform: 'ashby' },
   { id: 'linear', companyName: 'Linear', careerUrl: 'https://jobs.ashbyhq.com/linear', atsPlatform: 'ashby' },
-  { id: 'spotify', companyName: 'Spotify', careerUrl: 'https://jobs.lever.co/spotify', atsPlatform: 'lever' },
-  { id: 'netflix', companyName: 'Netflix', careerUrl: 'https://jobs.lever.co/netflix', atsPlatform: 'lever' },
-  { id: 'wework', companyName: 'WeWork', careerUrl: 'https://jobs.lever.co/wework', atsPlatform: 'lever' },
   { id: 'figma', companyName: 'Figma', careerUrl: 'https://jobs.ashbyhq.com/figma', atsPlatform: 'ashby' },
   { id: 'deel', companyName: 'Deel', careerUrl: 'https://jobs.ashbyhq.com/deel', atsPlatform: 'ashby' },
   { id: 'dover', companyName: 'Dover', careerUrl: 'https://jobs.ashbyhq.com/dover', atsPlatform: 'ashby' },
-  { id: 'reddit', companyName: 'Reddit', careerUrl: 'https://boards.greenhouse.io/reddit', atsPlatform: 'greenhouse' },
-  { id: 'dropbox', companyName: 'Dropbox', careerUrl: 'https://boards.greenhouse.io/dropbox', atsPlatform: 'greenhouse' },
-  { id: 'hashicorp', companyName: 'HashiCorp', careerUrl: 'https://boards.greenhouse.io/hashicorp', atsPlatform: 'greenhouse' },
+  // ── Lever (verified slugs on jobs.lever.co) ──
+  { id: 'spotify', companyName: 'Spotify', careerUrl: 'https://jobs.lever.co/spotify', atsPlatform: 'lever' },
+  { id: 'netflix', companyName: 'Netflix', careerUrl: 'https://jobs.lever.co/netflix', atsPlatform: 'lever' },
+  { id: 'wework', companyName: 'WeWork', careerUrl: 'https://jobs.lever.co/wework', atsPlatform: 'lever' },
+  // ── Other ATS ──
   { id: 'canva', companyName: 'Canva', careerUrl: 'https://jobs.lifeatcanva.com', atsPlatform: 'other' },
   { id: 'personio', companyName: 'Personio', careerUrl: 'https://jobs.personio.com/search?q=', atsPlatform: 'personio' },
   { id: 'teamtailor', companyName: 'Teamtailor', careerUrl: 'https://www.teamtailor.com/jobs', atsPlatform: 'teamtailor' },
@@ -60,15 +79,16 @@ const SEED_COMPANIES: Array<{ id: string; companyName: string; careerUrl: string
 
 export function seedCompanyCareerSites(): void {
   const db = getDb();
-  const count = (db.prepare('SELECT count(*) AS c FROM company_career_sites').get() as any).c;
-  if (count > 0) return; // already seeded
+  // Additive, not one-shot: INSERT OR IGNORE keeps existing installs up to
+  // date when new companies are added to the seed list.
   const stmt = db.prepare(
     `INSERT OR IGNORE INTO company_career_sites (id, companyName, careerUrl, atsPlatform, isActive, createdAt, updatedAt)
      VALUES (@id, @companyName, @careerUrl, @atsPlatform, 1, @now, @now)`
   );
   const now = new Date().toISOString();
   for (const c of SEED_COMPANIES) stmt.run({ ...c, now });
-  console.log(`[V2] Seeded ${SEED_COMPANIES.length} company career sites for Santa Maria`);
+  const total = (db.prepare('SELECT count(*) AS c FROM company_career_sites').get() as any).c;
+  console.log(`[V2] Company registry seeded — ${total} career sites (${SEED_COMPANIES.length} in seed list)`);
 }
 
 export function ensureV2Tables(): void {

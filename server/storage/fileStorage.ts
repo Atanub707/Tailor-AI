@@ -823,6 +823,21 @@ export function saveNewJobs(newJobs: Job[]): { added: Job[]; skipped: number; ne
     for (const job of newJobs) {
       const normalizedUrl = job.url?.toLowerCase().trim() || '';
       if (normalizedUrl && existingUrls.has(normalizedUrl)) {
+        // Duplicate URL: enrich the existing row with the source/ATS the user
+        // actually selected this time (e.g. an ATS job first stored as
+        // source "Custom" becomes "Greenhouse"), then skip the insert.
+        try {
+          const existingRow = d.prepare('SELECT data FROM jobs WHERE user_id = ?').all(userId) as { data: string }[];
+          const existing = existingRow.find((r) => {
+            try { return (JSON.parse(r.data) as Job).url?.toLowerCase().trim() === normalizedUrl; } catch { return false; }
+          });
+          if (existing) {
+            const parsed = JSON.parse(existing.data) as Job;
+            if (job.source && parsed.source !== job.source) {
+              updateJobInStorage({ ...parsed, source: job.source, atsPlatform: (job as any).atsPlatform || (parsed as any).atsPlatform } as Job);
+            }
+          }
+        } catch { /* malformed row — leave as-is */ }
         skipped++;
         continue;
       }

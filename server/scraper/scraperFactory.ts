@@ -67,7 +67,9 @@ async function scrapeAtsViaSantaMaria(source: JobSource, params: ScraperParams):
     limit: Math.min(params.maxJobsPerSource || 15, 50),
     queries: [], // provider reads the registry itself (filtered by platform)
   });
-  return result.jobs;
+  // Tag with the source the user selected (e.g. "Greenhouse"), not "Custom" —
+  // so the dashboard source filter and ATS badge work correctly.
+  return result.jobs.map((j) => ({ ...j, source, atsPlatform: platform || (j as any).atsPlatform }));
 }
 
 export class ScraperFactory {
@@ -216,23 +218,28 @@ export class ScraperFactory {
       }
     }
 
-    // Relevance guarantee across ALL sources: the FIRST keyword term must
-    // appear in the title or company (the strongest signal). "DevOps Engineer"
-    // → "DevOps" in title/company; description-only matches are dropped so
-    // generic roles (Account Executive whose JD mentions engineers) never leak.
-    // If the strict match would return NOTHING, keep the full pool (a valid
-    // search with zero title hits is better served than an empty result).
+    // Relevance guarantee across ALL sources: the FIRST keyword term must appear
+    // in the title or company (the strongest signal). "DevOps Engineer" → "DevOps"
+    // in title/company; description-only matches are dropped so generic roles
+    // (Account Executive whose JD mentions engineers) never leak. If the strict
+    // match yields nothing, relax to DevOps-adjacent titles (SRE/Platform/
+    // Infrastructure/Cloud) — same rule Santa Maria uses — rather than an
+    // empty result.
     const terms = (params.keywords || '').toLowerCase().split(/\s+/).filter((t) => t.length > 2);
     if (terms.length > 0) {
       const primary = terms[0];
       const before = allJobs.length;
-      const relevant = allJobs.filter((j) => {
+      let relevant = allJobs.filter((j) => {
         const title = `${j.title} ${j.company}`.toLowerCase();
         return title.includes(primary);
       });
+      if (relevant.length === 0) {
+        const adjacent = /(sre|site reliability|platform|infrastructure|cloud|devops|deployment|release|systems|engineer)/i;
+        relevant = allJobs.filter((j) => adjacent.test(`${j.title} ${j.company}`));
+      }
       if (relevant.length > 0) {
         allJobs = relevant;
-        console.log(`[ScraperFactory] Relevance guard: ${before - allJobs.length} jobs dropped (no "${primary}" in title/company)`);
+        console.log(`[ScraperFactory] Relevance guard: ${before - allJobs.length} jobs dropped (no "${primary}" / adjacent in title/company)`);
       }
     }
 

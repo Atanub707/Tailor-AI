@@ -69,8 +69,10 @@ export class SantaMariaApifyProvider implements JobProvider {
           console.log(`[SantaMaria] Keyword filter "${terms.join(' ')}" → ${before} → ${jobs.length} jobs (title-exact first + description matches)`);
         } else {
           // Soft fallback: DevOps-adjacent titles (SRE/Platform/Infrastructure/Cloud).
-          const adjacent = /(sre|site reliability|platform|infrastructure|cloud|devops|deployment|release)/i;
-          const soft = jobs.filter((j) => adjacent.test(`${j.title} ${j.company}`) && terms.some((t) => hay(j).includes(t)));
+          // The title/company match IS the relevance — a "Platform Engineer" is a
+          // DevOps role without needing the literal word in its description.
+          const adjacent = /(sre|site reliability|platform|infrastructure|cloud|devops|deployment|release|systems)/i;
+          const soft = jobs.filter((j) => adjacent.test(`${j.title} ${j.company}`));
           jobs = [...titleExact, ...soft.filter((j) => !titleExact.includes(j))];
           console.log(`[SantaMaria] Keyword filter "${terms.join(' ')}" → ${before} → ${jobs.length} jobs (soft fallback: DevOps-adjacent)`);
         }
@@ -94,16 +96,19 @@ export class SantaMariaApifyProvider implements JobProvider {
       ensureV2Tables();
       const db = getDb();
       // When the caller filters by ATS platform (Plan B source chips), only
-      // query that platform's career sites — never the whole 25.
+      // query that platform's career sites — capped so one sync run stays fast
+      // (8 boards × ~20 jobs ≈ 160 raw, ~20-40s). Repeat searches can advance
+      // through the remaining boards later.
       const platforms = params.atsPlatforms?.length
         ? params.atsPlatforms.map((p) => String(p).toLowerCase())
         : null;
       let rows: { careerUrl: string }[];
+      const cap = 8;
       if (platforms) {
         const placeholders = platforms.map(() => '?').join(',');
-        rows = db.prepare(`SELECT careerUrl FROM company_career_sites WHERE isActive = 1 AND LOWER(atsPlatform) IN (${placeholders}) LIMIT 25`).all(...platforms) as any[];
+        rows = db.prepare(`SELECT careerUrl FROM company_career_sites WHERE isActive = 1 AND LOWER(atsPlatform) IN (${placeholders}) LIMIT ${cap}`).all(...platforms) as any[];
       } else {
-        rows = db.prepare(`SELECT careerUrl FROM company_career_sites WHERE isActive = 1 LIMIT 25`).all() as any[];
+        rows = db.prepare(`SELECT careerUrl FROM company_career_sites WHERE isActive = 1 LIMIT ${cap}`).all() as any[];
       }
       return rows.map((r) => r.careerUrl);
     } catch {
