@@ -153,6 +153,95 @@ describe('background watcher', () => {
     });
   });
 
+  it('cap guard: a full-slice fetch (25 jobs = the cap) never marks stored board jobs missing', async () => {
+    const db = getDb();
+    // Only this test's board is active — deterministic cycle.
+    db.prepare('UPDATE company_career_sites SET isActive = 0').run();
+    db.prepare('DELETE FROM jobs').run(); // hermetic per-user state (temp DB)
+    seedBoards(1, 'cap'); // capco0 (BoardCo0)
+    // Stored job belongs to the board (hostname + path) but is NOT part of the
+    // 25-job fetch — without the cap guard its absence would be read as
+    // "removed from the board" and it would be deactivated.
+    const stored = mk('cap-stored', {
+      company: 'BoardCo0',
+      url: 'https://boards.greenhouse.io/capco0/jobs/999',
+      applyUrl: 'https://boards.greenhouse.io/capco0/jobs/999',
+    });
+    // fetchBoard slices at MAX_JOBS_PER_BOARD (25), so 25 fresh jobs means the
+    // board may have MORE live jobs than were fetched — absence is
+    // untrustworthy and must not drive the missing diff.
+    const fresh = Array.from({ length: 25 }, (_, i) => mk(`cap-${i}`, {
+      company: 'BoardCo0',
+      url: `https://boards.greenhouse.io/capco0/jobs/${i}`,
+      applyUrl: `https://boards.greenhouse.io/capco0/jobs/${i}`,
+    }));
+    const spy = vi.spyOn(providerModule, 'fetchBoard').mockImplementation(async (_source, _platform, _companyName, careerUrl) => {
+      if (careerUrl.includes('capco0')) return fresh;
+      return [];
+    });
+
+    await runWithUser(USER, async () => {
+      saveNewJobs([stored]);
+    });
+
+    const stats = await watchOnce();
+    expect(spy).toHaveBeenCalled();
+    expect(stats.boardsChecked).toBe(1);
+    expect(stats.errors).toEqual([]);
+    expect(stats.missing).toBe(0); // cap guard clears the false-missing set
+    expect(stats.added).toBeGreaterThanOrEqual(25); // the 25 fetched jobs are new
+
+    await runWithUser(USER, async () => {
+      const jobs = getAllJobs();
+      expect(jobs.map((j: any) => j.id).sort()).toContain('cap-stored');
+      expect((jobs.find((j: any) => j.id === 'cap-stored') as any).isActive).toBe(true);
+    });
+  });
+
+  it('company fallback: stored job with a non-matching URL but the board\u2019s company name stays active', async () => {
+    const db = getDb();
+    // Only this test's board is active — deterministic cycle.
+    db.prepare('UPDATE company_career_sites SET isActive = 0').run();
+    db.prepare('DELETE FROM jobs').run(); // hermetic per-user state (temp DB)
+    seedBoards(1, 'cmp'); // cmpco0 (BoardCo0)
+    // Stored with a URL that does NOT extend the board's identity (hostname +
+    // pathname) — only the company name ties this job to the refreshed board.
+    const stored = mk('cmp-stored', {
+      company: 'BoardCo0',
+      url: 'https://jobs.example.org/redirect/777',
+      applyUrl: 'https://jobs.example.org/redirect/777',
+    });
+    // The board's live set carries the same job id under the canonical board
+    // URL (the stored record itself is not returned as stored): the diff
+    // matches on id, so the fallback-matched stored job is bumped, never
+    // reported missing and never re-added.
+    const fresh = mk('cmp-stored', {
+      company: 'BoardCo0',
+      url: 'https://boards.greenhouse.io/cmpco0/jobs/777',
+      applyUrl: 'https://boards.greenhouse.io/cmpco0/jobs/777',
+    });
+    const spy = vi.spyOn(providerModule, 'fetchBoard').mockImplementation(async (_source, _platform, _companyName, careerUrl) => {
+      if (careerUrl.includes('cmpco0')) return [fresh];
+      return [];
+    });
+
+    await runWithUser(USER, async () => {
+      saveNewJobs([stored]);
+    });
+
+    const stats = await watchOnce();
+    expect(spy).toHaveBeenCalled();
+    expect(stats.boardsChecked).toBe(1);
+    expect(stats.errors).toEqual([]);
+    expect(stats.missing).toBe(0); // company fallback keeps it in `existing` → bumped, not missing
+    expect(stats.updated).toBeGreaterThanOrEqual(1); // fallback match → bumped
+
+    await runWithUser(USER, async () => {
+      const jobs = getAllJobs();
+      expect((jobs.find((j: any) => j.id === 'cmp-stored') as any).isActive).toBe(true);
+    });
+  });
+
   it('startWatcher returns a stop handle and stops without throwing', async () => {
     vi.spyOn(providerModule, 'fetchBoard').mockResolvedValue([] as any);
     const w = startWatcher(50);
