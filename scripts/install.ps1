@@ -220,7 +220,7 @@ if (-not (Test-Path (Join-Path $AppDir 'docker-compose.yml'))) {
     Warn "A previous incomplete install was found at $AppDir — cleaning it up before downloading fresh."
     $cfgKeep = Join-Path $AppDir 'config.ini'
     $cfgBackup = Join-Path $env:TEMP 'tailor-cv-config.ini.bak'
-    if (Test-Path $cfgKeep -and -not (Get-Item $cfgKeep).PSIsContainer) {
+    if ((Test-Path $cfgKeep) -and (-not (Get-Item $cfgKeep).PSIsContainer)) {
       Copy-Item $cfgKeep $cfgBackup -Force
       Warn 'Your existing config.ini (API keys) was backed up and will be restored.'
     }
@@ -257,7 +257,7 @@ if (-not (Test-Path (Join-Path $AppDir 'docker-compose.yml'))) {
 # user's API keys are not lost.
 $cfgBackup = Join-Path $env:TEMP 'tailor-cv-config.ini.bak'
 $cfgPath2 = Join-Path $AppDir 'config.ini'
-if (Test-Path $cfgBackup -and -not (Test-Path $cfgPath2)) {
+if ((Test-Path $cfgBackup) -and (-not (Test-Path $cfgPath2))) {
   Copy-Item $cfgBackup $cfgPath2 -Force
   Remove-Item $cfgBackup -Force
   Ok 'Restored your previous config.ini (API keys kept intact)'

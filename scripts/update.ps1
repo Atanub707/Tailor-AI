@@ -11,15 +11,52 @@ function Say  ($m) { Write-Host $m -ForegroundColor White }
 function Ok   ($m) { Write-Host "OK   $m" -ForegroundColor Green }
 function Fail ($m) { Write-Host "XX   $m" -ForegroundColor Red; Read-Host 'Press Enter to close'; exit 1 }
 
+# Refresh PATH — the terminal that runs this script may predate a git/docker
+# install (or the installer ran in another window), so the commands are not
+# always on PATH here.
+function Refresh-Path {
+  $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
+              [Environment]::GetEnvironmentVariable('Path', 'User') + ';' +
+              [Environment]::GetEnvironmentVariable('Path', 'Process')
+}
+
+function Find-Git {
+  $cmd = Get-Command git -ErrorAction SilentlyContinue
+  if ($cmd) { return $cmd.Source }
+  $candidates = @(
+    "$env:ProgramFiles\Git\cmd\git.exe",
+    "${env:ProgramFiles(x86)}\Git\cmd\git.exe",
+    "$env:LOCALAPPDATA\Programs\Git\cmd\git.exe"
+  )
+  foreach ($p in $candidates) { if (Test-Path $p) { return $p } }
+  return $null
+}
+
+function Find-Docker {
+  $cmd = Get-Command docker -ErrorAction SilentlyContinue
+  if ($cmd) { return $cmd.Source }
+  $candidates = @(
+    "$env:ProgramFiles\Docker\Docker\resources\bin\docker.exe",
+    "$env:LOCALAPPDATA\Docker\cli-plugins\docker.exe"
+  )
+  foreach ($p in $candidates) { if (Test-Path $p) { return $p } }
+  return $null
+}
+
+Refresh-Path
+$gitExe = Find-Git
+if (-not $gitExe) { Fail 'git is required for updates but was not found. Install git from https://git-scm.com/download/win, then rerun this updater.' }
+$dockerExe = Find-Docker
+if (-not $dockerExe) { Fail 'Docker is not installed — run the installer first.' }
+
 Say ''
 Say '════ Tailor CV updater ════'
 Say ''
 
 if (-not (Test-Path (Join-Path $AppDir '.git'))) { Fail "No Tailor CV install found at $AppDir — run the installer first." }
-if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { Fail 'Docker is not installed — run the installer first.' }
 
 Say 'Pulling the latest code…'
-git -C $AppDir pull --ff-only
+& $gitExe -C $AppDir pull --ff-only
 if ($LASTEXITCODE -ne 0) { Fail 'Could not pull the update — check your connection.' }
 Ok 'Code updated'
 
@@ -27,7 +64,7 @@ Ok 'Code updated'
 # launch / after a reboot the engine needs time to come up).
 # NOTE: check $LASTEXITCODE — native stderr is fatal under Stop in PS7.
 function Test-DockerEngine {
-  docker info 2>&1 | Out-Null
+  & $dockerExe info 2>&1 | Out-Null
   return ($LASTEXITCODE -eq 0)
 }
 $engineReady = $false
@@ -48,7 +85,7 @@ if (-not (Test-Path $cfgPath)) {
 }
 
 Say 'Refreshing the app…'
-docker compose -f (Join-Path $AppDir 'docker-compose.yml') up -d --build --pull missing
+& $dockerExe compose -f (Join-Path $AppDir 'docker-compose.yml') up -d --build --pull missing
 if ($LASTEXITCODE -ne 0) { Fail 'docker compose failed — see the output above.' }
 Ok 'Tailor CV updated and running'
 

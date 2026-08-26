@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.9.10 (2026-08-26)
+
+### 🐛 Fixes
+- **install.ps1: "Test-Path : A parameter cannot be found that matches parameter name 'and'"** — two `Test-Path $x -and -not (Test-Path $y)` expressions were invalid PowerShell (`-and` parsed as a Test-Path parameter). Parenthesized both operands; the error no longer prints on every install.
+- **update.ps1: silent no-op update when git is missing** — the script called bare `git`, which failed with "git is not recognized" on terminals where git is not on PATH, yet still printed "OK Code updated" and rebuilt from the OLD code. The updater now refreshes PATH, locates git.exe (same lookup as the installer), and **fails loudly** if git is not found — no more fake success.
 ## v1.9.9 (2026-08-26)
 
 ### 🐛 Fix: repeat searches never found new jobs
