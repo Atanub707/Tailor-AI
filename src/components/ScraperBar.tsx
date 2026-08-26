@@ -4,6 +4,7 @@ import { JobSource } from '../types';
 import { getRoleSuggestions, getKeywordSuggestions } from '../constants/suggestions';
 import { getSourceFlag, getSourceCountry, getSourceMeta } from '../constants/sourceMeta';
 import { searchLocations } from '../lib/locations';
+import { SourceIcon } from './SourceIcon';
 
 interface ScraperBarProps {
   onScrape: (params: {
@@ -22,12 +23,8 @@ interface ScraperBarProps {
   apifyAvailable?: boolean; // Apify enabled + token saved — lights up Apify-only sources
 }
 
-const ALL_SOURCES: JobSource[] = ['LinkedIn', 'Arbeitnow', 'SimplyHired', 'Dice', 'Reed', 'MyCareersFuture', 'Cutshort', 'Gupy', 'JobsCh', 'Daijob', 'MyJobMag', 'RemoteOK', 'WeWorkRemotely', 'Indeed', 'Naukri', 'Glassdoor', 'Upwork'];
-const COMING_SOON: JobSource[] = ['RemoteOK', 'WeWorkRemotely'];
-// Apify-powered sources stay visible in the main row (after LinkedIn);
-// the built-in sources live inside the "More" dropdown.
-const APIFY_SOURCES_VISIBLE = ALL_SOURCES.filter((src) => getSourceMeta(src)?.apifyActorId);
-const MORE_SOURCES = ALL_SOURCES.filter((src) => !getSourceMeta(src)?.apifyActorId);
+const ALL_SOURCES: JobSource[] = ['LinkedIn', 'Arbeitnow', 'SimplyHired', 'Dice', 'Reed', 'MyCareersFuture', 'Cutshort', 'Gupy', 'JobsCh', 'Daijob', 'MyJobMag', 'Indeed', 'Naukri', 'Glassdoor', 'Upwork', 'Greenhouse', 'Lever', 'Ashby', 'Workable', 'SmartRecruiters', 'Comeet', 'Join', 'Workday', 'Teamtailor', 'Personio', 'BambooHR', 'Rippling', 'JazzHR', 'Recruitee', 'iCIMS', 'Jobvite', 'Pinpoint'];
+const COMING_SOON: JobSource[] = [];
 
 export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, apifyAvailable }) => {
   const [keywords, setKeywords] = useState('');
@@ -43,14 +40,44 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
   const [scrapeSuccessMsg, setScrapeSuccessMsg] = useState<string | null>(null);
   const [scrapeNewContacts, setScrapeNewContacts] = useState<{ name: string | null; email: string | null; phone: string | null; whatsapp: boolean; recruiterUrl: string | null }[]>([]);
   const [selectedSources, setSelectedSources] = useState<JobSource[]>(['LinkedIn']);
+  const [atsCounts, setAtsCounts] = useState<Record<string, number>>({});
+
+  // Per-ATS official career-portal counts — orders ATS chips by popularity
+  // and labels each with its company-board count.
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch('/api/ats/company-counts')
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled && d?.counts) setAtsCounts(d.counts); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  // Non-ATS sources keep their fixed order; ATS (sources with official
+  // career-portal counts) sorted by count desc, locked last.
+  const visibleSources = React.useMemo(() => {
+    const isAts = (s: JobSource) => atsCounts[s] !== undefined;
+    const nonAts = ALL_SOURCES.filter((s) => !isAts(s));
+    const locked = ALL_SOURCES.filter((s) => isAts(s) && getSourceMeta(s)?.locked);
+    const activeAts = ALL_SOURCES.filter((s) => isAts(s) && !getSourceMeta(s)?.locked);
+    const byCount = (list: JobSource[]) => [...list].sort((a, b) => (atsCounts[b] ?? 0) - (atsCounts[a] ?? 0));
+    return [...nonAts, ...byCount(activeAts), ...byCount(locked)];
+  }, [atsCounts]);
 
   const roleSuggestions = getRoleSuggestions(keywords);
   const keywordSuggestions = getKeywordSuggestions(keywords);
 
   const isApifyGated = (source: JobSource) => !!getSourceMeta(source)?.needsApify && !apifyAvailable;
 
+  // Estimated Apify cost for the current selection at the chosen per-source limit.
+  const costPerSearch = selectedSources.reduce((acc, s) => {
+    const meta = getSourceMeta(s);
+    const price = parseFloat(String(meta?.pricePer1K || '0').replace('$', '').replace(',', '')) || 0;
+    return acc + price * (maxJobsPerSource / 1000);
+  }, 0);
+
   const toggleSource = (source: JobSource) => {
-    if (COMING_SOON.includes(source) || isApifyGated(source)) return;
+    if (COMING_SOON.includes(source) || isApifyGated(source) || getSourceMeta(source)?.locked) return;
     setSelectedSources((prev) =>
       prev.includes(source) ? prev.filter((s) => s !== source) : [...prev, source]
     );
@@ -85,8 +112,13 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
         setScrapeSuccessMsg(`Scraped ${result.scrapedTotal} live postings! (All ${result.skippedDuplicates} were already in your job list).${filterNote}`);
       }
     } else if (result?.skippedSources && result.skippedSources.length > 0) {
-      const skippedNames = result.skippedSources.map((s) => `${s.source} (${s.reason})`).join(', ');
-      setScrapeSuccessMsg(`Searched — skipped: ${skippedNames}.`);
+      // Human-readable reasons — a raw Apify 403 JSON must never hit the banner.
+      const fmt = (r: { source: string; reason: string }) => {
+        const msg = r.reason.replace(/\s*\{[\s\S]*$/, '').trim(); // drop JSON tail
+        const short = msg.replace(/^Apify create run failed \d+:?\s*/i, '');
+        return `${r.source}: ${short}`;
+      };
+      setScrapeSuccessMsg(`Searched — skipped: ${result.skippedSources.map(fmt).join(' · ')}`);
     } else {
       const srcList = selectedSources.join(' + ');
       setScrapeSuccessMsg(`Searched ${srcList} — No results found in the selected window. Try different keywords, a wider posted window, or search again later.`);
@@ -103,9 +135,12 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
     const isSelected = selectedSources.includes(src);
     const gated = isApifyGated(src);
     const meta = getSourceMeta(src);
-    const disabled = isComingSoon || gated;
+    const locked = !!meta?.locked;
+    const disabled = isComingSoon || gated || locked;
     const title = isComingSoon
       ? `${src} — Coming soon`
+      : locked
+      ? `${src} — paid/enterprise-only API — locked`
       : gated
       ? `${src} — requires Apify API key — enable in Settings`
       : `${src} — ${getSourceCountry(src)}${meta?.pricePer1K ? ` · ${meta.pricePer1K}/1K jobs` : ''}`;
@@ -116,21 +151,25 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
         onClick={() => toggleSource(src)}
         disabled={disabled}
         title={title}
-        className={`inline-flex items-center gap-2 pl-2.5 pr-3 py-[7px] rounded-full text-[11.5px] font-semibold border-[1.5px] transition-all whitespace-nowrap cursor-pointer ${
+        aria-pressed={isSelected}
+        className={`inline-flex items-center gap-2 pl-2.5 pr-3 py-[7px] rounded-full text-[11.5px] font-semibold border-[1.5px] whitespace-nowrap cursor-pointer select-none transition-all duration-200 ${
           disabled
             ? 'opacity-45 cursor-not-allowed bg-white border-[var(--color-hairline)] text-[var(--color-faint)]'
             : isSelected
-            ? 'bg-[var(--color-brand-soft)] border-[var(--color-brand)] text-[var(--color-brand)] font-bold'
-            : 'bg-white border-[var(--color-hairline)] text-[var(--color-muted)] hover:border-[var(--color-brand-line)] hover:text-[var(--color-ink)]'
+            ? 'bg-[var(--color-brand)] border-[var(--color-brand)] text-white font-bold shadow-sm sc-chip-pop'
+            : 'bg-white border-[var(--color-hairline)] text-[var(--color-muted)] hover:border-[var(--color-brand-line)] hover:text-[var(--color-ink)] hover:shadow-sm'
         }`}
       >
-        <span className="text-[13px] leading-none">{getSourceFlag(src)}</span>
+        <SourceIcon source={src} size={15} />
         <span>{src}</span>
-        {meta?.apifyActorId && !gated && (
-          <span className="text-[8.5px] font-extrabold uppercase tracking-[0.06em] text-white bg-[var(--color-brand)] rounded-full px-[7px] py-[2px]">Apify</span>
+        {meta?.apifyActorId && !locked && atsCounts[src] > 1 && (
+          <span className={`text-[9px] font-extrabold tabular-nums rounded-full px-[6px] py-[1px] ${isSelected ? 'bg-white/20 text-white' : 'bg-[var(--color-brand-soft)] text-[var(--color-brand-strong)] border border-[var(--color-brand-line)]'}`} title="Official career portals in registry">{atsCounts[src].toLocaleString()}</span>
+        )}
+        {locked && (
+          <span className="text-[8.5px] font-extrabold uppercase text-[var(--color-faint)] bg-white/60 border border-[var(--color-hairline)] rounded-full px-[7px] py-[2px]">🔒 {atsCounts[src] > 0 ? atsCounts[src].toLocaleString() : ''}</span>
         )}
         {isComingSoon && (
-          <span className="text-[8.5px] font-extrabold uppercase text-[var(--color-faint)]">Soon</span>
+          <span className="text-[8.5px] font-extrabold uppercase text-[var(--color-faint)] bg-white/60 border border-[var(--color-hairline)] rounded-full px-[7px] py-[2px]">Soon</span>
         )}
       </button>
     );
@@ -138,6 +177,11 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
 
   return (
     <div className="bg-white border-b border-[var(--color-hairline)] py-5">
+      <style>{`
+        @keyframes sc-chip-pop { 0% { transform: scale(.85); } 60% { transform: scale(1.06); } 100% { transform: scale(1); } }
+        .sc-chip-pop { animation: sc-chip-pop .28s cubic-bezier(.22,1,.36,1); }
+        @media (prefers-reduced-motion: reduce) { .sc-chip-pop { animation: none; } }
+      `}</style>
       {/* Datalists for Native Auto-completion */}
       <datalist id="datalist-roles-keywords">
         {Array.from(new Set([...roleSuggestions, ...keywordSuggestions])).map((s) => (
@@ -346,34 +390,11 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
 
         </div>
 
-        {/* ── Row 3: Source Pills with Flags ── */}
-        <div className="flex items-center justify-between gap-4 pt-4 border-t border-[var(--color-hairline)]">
-          <div className="flex items-start gap-3 min-w-0 flex-1">
-            <span className={`${fieldLabelCls} pt-[9px] whitespace-nowrap`}>Sources</span>
-            <div className="flex items-center gap-2 flex-nowrap min-w-0">
-              {APIFY_SOURCES_VISIBLE.map((src) => renderSourceChip(src))}
-
-              {/* More — hover/focus opens the built-in source list */}
-              <div className="relative group shrink-0">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 pl-2 pr-2.5 py-[7px] rounded-full text-[11.5px] font-semibold text-[var(--color-muted)] border border-[var(--color-hairline)] bg-white hover:border-[var(--color-brand-line)] transition-colors cursor-pointer whitespace-nowrap"
-                  title="Built-in sources this search can capture"
-                >
-                  <CaretDown size={12} style={{ color: 'var(--color-faint)' }} />
-                  <span>More</span>
-                  <span className="text-[10px] font-bold text-[var(--color-faint)]">({MORE_SOURCES.length})</span>
-                </button>
-                <div className="absolute right-0 top-full mt-1.5 z-30 w-[330px] bg-white border border-[var(--color-hairline)] rounded-xl p-3 opacity-0 invisible pointer-events-none group-hover:opacity-100 group-hover:visible group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:visible group-focus-within:pointer-events-auto transition-all" style={{ boxShadow: '0 12px 32px rgba(30,27,75,0.12)' }}>
-                  <p className="text-[10px] font-extrabold uppercase tracking-wide text-[var(--color-faint)] mb-2">
-                    Built-in sources this search can capture
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {MORE_SOURCES.map((src) => renderSourceChip(src))}
-                  </div>
-                </div>
-              </div>
-            </div>
+        {/* ── Row 3: Source Pills with Flags (wrap — never overflow) ── */}
+        <div className="flex items-start gap-3 pt-4 border-t border-[var(--color-hairline)]">
+          <span className={`${fieldLabelCls} pt-[9px] whitespace-nowrap shrink-0`}>Sources</span>
+          <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
+            {visibleSources.map((src) => renderSourceChip(src))}
           </div>
         </div>
 

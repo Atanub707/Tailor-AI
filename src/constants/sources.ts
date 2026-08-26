@@ -10,6 +10,7 @@ export interface SourceMeta {
   needsApify?: boolean; // true = works ONLY with an Apify API key
   builtInFallback?: boolean; // LinkedIn only: Apify → built-in free scraper
   pricePer1K?: string; // displayed in Settings
+  locked?: boolean; // paid/enterprise-only API — disabled until free route exists
 }
 
 export const SOURCES: Record<JobSource, SourceMeta> = {
@@ -19,10 +20,23 @@ export const SOURCES: Record<JobSource, SourceMeta> = {
   Naukri: { id: 'Naukri', label: 'Naukri', flag: '🇮🇳', country: 'India', region: 'asia', apifyActorId: 'valig~naukri-jobs-scraper', needsApify: true, pricePer1K: '$0.40' },
   Glassdoor: { id: 'Glassdoor', label: 'Glassdoor', flag: '🌐', country: 'Global', region: 'global', apifyActorId: 'valig~glassdoor-jobs-scraper', needsApify: true, pricePer1K: '$0.40' },
   Upwork: { id: 'Upwork', label: 'Upwork', flag: '🌐', country: 'Global freelance', region: 'global', apifyActorId: 'valig~upwork-jobs-scraper', needsApify: true, pricePer1K: '$0.20' },
-  Greenhouse: { id: 'Greenhouse', label: 'Greenhouse', flag: '🌱', country: 'Global', region: 'global', apifyActorId: 'apify~greenhouse-jobs-scraper', needsApify: true, pricePer1K: '$0.40' },
-  Lever: { id: 'Lever', label: 'Lever', flag: '🔷', country: 'Global', region: 'global', apifyActorId: 'apify~lever-jobs-scraper', needsApify: true, pricePer1K: '$0.40' },
-  Ashby: { id: 'Ashby', label: 'Ashby', flag: '🟣', country: 'Global', region: 'global', apifyActorId: 'apify~ashby-jobs-scraper', needsApify: true, pricePer1K: '$0.40' },
-  Workable: { id: 'Workable', label: 'Workable', flag: '🔧', country: 'Global', region: 'global', apifyActorId: 'apify~workable-jobs-scraper', needsApify: true, pricePer1K: '$0.40' },
+  Greenhouse: { id: 'Greenhouse', label: 'Greenhouse', flag: '🌱', country: 'Global', region: 'global', apifyActorId: 'santamaria-automations~career-site-jobs-scraper', needsApify: true, pricePer1K: '$0.40' },
+  Lever: { id: 'Lever', label: 'Lever', flag: '🔷', country: 'Global', region: 'global', apifyActorId: 'santamaria-automations~career-site-jobs-scraper', needsApify: true, pricePer1K: '$0.40' },
+  Ashby: { id: 'Ashby', label: 'Ashby', flag: '🟣', country: 'Global', region: 'global', apifyActorId: 'santamaria-automations~career-site-jobs-scraper', needsApify: true, pricePer1K: '$0.40' },
+  Workable: { id: 'Workable', label: 'Workable', flag: '🔧', country: 'Global', region: 'global', apifyActorId: 'santamaria-automations~career-site-jobs-scraper', needsApify: true, pricePer1K: '$0.40' },
+  Workday: { id: 'Workday', label: 'Workday', flag: '🏢', country: 'Global', region: 'global', apifyActorId: 'santamaria-automations~career-site-jobs-scraper', needsApify: true, pricePer1K: '$0.40', locked: true },
+  SmartRecruiters: { id: 'SmartRecruiters', label: 'SmartRecruiters', flag: '🧠', country: 'Global', region: 'global', apifyActorId: 'santamaria-automations~career-site-jobs-scraper', needsApify: true, pricePer1K: '$0.40' },
+  Teamtailor: { id: 'Teamtailor', label: 'Teamtailor', flag: '👥', country: 'Global', region: 'global', apifyActorId: 'santamaria-automations~career-site-jobs-scraper', needsApify: true, pricePer1K: '$0.40', locked: true },
+  Personio: { id: 'Personio', label: 'Personio', flag: '🏢', country: 'Global', region: 'global', apifyActorId: 'santamaria-automations~career-site-jobs-scraper', needsApify: true, pricePer1K: '$0.40', locked: true },
+  BambooHR: { id: 'BambooHR', label: 'BambooHR', flag: '🎋', country: 'Global', region: 'global', apifyActorId: 'santamaria-automations~career-site-jobs-scraper', needsApify: true, pricePer1K: '$0.40', locked: true },
+  Rippling: { id: 'Rippling', label: 'Rippling', flag: '🔁', country: 'Global', region: 'global', apifyActorId: 'santamaria-automations~career-site-jobs-scraper', needsApify: true, pricePer1K: '$0.40', locked: true },
+  JazzHR: { id: 'JazzHR', label: 'JazzHR', flag: '🎷', country: 'Global', region: 'global', apifyActorId: 'santamaria-automations~career-site-jobs-scraper', needsApify: true, pricePer1K: '$0.40', locked: true },
+  Recruitee: { id: 'Recruitee', label: 'Recruitee', flag: '📢', country: 'Global', region: 'global', apifyActorId: 'santamaria-automations~career-site-jobs-scraper', needsApify: true, pricePer1K: '$0.40', locked: true },
+  iCIMS: { id: 'iCIMS', label: 'iCIMS', flag: '🏛️', country: 'Global', region: 'global', apifyActorId: 'santamaria-automations~career-site-jobs-scraper', needsApify: true, pricePer1K: '$0.40', locked: true },
+  Comeet: { id: 'Comeet', label: 'Comeet', flag: '☄️', country: 'Global', region: 'global', apifyActorId: 'santamaria-automations~career-site-jobs-scraper', needsApify: true, pricePer1K: '$0.40' },
+  Jobvite: { id: 'Jobvite', label: 'Jobvite', flag: '🎬', country: 'Global', region: 'global', apifyActorId: 'santamaria-automations~career-site-jobs-scraper', needsApify: true, pricePer1K: '$0.40', locked: true },
+  Pinpoint: { id: 'Pinpoint', label: 'Pinpoint', flag: '📍', country: 'Global', region: 'global', apifyActorId: 'santamaria-automations~career-site-jobs-scraper', needsApify: true, pricePer1K: '$0.40', locked: true },
+  Join: { id: 'Join', label: 'Join', flag: '🤝', country: 'Global', region: 'global', apifyActorId: 'santamaria-automations~career-site-jobs-scraper', needsApify: true, pricePer1K: '$0.40' },
 
   // ── Built-in free scrapers ──
   LinkedInPosts: { id: 'LinkedInPosts', label: 'LinkedIn Posts', flag: '📰', country: 'Global', region: 'global', pricePer1K: 'Free' },

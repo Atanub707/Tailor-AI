@@ -838,7 +838,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           <span className="st-flabel">Powered by your Apify key</span>
                           <div className="st-chips">
                             {APIFY_SOURCES.map((s) => (
-                              <span key={s.id} className="st-chip">{s.label} <span className="st-chip-p">· {s.pricePer1K}/1K</span></span>
+                              <span key={s.id} className="st-chip">{s.label} {s.locked ? <span className="st-chip-p">· 🔒 locked</span> : <span className="st-chip-p">· {s.pricePer1K}/1K</span>}</span>
                             ))}
                           </div>
                           <div className="st-referral">

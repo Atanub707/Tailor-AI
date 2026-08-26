@@ -49,6 +49,10 @@ export class ApifyLinkedInScraper extends ApifyBaseScraper {
     if (params.jobIds && params.jobIds.length > 0) {
       input.skipJobId = params.jobIds;
     }
+    const start = (params as any).start;
+    if (typeof start === 'number' && start > 0) {
+      input.start = start;
+    }
     return input;
   }
 

@@ -69,11 +69,28 @@ fi
 
 # ── 4. Get the app ──────────────────────────────────────────────────────────
 if [ ! -f "$APP_DIR/docker-compose.yml" ]; then
+  # A folder exists but the app isn't there → stale/partial install. git clone
+  # refuses to clone into a non-empty directory, so clean it (preserve config.ini).
+  if [ -e "$APP_DIR" ]; then
+    warn "A previous incomplete install was found at $APP_DIR — cleaning it up before downloading fresh."
+    if [ -f "$APP_DIR/config.ini" ]; then
+      cp "$APP_DIR/config.ini" "${TMPDIR:-/tmp}/tailor-cv-config.ini.bak" 2>/dev/null || true
+      warn "Your existing config.ini (API keys) was backed up and will be restored."
+    fi
+    rm -rf "$APP_DIR"
+  fi
   echo "Downloading Tailor CV…"
   command -v git >/dev/null 2>&1 || fail "git is required. Install it (brew install git) and rerun."
   mkdir -p "$APP_DIR"
   git clone --depth 1 "$REPO_URL" "$APP_DIR" || fail "Could not download the app. Check your connection, or clone $REPO_URL manually."
   ok "App downloaded to $APP_DIR"
+fi
+
+# Restore a backed-up config.ini so API keys survive a stale-folder cleanup.
+if [ -f "${TMPDIR:-/tmp}/tailor-cv-config.ini.bak" ] && [ ! -f "$APP_DIR/config.ini" ]; then
+  cp "${TMPDIR:-/tmp}/tailor-cv-config.ini.bak" "$APP_DIR/config.ini" 2>/dev/null || true
+  rm -f "${TMPDIR:-/tmp}/tailor-cv-config.ini.bak"
+  ok "Restored your previous config.ini (API keys kept intact)"
 fi
 
 # ── 5. Prepare config.ini (Docker mounts a missing file as a DIRECTORY — that

@@ -1,5 +1,117 @@
 # Changelog
 
+## v1.9.13 (2026-08-26)
+
+### 🐛 Fix: sales/PM jobs still leaking into DevOps searches
+- The DevOps-adjacent fallback matched the bare word "platform" — so Account Executive, Enterprise Platforms / Product Manager, Cash Platform / Director, Product Management passed.
+- New rule (shared by scrape guard + Santa Maria filter): a title must EITHER state DevOps/SRE outright, OR pair an infra word (platform/infrastructure/cloud/systems/…) with an ENGINEERING role word (engineer/developer/architect/admin/…). Sales and product titles never match.
+- 4 new tests; verified live: 122 irrelevant jobs dropped, only real DevOps/platform roles pass.
+- Cleaned 19 legacy sales/PM jobs from existing accounts.
+
+## v1.9.12 (2026-08-26)
+
+### ✨ Official brand icons for the main portals
+- **LinkedIn, Indeed, Glassdoor, Upwork, Greenhouse, Personio now render their official brand-mark SVGs, bundled locally** (simple-icons, CC0) — crisp at any size, zero network calls at render time, no more favicon-sized blobs.
+- Other portals (ATS + built-in sources) keep the favicon service with emoji fallback — those platforms don't publish brand-mark SVGs.
+
+## v1.9.11 (2026-08-26)
+
+### 🐛 Fix: DevOps search returned Data/ML Engineer jobs
+- The relevance fallback regex included **"engineer"** — so when a DevOps search found no exact title matches, it relaxed to ANY engineering role (Data Engineer, ML Engineer, …). Removed `engineer` from the fallback: only truly DevOps-adjacent titles pass (SRE, Platform, Infrastructure, Cloud, Deployment, Release, Systems).
+- Verified: search "DevOps Engineer" now drops Data/ML/Security Engineer roles (81 dropped in one test); only real DevOps/platform roles pass.
+
+## v1.9.10 (2026-08-26)
+
+### 🐛 Fixes
+- **install.ps1: "Test-Path : A parameter cannot be found that matches parameter name 'and'"** — two `Test-Path $x -and -not (Test-Path $y)` expressions were invalid PowerShell (`-and` parsed as a Test-Path parameter). Parenthesized both operands; the error no longer prints on every install.
+- **update.ps1: silent no-op update when git is missing** — the script called bare `git`, which failed with "git is not recognized" on terminals where git is not on PATH, yet still printed "OK Code updated" and rebuilt from the OLD code. The updater now refreshes PATH, locates git.exe (same lookup as the installer), and **fails loudly** if git is not found — no more fake success.
+## v1.9.9 (2026-08-26)
+
+### 🐛 Fix: repeat searches never found new jobs
+- **"Scraped N live postings! (All N were already in your job list)" on every search — fixed.** The direct-API provider always picked the SAME 8 company boards, so re-searching returned the same jobs every time and the list never grew.
+- Board selection now **rotates per search** (priority boards always included, tail advances ~1 board per 15s, wraps through all 41k companies). Each search explores new boards and surfaces genuinely new postings.
+- Verified live: repeated search went from 0 new → **6 new jobs added** from fresh boards.
+
+## v1.9.8 (2026-08-26)
+
+### 🐛 Critical fix: multi-account job isolation
+- **Fixed: account B searching jobs account A already saved got "already in your job list" with an empty list.** The jobs table used a GLOBAL primary key on id, so the second account's insert was silently rejected at the DB level.
+- Rebuilt jobs table with **composite PK (user_id, id)** — every account now owns its own copy of each job. Migration runs automatically on boot (existing DBs upgraded in place).
+- Verified live in the UI: fresh Admin account searched Greenhouse/Ashby/Lever → **38 jobs added** (previously 0 with "already exist").
+
+## v1.9.7 (2026-08-26)
+
+### ⚡ Major: Free-API ATS search — zero Apify credits
+- **Greenhouse, Lever, Ashby now fetch directly from their FREE public job APIs** (boards-api.greenhouse.io, api.lever.co, api.ashbyhq.com) — no Apify actor, no credits, no monthly-limit surprises. This is the fix for the "Greenhouse returns nothing" reports: your Apify account had hit its monthly usage cap, and the actor was blocking the search.
+- SmartRecruiters stays on the Santa Maria actor (its public API tenant slugs differ from careers-site slugs — the open directory lists stale slugs).
+- Direct path reuses the full pipeline: priority boards + rotation, keyword relevance, posted-window, dedup.
+- **Real failure reasons now surface in the UI** — a source that errors shows "Greenhouse: <reason>" instead of the misleading "No results found in the selected window".
+- Santa Maria run failures (ABORTED/TIMED-OUT) retry up to 2x with a rotated board slice.
+
+## v1.9.6 (2026-08-26)
+
+### 🐛 Fixes
+- **Greenhouse/ATS "No results" with default filters — fixed.** The Santa Maria provider never mapped the actor's posting timestamp, so ATS jobs fell back to a synthetic scrape-time date; the 24h posted-window guard then dropped them all. The provider now maps `posted_at`/`published_at`/`updated_at` and returns newest-first, so a "Last 24 hours" search surfaces real fresh postings.
+
+### ✨ UI
+- **Removed the ✓ checkmark from source chips** — selection is shown by the filled brand-colored chip itself.
+
+## v1.9.5 (2026-08-26)
+
+### ✨ Enhancements
+- **Source chips show official career-portal counts** — every ATS chip now displays the number of company boards in the registry (e.g. Greenhouse 6,032, Workable 4,752, Ashby 3,450) via the new /api/ats/company-counts endpoint.
+- **Sources ordered by popularity** — active ATS sorted by portal count (desc), locked ATS grouped at the end (also by count).
+- Jobvite chip now reports its real count (92 portals).
+
+## v1.9.4 (2026-08-26)
+
+### ✨ UI
+- **Removed RemoteOK and WeWorkRemotely** from the source chips (they were "coming soon" placeholders). 32 portal chips remain, locked ATS still grouped at the end.
+
+## v1.9.3 (2026-08-26)
+
+### ✨ UI
+- **All sources shown directly in the row** — the "More" dropdown is gone. Every portal chip (LinkedIn → Join, ATS + built-in) is now visible at once and wraps to fit.
+- **Locked ATS grouped at the end** of the source row (Workday, Teamtailor, Personio, BambooHR, Rippling, JazzHR, Recruitee, iCIMS, Jobvite, Pinpoint — all 🔒).
+
+## v1.9.2 (2026-08-26)
+
+### 🧹 Cleanup
+- **Removed dead auto-apply scaffolding** (server/ats/browser.ts, detector.ts, queue.ts, adapters/, types.ts, shims.d.ts) — zero callers, Playwright not even installed; it type-checked only via a fake shim. The real ATS scraping path (Santa Maria provider + registry) is untouched.
+- **Removed unused providerCapabilities.ts** (zero callers).
+- **Source chips show portal names only** — the "Apify" badge is gone; chips are just Greenhouse, Lever, Ashby, … with the 🔒 badge for locked ATS.
+
+## v1.9.1 (2026-08-26)
+
+### 🔒 Locked (paid/enterprise-only ATS)
+- **BambooHR, Workday, iCIMS, JazzHR, Jobvite, Personio, Recruitee, Rippling, Pinpoint, Teamtailor** are now locked — their APIs require a paid plan or enterprise agreement, so they are disabled until a free access route exists.
+- UI: chips show a 🔒 badge, are non-clickable, and tooltips explain the lock. Settings lists them as locked.
+- Server-side enforcement: requesting a locked source spends **zero Apify credits** — it is skipped with a clear reason shown in the search result.
+- **Active ATS (free public APIs):** Greenhouse, Lever, Ashby, SmartRecruiters, Workable.
+
+## v1.9.0 (2026-08-26)
+
+### ✨ Enhancements
+- **Full official ATS company coverage — no more guessing.** Replaced hand-typed company lists with the community-maintained official dataset (kalil0321/ats-scrapers): **41,255 career sites** across all 15 ATS — Greenhouse 6,032, BambooHR 5,632, Workable 4,752, Workday 3,530, Ashby 3,448, SmartRecruiters 2,747, JazzHR 2,689, Lever 2,402, iCIMS 2,498, Personio 2,463, Rippling 1,923, Teamtailor 1,464, Recruitee 1,164, Pinpoint 406, Jobvite 92. Every slug comes from a real ATS career URL — no hand-guessing, no 404s.
+- **Smart search coverage:** Each search always checks your platform's priority boards (Stripe/GitLab/MongoDB/Twilio on Greenhouse, Palantir/Kraken on Lever, OpenAI/Notion/Linear on Ashby, Amazon/Airbnb on SmartRecruiters, Vercel/Asana/OpenAI on BambooHR, Shopify/Uber on Teamtailor, Slack on Workday) **plus** a rotating slice of the remaining companies (advances every 30 min), so repeated searches gradually cover every company on every ATS.
+- **Generic seeder** (`server/ats/seedCompanies.ts`): imports any company-list JSON from `server/ats/data/` into the registry — idempotent (INSERT OR IGNORE), existing installs upgrade automatically.
+
+## v1.8.8 (2026-08-19)
+
+### 🐛 Fixes
+- **Installers now recover from a stale/partial `tailor-cv` folder:** If a previous run left a non-empty folder without `docker-compose.yml` (e.g. a failed clone or an interrupted install), `git clone` refused with "destination path already exists and is not an empty directory". Both `install.ps1` (Windows) and `install.sh` (macOS/Linux) now detect that state, **back up `config.ini` (API keys), clean the stale folder, clone fresh, and restore your keys** — no manual deletion needed.
+
+## v1.8.7 (2026-08-19)
+
+### 🐛 Fixes
+- **Windows installer (install.ps1) — no more "docker/git not recognized" after install:** The installer now refreshes the PATH in the same session after installing Docker Desktop and Git, locates `docker.exe` / `git.exe` by their real install paths (not just PATH), and retries the git install elevated if winget fails. Previously, on fresh machines (no Docker, no Git), the script claimed "Docker engine ready" while `docker`/`git` were not on PATH, then failed at `git clone`. Now it installs, refreshes PATH, finds the executables, and continues — no logout/restart needed mid-install.
+- **Windows installer no longer false-positives on `$LASTEXITCODE`:** `Test-DockerEngine` and the compose check now invoke the located `docker.exe` explicitly (a missing command no longer masquerades as a successful check).
+
+## v1.8.6 (2026-08-19)
+
+### ✨ Enhancement
+- **Master CV — Contact Information now includes Designation:** Added **Designation** input to Contact Information (alongside Full Name, Email, Phone, Location, Portfolio, LinkedIn, GitHub). It prefills from Master CV and flows through Manual JD Preview and PDF generation (as `targetRole`).
+
 ## v1.8.4 (2026-08-19)
 
 ### ✨ Enhancement

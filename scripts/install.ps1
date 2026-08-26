@@ -27,11 +27,49 @@ $AppDir  = Join-Path $env:USERPROFILE 'tailor-cv'
 $RepoUrl = 'https://github.com/Atanub707/Tailor-AI.git'
 $AppUrl  = 'http://localhost:3000'
 $DockerDesktopExe = Join-Path ${env:ProgramFiles} 'Docker\Docker\Docker Desktop.exe'
+$DockerCliPath    = Join-Path ${env:ProgramFiles} 'Docker\Docker\resources\bin\docker.exe'
+$GitCliPath       = Join-Path ${env:ProgramFiles} 'Git\cmd\git.exe'
 
 function Say  ($m) { Write-Host $m -ForegroundColor White }
 function Ok   ($m) { Write-Host "OK   $m" -ForegroundColor Green }
 function Warn ($m) { Write-Host "!!   $m" -ForegroundColor Yellow }
 function Fail ($m) { Write-Host "XX   $m" -ForegroundColor Red; Read-Host 'Press Enter to close'; return }
+
+# Refresh PATH from the registry so tools installed in THIS session (winget
+# installs Docker/Git) become usable without a restart.
+function Refresh-Path {
+  $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
+              [Environment]::GetEnvironmentVariable('Path', 'User') + ';' +
+              [Environment]::GetEnvironmentVariable('Path', 'Process')
+}
+
+# Locate the real docker.exe — command may not be on PATH yet after install.
+# Returns the exe path or $null. Never throws.
+function Find-Docker {
+  $cmd = Get-Command docker -ErrorAction SilentlyContinue
+  if ($cmd) { return $cmd.Source }
+  if (Test-Path $DockerCliPath) { return $DockerCliPath }
+  return $null
+}
+
+# Locate git.exe — same story as docker.
+function Find-Git {
+  $cmd = Get-Command git -ErrorAction SilentlyContinue
+  if ($cmd) { return $cmd.Source }
+  if (Test-Path $GitCliPath) { return $GitCliPath }
+  return $null
+}
+
+# Run a docker command through whichever docker.exe we found.
+function Invoke-Docker {
+  param([Parameter(ValueFromRemainingArguments)] $Args)
+  $exe = Find-Docker
+  if (-not $exe) { throw 'docker not found' }
+  & $exe @Args 2>&1
+  return $LASTEXITCODE
+}
+
+$script:DockerExe = $null
 
 Say ''
 Say '════ Tailor CV installer ════'
@@ -64,7 +102,8 @@ try {
 } catch { }
 
 # ── 1. Docker CLI ───────────────────────────────────────────────────────────
-if (Get-Command docker -ErrorAction SilentlyContinue) {
+$script:DockerExe = Find-Docker
+if ($script:DockerExe) {
   Ok 'Docker CLI found'
 } else {
   Say 'Docker not found — installing Docker Desktop (one UAC prompt will appear, click Yes).'
@@ -79,7 +118,7 @@ if (Get-Command docker -ErrorAction SilentlyContinue) {
   }
 
   # Attempt 1: winget (may need elevation)
-  winget install -e --id Docker.DockerDesktop --accept-source-agreements --accept-package-agreements
+  winget install -e --id Docker.DockerDesktop --accept-source-agreements --accept-package-agreements | Out-Null
   if ($LASTEXITCODE -ne 0) {
     # Attempt 2: same, but explicitly elevated (UAC prompt)
     Warn "winget install failed (exit $LASTEXITCODE) — retrying as administrator…"
@@ -100,6 +139,14 @@ if (Get-Command docker -ErrorAction SilentlyContinue) {
     Fail 'Could not install Docker Desktop automatically. Install it manually from https://www.docker.com/products/docker-desktop/ (click Yes on the prompt), then rerun this installer.'
   }
 
+  # Refresh PATH — docker.exe was installed this session and is NOT on PATH yet.
+  Refresh-Path
+  $script:DockerExe = Find-Docker
+  if (-not $script:DockerExe) {
+    Fail 'Docker was installed but docker.exe is not on your PATH yet. Log out and back in (or restart), then run the installer again — it will continue from here.'
+  }
+  Ok "Docker CLI found at $script:DockerExe"
+
   # First-time machines: WSL2 itself may be missing.
   wsl --status 2>&1 | Out-Null
   if ($LASTEXITCODE -ne 0) {
@@ -117,7 +164,9 @@ if (Get-Command docker -ErrorAction SilentlyContinue) {
 # native stderr into a terminating error under ErrorActionPreference=Stop) —
 # always check $LASTEXITCODE instead.
 function Test-DockerEngine {
-  docker info 2>&1 | Out-Null
+  $exe = Find-Docker
+  if (-not $exe) { return $false }
+  & $exe info 2>&1 | Out-Null
   return ($LASTEXITCODE -eq 0)
 }
 
@@ -157,23 +206,61 @@ if (-not $engineReady) {
 Ok 'Docker engine is ready'
 
 # ── 4. Verify compose v2 (bundled with Docker Desktop) ──────────────────────
-docker compose version 2>&1 | Out-Null
+& (Find-Docker) compose version 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) { Fail 'docker compose v2 is missing — update Docker Desktop.' }
 Ok 'docker compose v2 found'
 
 # ── 5. Get the app ──────────────────────────────────────────────────────────
 if (-not (Test-Path (Join-Path $AppDir 'docker-compose.yml'))) {
+  # A folder exists but the app isn't there → it's a stale/partial install
+  # (e.g. a failed clone, a leftover .git, or junk from an aborted run).
+  # git clone refuses to clone into a non-empty directory, so clean it first
+  # while PRESERVING config.ini (API keys) if the user already set them up.
+  if (Test-Path $AppDir) {
+    Warn "A previous incomplete install was found at $AppDir — cleaning it up before downloading fresh."
+    $cfgKeep = Join-Path $AppDir 'config.ini'
+    $cfgBackup = Join-Path $env:TEMP 'tailor-cv-config.ini.bak'
+    if ((Test-Path $cfgKeep) -and (-not (Get-Item $cfgKeep).PSIsContainer)) {
+      Copy-Item $cfgKeep $cfgBackup -Force
+      Warn 'Your existing config.ini (API keys) was backed up and will be restored.'
+    }
+    Remove-Item $AppDir -Recurse -Force
+  }
+
   Say "Downloading Tailor CV to $AppDir"
-  if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+  $gitExe = Find-Git
+  if (-not $gitExe) {
     Warn 'git not found — installing it via winget.'
-    winget install -e --id Git.Git --accept-source-agreements --accept-package-agreements | Out-Null
-    $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Fail 'git is required. Install it manually, then rerun.' }
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+      winget install -e --id Git.Git --accept-source-agreements --accept-package-agreements | Out-Null
+      if ($LASTEXITCODE -ne 0) {
+        Warn "winget git install failed (exit $LASTEXITCODE) — retrying as administrator…"
+        Start-Process winget -ArgumentList 'install','-e','--id','Git.Git','--accept-source-agreements','--accept-package-agreements' -Verb RunAs -Wait
+      }
+    } else {
+      Warn 'winget is missing — please install git manually from https://git-scm.com/download/win'
+    }
+    # Refresh PATH — git was installed this session and is NOT on PATH yet.
+    Refresh-Path
+    $gitExe = Find-Git
+    if (-not $gitExe) {
+      Fail 'git is required but was not found after install. Install git from https://git-scm.com/download/win, then rerun this installer.'
+    }
   }
   New-Item -ItemType Directory -Force -Path $AppDir | Out-Null
-  git clone --depth 1 $RepoUrl $AppDir
+  & $gitExe clone --depth 1 $RepoUrl $AppDir
   if ($LASTEXITCODE -ne 0) { Fail 'Could not download the app. Check your connection, or clone the repo manually.' }
   Ok 'App downloaded'
+}
+
+# Restore a backed-up config.ini (from the stale-folder cleanup above) so the
+# user's API keys are not lost.
+$cfgBackup = Join-Path $env:TEMP 'tailor-cv-config.ini.bak'
+$cfgPath2 = Join-Path $AppDir 'config.ini'
+if ((Test-Path $cfgBackup) -and (-not (Test-Path $cfgPath2))) {
+  Copy-Item $cfgBackup $cfgPath2 -Force
+  Remove-Item $cfgBackup -Force
+  Ok 'Restored your previous config.ini (API keys kept intact)'
 }
 
 # ── 6. Prepare config.ini ───────────────────────────────────────────────────
@@ -190,7 +277,7 @@ if (-not (Test-Path $cfgPath)) {
 
 # ── 7. Run ──────────────────────────────────────────────────────────────────
 Say 'Starting Tailor CV…'
-docker compose -f (Join-Path $AppDir 'docker-compose.yml') up -d --pull missing
+& (Find-Docker) compose -f (Join-Path $AppDir 'docker-compose.yml') up -d --pull missing
 if ($LASTEXITCODE -ne 0) { Fail 'docker compose failed — see the output above.' }
 Ok 'Tailor CV container started'
 

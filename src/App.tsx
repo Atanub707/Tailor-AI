@@ -252,6 +252,8 @@ export default function App() {
     jobType?: 'all' | 'remote' | 'onsite' | 'hybrid';
     minSalary?: number;
     maxJobsPerSource?: number;
+    contractType?: string;
+    experienceLevel?: string;
     under10Applicants?: boolean;
   }) => {
     setIsScrapingLoading(true);
@@ -558,7 +560,7 @@ export default function App() {
             </div>
           )}
 
-          {/* Live Job Scraper Bar */}
+          {/* Live Job Search Bar */}
           <ScraperBar
             onScrape={handleScrape}
             isLoading={isScrapingLoading}

@@ -1,5 +1,5 @@
 export type JobState = 'pending' | 'matched' | 'tailored' | 'ready' | 'applied';
-export type JobSource = 'LinkedIn' | 'LinkedInPosts' | 'Indeed' | 'Naukri' | 'Glassdoor' | 'Upwork' | 'Arbeitnow' | 'SimplyHired' | 'Dice' | 'Reed' | 'RemoteOK' | 'WeWorkRemotely' | 'MyCareersFuture' | 'Cutshort' | 'Gupy' | 'JobsCh' | 'Daijob' | 'MyJobMag' | 'Greenhouse' | 'Lever' | 'Ashby' | 'Workable' | 'Custom';
+export type JobSource = 'LinkedIn' | 'LinkedInPosts' | 'Indeed' | 'Naukri' | 'Glassdoor' | 'Upwork' | 'Arbeitnow' | 'SimplyHired' | 'Dice' | 'Reed' | 'RemoteOK' | 'WeWorkRemotely' | 'MyCareersFuture' | 'Cutshort' | 'Gupy' | 'JobsCh' | 'Daijob' | 'MyJobMag' | 'Greenhouse' | 'Lever' | 'Ashby' | 'Workable' | 'Workday' | 'SmartRecruiters' | 'Teamtailor' | 'Personio' | 'BambooHR' | 'Rippling' | 'JazzHR' | 'Recruitee' | 'iCIMS' | 'Jobvite' | 'Comeet' | 'Pinpoint' | 'Join' | 'Custom';
 
 export interface Job {
   id: string;
@@ -153,6 +153,7 @@ export interface CertificationItem {
 
 export interface MasterCv {
   fullName: string;
+  designation?: string;
   email: string;
   phone: string;
   location: string;

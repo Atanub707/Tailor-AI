@@ -452,6 +452,10 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
             <input type="text" value={formData.fullName} onChange={(e) => setFormData({ ...formData, fullName: e.target.value })} placeholder="e.g. Alex Johnson" className="w-full bg-white border border-[var(--color-hairline)] rounded px-2.5 py-1.5 text-[var(--color-ink)] focus:outline-none focus:ring-1 focus:ring-slate-900 font-medium" />
           </div>
           <div>
+            <label className="block text-[var(--color-muted)] font-medium mb-1">Designation</label>
+            <input type="text" list="mastercv-roles" value={(formData as any).designation || ''} onChange={(e) => setFormData({ ...formData, designation: e.target.value } as any)} placeholder="e.g. Senior DevSecOps Engineer" className="w-full bg-white border border-[var(--color-hairline)] rounded px-2.5 py-1.5 text-[var(--color-ink)] focus:outline-none focus:ring-1 focus:ring-slate-900 font-medium" />
+          </div>
+          <div>
             <label className="block text-[var(--color-muted)] font-medium mb-1">Email Address</label>
             <input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} placeholder="alex@example.com" className="w-full bg-white border border-[var(--color-hairline)] rounded px-2.5 py-1.5 text-[var(--color-ink)] focus:outline-none focus:ring-1 focus:ring-slate-900" />
           </div>

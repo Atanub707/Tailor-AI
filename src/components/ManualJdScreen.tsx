@@ -123,6 +123,7 @@ export interface EditableExp {
 export interface EditableCv {
   candidateName: string;
   targetRole?: string;
+  designation?: string;
   contactInfo: Record<string, string>;
   summary: string;
   skills: EditableSkillGroup[]; // categories preserved (matches Master CV preview)
@@ -239,6 +240,7 @@ export function editableCvToPdfShape(cv: EditableCv, hideAI: boolean): PdfCvShap
 export function editableCvToEditorShape(cv: EditableCv): MasterCv {
   return {
     fullName: cv.candidateName || '',
+    designation: (cv as any).designation || cv.targetRole || '',
     email: cv.contactInfo?.email || '',
     phone: cv.contactInfo?.phone || '',
     location: cv.contactInfo?.location || '',
@@ -285,7 +287,7 @@ export function editorShapeToEditableCv(editor: MasterCv, prev: EditableCv): Edi
 
   return {
     candidateName: editor.fullName || '',
-    targetRole: prev.targetRole,
+    targetRole: (editor as any).designation || prev.targetRole,
     contactInfo: {
       ...(prev.contactInfo || {}),
       email: editor.email,
@@ -295,6 +297,7 @@ export function editorShapeToEditableCv(editor: MasterCv, prev: EditableCv): Edi
       github: (editor as any).github || (prev.contactInfo as any)?.github || '',
       website: (editor as any).website || (prev.contactInfo as any)?.website || '',
     },
+    designation: (editor as any).designation || (prev as any).designation || prev.targetRole,
     summary: editor.summary || '',
     skills: (editor.skills || []).map((g) => ({
       category: g.category || 'Technical',

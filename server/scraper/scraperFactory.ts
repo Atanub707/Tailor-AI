@@ -23,10 +23,8 @@ import { loadConfig } from '../config.js';
 import { SOURCES } from '../../src/constants/sources.js';
 import { contradictsWanted } from './workMode.js';
 import { ApifyBaseScraper } from './apifyBase.js';
-import { GreenhouseApifyScraper } from './greenhouseScraper.js';
-import { LeverApifyScraper } from './leverScraper.js';
-import { AshbyApifyScraper } from './ashbyScraper.js';
-import { WorkableApifyScraper } from './workableScraper.js';
+import { SantaMariaApifyProvider } from '../providers/santaMariaProvider.js';
+import { isWithinPostedWindow, isDevOpsAdjacent } from '../storage/v2Tables.js';
 
 // Apify-powered sources — constructed from the shared registry (Task 1).
 const APIFY_SCRAPERS: Partial<Record<JobSource, () => ApifyBaseScraper>> = {
@@ -35,18 +33,75 @@ const APIFY_SCRAPERS: Partial<Record<JobSource, () => ApifyBaseScraper>> = {
   Naukri: () => new NaukriScraper(),
   Glassdoor: () => new GlassdoorScraper(),
   Upwork: () => new UpworkScraper(),
-  Greenhouse: () => new GreenhouseApifyScraper(),
-  Lever: () => new LeverApifyScraper(),
-  Ashby: () => new AshbyApifyScraper(),
-  Workable: () => new WorkableApifyScraper(),
 };
+
+// ATS-25 sources (Greenhouse, Lever, Ashby, Workable, Workday, SmartRecruiters,
+// …) all route through the ONE Santa Maria actor — never per-ATS scrapers.
+// The selected source's platform filters the company_career_sites registry.
+// EXCEPTION: the four ATS with FREE public job APIs (Greenhouse, Lever, Ashby,
+// SmartRecruiters) are fetched directly — zero Apify credits. Santa Maria is
+// the fallback for the rest.
+export const ATS_PLATFORM_BY_SOURCE: Partial<Record<JobSource, string>> = {
+  Greenhouse: 'greenhouse',
+  Lever: 'lever',
+  Ashby: 'ashby',
+  Workable: 'workable',
+  Workday: 'workday',
+  SmartRecruiters: 'smartrecruiters',
+  Teamtailor: 'teamtailor',
+  Personio: 'personio',
+  BambooHR: 'bamboohr',
+  Rippling: 'rippling',
+  JazzHR: 'jazzhr',
+  Recruitee: 'recruitee',
+  iCIMS: 'icims',
+  Jobvite: 'jobvite',
+  Comeet: 'comeet',
+  Pinpoint: 'pinpoint',
+  Join: 'join',
+};
+
+// Free public job APIs — fetched directly, never through the paid actor.
+// SmartRecruiters EXCLUDED: its public API uses per-company tenant slugs that
+// differ from careers-site slugs (the open directory lists stale/404 slugs),
+// so it goes through the Santa Maria actor which knows the correct mapping.
+const FREE_API_SOURCES: Partial<Record<JobSource, string>> = {
+  Greenhouse: 'greenhouse',
+  Lever: 'lever',
+  Ashby: 'ashby',
+};
+
+async function scrapeAtsViaSantaMaria(source: JobSource, params: ScraperParams): Promise<Job[]> {
+  const platform = ATS_PLATFORM_BY_SOURCE[source];
+
+  // Free public APIs first — Greenhouse/Lever/Ashby/SmartRecruiters need no
+  // Apify credits. The paid actor is ONLY for the other ATS.
+  const freePlatform = FREE_API_SOURCES[source];
+  if (freePlatform) {
+    const { scrapeDirectAts } = await import('../providers/directAtsProvider.js');
+    const jobs = await scrapeDirectAts(source, freePlatform, params.keywords.trim().split(/\s+/).filter(Boolean), params.maxJobsPerSource || 15);
+    return jobs.map((j) => ({ ...j, source, atsPlatform: platform || (j as any).atsPlatform }));
+  }
+
+  const provider = new SantaMariaApifyProvider();
+  const result = await provider.search({
+    keywords: params.keywords.trim().split(/\s+/).filter(Boolean),
+    locations: params.location && params.location !== 'Remote' ? [params.location] : undefined,
+    atsPlatforms: platform ? [platform as any] : undefined,
+    limit: Math.min(params.maxJobsPerSource || 15, 50),
+    queries: [], // provider reads the registry itself (filtered by platform)
+  });
+  // Tag with the source the user selected (e.g. "Greenhouse"), not "Custom" —
+  // so the dashboard source filter and ATS badge work correctly.
+  return result.jobs.map((j) => ({ ...j, source, atsPlatform: platform || (j as any).atsPlatform }));
+}
 
 export class ScraperFactory {
   // Populated by the last runScrape: sources skipped (robots.txt or Apify gate).
   static lastSkippedSources: { source: string; reason: string }[] = [];
   static async runScrape(params: ScraperParams): Promise<Job[]> {
     const sources = params.sources || ['LinkedIn'];
-    const allJobs: Job[] = [];
+    let allJobs: Job[] = [];
     ScraperFactory.lastSkippedSources = [];
 
     // Good-faith crawler check: resolve robots.txt once per domain (parallel,
@@ -81,6 +136,15 @@ export class ScraperFactory {
     for (const source of sources) {
       const domain = SOURCE_DOMAINS[source];
       const meta = SOURCES[source];
+      // Locked sources (paid/enterprise-only ATS APIs — BambooHR, Workday,
+      // iCIMS, JazzHR, Jobvite, Personio, Recruitee, Rippling, Pinpoint,
+      // Teamtailor) are disabled until a free route exists. Enforced server-side
+      // too — never spend Apify credits on them.
+      if (meta?.locked) {
+        console.warn(`[ScraperFactory] ${source}: skipped — paid/enterprise-only API (locked)`);
+        ScraperFactory.lastSkippedSources.push({ source, reason: 'paid/enterprise-only API — locked until free access is available' });
+        continue;
+      }
       const isApifySource = !!meta?.apifyActorId;
       // robots.txt only governs sources WE crawl directly. Apify-powered
       // sources run on Apify's infrastructure — their actors do the crawling
@@ -96,7 +160,16 @@ export class ScraperFactory {
       try {
         let jobs: Job[] = [];
 
-        if (meta?.apifyActorId) {
+        // Plan B: ATS-25 sources route through the single Santa Maria actor.
+        if (ATS_PLATFORM_BY_SOURCE[source]) {
+          const apifyConfig = loadConfig().apify;
+          const apifyAvailable = apifyConfig.enabled && !!apifyConfig.token?.trim();
+          if (!apifyAvailable) {
+            ScraperFactory.lastSkippedSources.push({ source, reason: 'requires Apify API key — enable in Settings' });
+            continue;
+          }
+          jobs = await scrapeAtsViaSantaMaria(source, params);
+        } else if (meta?.apifyActorId) {
           // Apify path — generic for all Apify-powered sources.
           const apifyConfig = loadConfig().apify;
           const apifyAvailable = apifyConfig.enabled && !!apifyConfig.token?.trim();
@@ -150,8 +223,13 @@ export class ScraperFactory {
         allJobs.push(...jobs);
         console.log(`[ScraperFactory] ${source}: ${jobs.length} jobs`);
       } catch (err: any) {
-        // Isolate failures: one broken source must not abort the rest
-        console.warn(`[ScraperFactory] ${source} failed: ${err?.message || err}`);
+        // Isolate failures: one broken source must not abort the rest.
+        // BUT never swallow the reason — surface it as a skipped source so
+        // the UI shows "Greenhouse (Apify: Monthly usage hard limit exceeded)"
+        // instead of a misleading "No results in the selected window".
+        const reason = String(err?.message || err).slice(0, 200);
+        console.warn(`[ScraperFactory] ${source} failed: ${reason}`);
+        ScraperFactory.lastSkippedSources.push({ source, reason });
       }
     }
 
@@ -164,7 +242,42 @@ export class ScraperFactory {
       if (filtered.length !== before) {
         console.log(`[ScraperFactory] Work-mode guard: ${before - filtered.length} jobs dropped (contradict ${wanted} search)`);
       }
-      return filtered;
+      allJobs = filtered;
+    }
+
+    // Posted-window guarantee across ALL sources: "Last 24 hours" filters by
+    // the job's posting time, never the scrape time. Jobs with an unknown
+    // posting date fail the window (honest — can't prove freshness).
+    if (params.datePostedFilter && params.datePostedFilter !== 'all') {
+      const before = allJobs.length;
+      allJobs = allJobs.filter((j) => isWithinPostedWindow(j, params.datePostedFilter));
+      if (allJobs.length !== before) {
+        console.log(`[ScraperFactory] Posted-window guard: ${before - allJobs.length} jobs dropped (older than ${params.datePostedFilter})`);
+      }
+    }
+
+    // Relevance guarantee across ALL sources: the FIRST keyword term must appear
+    // in the title or company (the strongest signal). "DevOps Engineer" → "DevOps"
+    // in title/company; description-only matches are dropped so generic roles
+    // (Account Executive whose JD mentions engineers) never leak. If the strict
+    // match yields nothing, relax to DevOps-adjacent titles (SRE/Platform/
+    // Infrastructure/Cloud) — same rule Santa Maria uses — rather than an
+    // empty result.
+    const terms = (params.keywords || '').toLowerCase().split(/\s+/).filter((t) => t.length > 2);
+    if (terms.length > 0) {
+      const primary = terms[0];
+      const before = allJobs.length;
+      let relevant = allJobs.filter((j) => {
+        const title = `${j.title} ${j.company}`.toLowerCase();
+        return title.includes(primary);
+      });
+      if (relevant.length === 0) {
+        relevant = allJobs.filter((j) => isDevOpsAdjacent(`${j.title} ${j.company}`));
+      }
+      if (relevant.length > 0) {
+        allJobs = relevant;
+        console.log(`[ScraperFactory] Relevance guard: ${before - allJobs.length} jobs dropped (no "${primary}" / adjacent in title/company)`);
+      }
     }
 
     return allJobs;

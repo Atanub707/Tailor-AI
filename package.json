@@ -1,7 +1,7 @@
 {
   "name": "tailor",
   "private": true,
-  "version": "1.8.4",
+  "version": "1.9.13",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -37,6 +37,7 @@
     "react-day-picker": "^10.0.1",
     "react-dom": "^19.0.1",
     "react-router-dom": "^7.18.2",
+    "simple-icons": "^16.28.0",
     "vite": "^6.2.3"
   },
   "devDependencies": {
