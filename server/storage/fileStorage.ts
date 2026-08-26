@@ -348,9 +348,10 @@ export function getDb(): Database.Database {
       created_at TEXT
     );
     CREATE TABLE IF NOT EXISTS jobs (
-      id TEXT PRIMARY KEY,
-      user_id TEXT,
-      data TEXT NOT NULL
+      id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      data TEXT NOT NULL,
+      PRIMARY KEY (user_id, id)
     );
     CREATE TABLE IF NOT EXISTS master_cv (
       user_id TEXT PRIMARY KEY,
@@ -617,6 +618,30 @@ function migrateToUsers(d: Database.Database): void {
       console.log('[Storage] Added user_id column to jobs table');
     }
 
+    // 1b. jobs table: composite PK (user_id, id) — each account owns its own
+    // copy of a job. With a global `id` PK, account B searching jobs account A
+    // already saved silently failed with "already exists" (the real multi-
+    // account bug). Id collisions across users keep the earliest owner.
+    const jobPk = (d.prepare('PRAGMA table_info(jobs)').all() as { name: string; pk: number }[]).filter((c) => c.pk > 0);
+    const hasComposite = jobPk.some((c) => c.name === 'user_id') && jobPk.some((c) => c.name === 'id');
+    if (!hasComposite) {
+      d.exec(`
+        CREATE TABLE jobs_new (
+          id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          data TEXT NOT NULL,
+          PRIMARY KEY (user_id, id)
+        );
+      `);
+      d.exec(`
+        INSERT OR IGNORE INTO jobs_new (id, user_id, data)
+        SELECT id, COALESCE(NULLIF(user_id, ''), '__owner__'), data FROM jobs
+      `);
+      d.exec('DROP TABLE jobs');
+      d.exec('ALTER TABLE jobs_new RENAME TO jobs');
+      console.log('[Storage] Rebuilt jobs table with per-user PK (user_id, id)');
+    }
+
     // 2. master_cv table: rebuild into user-keyed schema
     const cvCols = d.prepare('PRAGMA table_info(master_cv)').all() as { name: string }[];
     if (!cvCols.some((c) => c.name === 'user_id')) {
@@ -658,7 +683,7 @@ function migrateToUsers(d: Database.Database): void {
     }
 
     if (adminId) {
-      d.exec(`UPDATE jobs SET user_id = '${adminId}' WHERE user_id IS NULL OR user_id = ''`);
+      d.exec(`UPDATE jobs SET user_id = '${adminId}' WHERE user_id IS NULL OR user_id = '' OR user_id = '__owner__'`);
       d.exec(`UPDATE master_cv SET user_id = '${adminId}' WHERE user_id = '__placeholder__' OR user_id = ''`);
       const owned = (d.prepare('SELECT COUNT(*) AS c FROM jobs WHERE user_id = ?').get(adminId) as { c: number }).c;
       console.log(`[Storage] Data isolation ready: ${owned} jobs owned by ${adminId}`);

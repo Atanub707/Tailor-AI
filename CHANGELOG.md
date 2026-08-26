@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.9.8 (2026-08-26)
+
+### 🐛 Critical fix: multi-account job isolation
+- **Fixed: account B searching jobs account A already saved got "already in your job list" with an empty list.** The jobs table used a GLOBAL primary key on id, so the second account's insert was silently rejected at the DB level.
+- Rebuilt jobs table with **composite PK (user_id, id)** — every account now owns its own copy of each job. Migration runs automatically on boot (existing DBs upgraded in place).
+- Verified live in the UI: fresh Admin account searched Greenhouse/Ashby/Lever → **38 jobs added** (previously 0 with "already exist").
+
 ## v1.9.7 (2026-08-26)
 
 ### ⚡ Major: Free-API ATS search — zero Apify credits
