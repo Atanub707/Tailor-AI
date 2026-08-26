@@ -1,8 +1,46 @@
 import { getAllJobs, getCurrentUserId, saveNewJobs, getDb } from '../storage/fileStorage.js';
 import { isJobFresh, fingerprintJob, markSeen, getSeenFingerprints, isWithinPostedWindow } from '../storage/v2Tables.js';
 import { rankRelevant } from '../search/rank.js';
+import { matchesLocation } from '../search/location.js';
 import { getFetchBudget } from '../providers/searchBudget.js';
 import type { SearchRequest } from '../providers/searchBudget.js';
+
+// ── LOCAL FILTER PIPELINE (applied to EVERY candidate before it can be
+//    shown or saved). Retrieval decides how many candidates we fetch;
+//    these stages decide which of them satisfy the user's constraints.
+//    Order matters: cheap/structural filters first, expensive relevance last.
+//    1. validity   — missing title/apply URL → reject
+//    2. date       — provider-aware postedDate window (24h/7d/30d)
+//    3. location   — normalized country/city/remote matching
+//    4. job type   — contract/employment type, only when requested
+//    5. relevance  — query-profile score; IRRELEVANT → reject
+//    (dedup + ranking + LIMIT happen after, in the search flow)
+export interface LocalFilterResult {
+  passed: boolean;
+  reason?: 'invalid' | 'date' | 'location' | 'jobtype' | 'relevance';
+}
+
+export function passLocalFilters(job: any, req: SearchRequest): LocalFilterResult {
+  // 1. Validity — unusable jobs are rejected before anything else.
+  if (!job || !job.title || (!job.applyUrl && !job.url)) {
+    return { passed: false, reason: 'invalid' };
+  }
+  // 2. Date — semantics-aware (published/created/updated/unknown).
+  if (!isWithinPostedWindow(job, req.postedWithin)) {
+    return { passed: false, reason: 'date' };
+  }
+  // 3. Location — normalized matching (India → Bengaluru/Remote-India).
+  if (!matchesLocation(job.location || job.locations, req.location, { remote: req.remote })) {
+    return { passed: false, reason: 'location' };
+  }
+  // 4. Job type — only when the user picked one (full-time/contract/…).
+  if (req.jobType && req.jobType !== 'any' && req.jobType !== 'all') {
+    const t = String(job.employmentType || job.jobType || '').toLowerCase();
+    const want = String(req.jobType).toLowerCase();
+    if (t && !t.includes(want)) return { passed: false, reason: 'jobtype' };
+  }
+  return { passed: true };
+}
 
 export interface ProviderResult {
   providerId: string;
@@ -49,7 +87,7 @@ export async function searchWithCache(
   const freshJobs = allJobs.filter((j) => {
     if ((j as any).isActive === false) return false;
     if (!isJobFresh((j as any).scrapedAt)) return false;
-    if (!isWithinPostedWindow(j, req.postedWithin)) return false;
+    if (!passLocalFilters(j, req).passed) return false; // date/location/jobtype/validity
     const fp = (j as any).fingerprint || fingerprintJob(j);
     if (seenSet.has(fp)) return false; // seen in this walk → skip
     const hay = `${j.title} ${j.company} ${j.description || ''}`.toLowerCase();
@@ -97,7 +135,7 @@ export async function searchWithCache(
       const { jobs } = await fetchFn(providerId, providerLimit);
       const duration = Date.now() - start;
       const unique = jobs.filter((j: any) => {
-        if (!isWithinPostedWindow(j, req.postedWithin)) return false; // posting window
+        if (!passLocalFilters(j, req).passed) return false; // date/location/jobtype/validity
         const fp = (j as any).fingerprint || fingerprintJob(j);
         if (seenSet.has(fp)) return false;      // seen in this walk
         if (seenFinal.has(fp)) return false;    // already collected
@@ -147,7 +185,7 @@ export async function searchWithCache(
       try {
         const { jobs } = await fetchFn(next, topUpLimit);
         const fresh = jobs.filter((j: any) => {
-          if (!isWithinPostedWindow(j, req.postedWithin)) return false; // posting window
+          if (!passLocalFilters(j, req).passed) return false; // date/location/jobtype/validity
           const fp = (j as any).fingerprint || fingerprintJob(j);
           if (seenSet.has(fp) || seenFinal.has(fp)) return false;
           seenFinal.add(fp);
