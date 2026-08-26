@@ -112,8 +112,13 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
         setScrapeSuccessMsg(`Scraped ${result.scrapedTotal} live postings! (All ${result.skippedDuplicates} were already in your job list).${filterNote}`);
       }
     } else if (result?.skippedSources && result.skippedSources.length > 0) {
-      const skippedNames = result.skippedSources.map((s) => `${s.source} (${s.reason})`).join(', ');
-      setScrapeSuccessMsg(`Searched — skipped: ${skippedNames}.`);
+      // Human-readable reasons — a raw Apify 403 JSON must never hit the banner.
+      const fmt = (r: { source: string; reason: string }) => {
+        const msg = r.reason.replace(/\s*\{[\s\S]*$/, '').trim(); // drop JSON tail
+        const short = msg.replace(/^Apify create run failed \d+:?\s*/i, '');
+        return `${r.source}: ${short}`;
+      };
+      setScrapeSuccessMsg(`Searched — skipped: ${result.skippedSources.map(fmt).join(' · ')}`);
     } else {
       const srcList = selectedSources.join(' + ');
       setScrapeSuccessMsg(`Searched ${srcList} — No results found in the selected window. Try different keywords, a wider posted window, or search again later.`);

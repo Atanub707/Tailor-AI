@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.9.7 (2026-08-26)
+
+### ⚡ Major: Free-API ATS search — zero Apify credits
+- **Greenhouse, Lever, Ashby now fetch directly from their FREE public job APIs** (boards-api.greenhouse.io, api.lever.co, api.ashbyhq.com) — no Apify actor, no credits, no monthly-limit surprises. This is the fix for the "Greenhouse returns nothing" reports: your Apify account had hit its monthly usage cap, and the actor was blocking the search.
+- SmartRecruiters stays on the Santa Maria actor (its public API tenant slugs differ from careers-site slugs — the open directory lists stale slugs).
+- Direct path reuses the full pipeline: priority boards + rotation, keyword relevance, posted-window, dedup.
+- **Real failure reasons now surface in the UI** — a source that errors shows "Greenhouse: <reason>" instead of the misleading "No results found in the selected window".
+- Santa Maria run failures (ABORTED/TIMED-OUT) retry up to 2x with a rotated board slice.
+
 ## v1.9.6 (2026-08-26)
 
 ### 🐛 Fixes

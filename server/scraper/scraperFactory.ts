@@ -38,6 +38,9 @@ const APIFY_SCRAPERS: Partial<Record<JobSource, () => ApifyBaseScraper>> = {
 // ATS-25 sources (Greenhouse, Lever, Ashby, Workable, Workday, SmartRecruiters,
 // …) all route through the ONE Santa Maria actor — never per-ATS scrapers.
 // The selected source's platform filters the company_career_sites registry.
+// EXCEPTION: the four ATS with FREE public job APIs (Greenhouse, Lever, Ashby,
+// SmartRecruiters) are fetched directly — zero Apify credits. Santa Maria is
+// the fallback for the rest.
 export const ATS_PLATFORM_BY_SOURCE: Partial<Record<JobSource, string>> = {
   Greenhouse: 'greenhouse',
   Lever: 'lever',
@@ -58,8 +61,28 @@ export const ATS_PLATFORM_BY_SOURCE: Partial<Record<JobSource, string>> = {
   Join: 'join',
 };
 
+// Free public job APIs — fetched directly, never through the paid actor.
+// SmartRecruiters EXCLUDED: its public API uses per-company tenant slugs that
+// differ from careers-site slugs (the open directory lists stale/404 slugs),
+// so it goes through the Santa Maria actor which knows the correct mapping.
+const FREE_API_SOURCES: Partial<Record<JobSource, string>> = {
+  Greenhouse: 'greenhouse',
+  Lever: 'lever',
+  Ashby: 'ashby',
+};
+
 async function scrapeAtsViaSantaMaria(source: JobSource, params: ScraperParams): Promise<Job[]> {
   const platform = ATS_PLATFORM_BY_SOURCE[source];
+
+  // Free public APIs first — Greenhouse/Lever/Ashby/SmartRecruiters need no
+  // Apify credits. The paid actor is ONLY for the other ATS.
+  const freePlatform = FREE_API_SOURCES[source];
+  if (freePlatform) {
+    const { scrapeDirectAts } = await import('../providers/directAtsProvider.js');
+    const jobs = await scrapeDirectAts(source, freePlatform, params.keywords.trim().split(/\s+/).filter(Boolean), params.maxJobsPerSource || 15);
+    return jobs.map((j) => ({ ...j, source, atsPlatform: platform || (j as any).atsPlatform }));
+  }
+
   const provider = new SantaMariaApifyProvider();
   const result = await provider.search({
     keywords: params.keywords.trim().split(/\s+/).filter(Boolean),
@@ -200,8 +223,13 @@ export class ScraperFactory {
         allJobs.push(...jobs);
         console.log(`[ScraperFactory] ${source}: ${jobs.length} jobs`);
       } catch (err: any) {
-        // Isolate failures: one broken source must not abort the rest
-        console.warn(`[ScraperFactory] ${source} failed: ${err?.message || err}`);
+        // Isolate failures: one broken source must not abort the rest.
+        // BUT never swallow the reason — surface it as a skipped source so
+        // the UI shows "Greenhouse (Apify: Monthly usage hard limit exceeded)"
+        // instead of a misleading "No results in the selected window".
+        const reason = String(err?.message || err).slice(0, 200);
+        console.warn(`[ScraperFactory] ${source} failed: ${reason}`);
+        ScraperFactory.lastSkippedSources.push({ source, reason });
       }
     }
 

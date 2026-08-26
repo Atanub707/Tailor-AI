@@ -14,6 +14,9 @@ import { ensureV2Tables } from '../storage/v2Tables.js';
 export class SantaMariaApifyProvider implements JobProvider {
   readonly id = 'santa-maria';
   private readonly actorId = 'santamaria-automations~career-site-jobs-scraper';
+  // Retry counter — shifts the rotating board slice so a retry never hits the
+  // same (possibly failing/empty) boards again.
+  private rotationBias = 0;
 
   async search(params: JobSearchParams): Promise<JobProviderResult> {
     const config = loadConfig();
@@ -39,9 +42,28 @@ export class SantaMariaApifyProvider implements JobProvider {
       includeDescription: true,
     };
 
-    // Async run: create run → poll → dataset
-    const runId = await this.createRun(token, input);
-    const items = await this.pollAndFetch(token, runId);
+    // Async run: create run → poll → dataset. Retry transient actor failures
+    // (Apify ABORTED / FAILED / TIMED-OUT are common when the actor's browser
+    // pool is busy) — each retry rotates to a fresh board slice.
+    let runId: string;
+    let items: any[] = [];
+    let lastErr: unknown = null;
+    for (let attempt = 0; attempt <= 2; attempt++) {
+      try {
+        if (attempt > 0) this.rotationBias = attempt; // force a different slice
+        const queriesForRun = params.queries?.length ? params.queries : this.buildDefaultQueries(params);
+        runId = await this.createRun(token, { ...input, queries: queriesForRun });
+        items = await this.pollAndFetch(token, runId);
+        break;
+      } catch (err: any) {
+        lastErr = err;
+        const terminal = !/ABORTED|FAILED|TIMED-OUT|timed out|aborted|Apify run/.test(String(err?.message || ''));
+        if (attempt === 2 || terminal) throw err;
+        console.warn(`[SantaMaria] Run failed (${err?.message}) — retry ${attempt + 1}/2`);
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+    }
+    if (!items) throw lastErr;
 
     let jobs = items.map((item) => this.normalize(item, runId)).filter((j): j is Job => j !== null);
 
@@ -139,7 +161,7 @@ export class SantaMariaApifyProvider implements JobProvider {
       const notPriorityArgs = priorityIds.length ? priorityIds : [];
       const total = (db.prepare(`SELECT count(*) c FROM company_career_sites WHERE isActive = 1 ${platformWhere} ${notPriority}`).get(...platformArgs, ...notPriorityArgs) as any).c;
       const tailCap = cap - priorityRows.length;
-      const offset = (Math.floor(Date.now() / (30 * 60 * 1000)) * tailCap) % Math.max(total, tailCap);
+      const offset = ((Math.floor(Date.now() / (30 * 60 * 1000)) + this.rotationBias * 3) * tailCap) % Math.max(total, tailCap);
       const tailRows = db.prepare(
         `SELECT careerUrl FROM company_career_sites WHERE isActive = 1 ${platformWhere} ${notPriority} ORDER BY rowid LIMIT ${tailCap} OFFSET ${offset}`
       ).all(...platformArgs, ...notPriorityArgs) as { careerUrl: string }[];
