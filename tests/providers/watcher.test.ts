@@ -63,24 +63,87 @@ describe('background watcher', () => {
     expect(isSearchInFlight()).toBe(false);
   });
 
-  it('board failure is isolated — one failing board does not abort the cycle (mocked, zero live calls)', async () => {
+  it('board failure is isolated — failed fetch does NOT deactivate stored jobs, cycle continues (mocked, zero live calls)', async () => {
+    const db = getDb();
+    // Only this test's boards are active — deterministic slice.
+    db.prepare('UPDATE company_career_sites SET isActive = 0').run();
+    db.prepare('DELETE FROM jobs').run(); // hermetic per-user state (temp DB)
     seedBoards(8, 'iso');
-    vi.spyOn(providerModule, 'fetchBoard').mockImplementation(async (_source, _platform, companyName, careerUrl) => {
-      if (careerUrl.includes('isoco3')) throw new Error('board down');
-      return [];
+    // Stored job on the board that FAILS to fetch. Regression: the old code
+    // treated a failure's [] as "removed everything" → deactivated this job.
+    const stored = mk('iso-stored', {
+      company: 'BoardCo3',
+      url: 'https://boards.greenhouse.io/isoco3/jobs/999',
+      applyUrl: 'https://boards.greenhouse.io/isoco3/jobs/999',
     });
+    const fresh = mk('iso-fresh', {
+      company: 'BoardCo0',
+      url: 'https://boards.greenhouse.io/isoco0/jobs/1',
+      applyUrl: 'https://boards.greenhouse.io/isoco0/jobs/1',
+    });
+    // isoco3 FAILS (the real failure shape: ok:false); isoco0 succeeds with a
+    // fresh job; the rest are genuinely-empty successful boards.
+    const spy = vi.spyOn(providerModule, 'fetchBoard').mockImplementation(async (_source, _platform, _companyName, careerUrl) => {
+      if (careerUrl.includes('isoco3')) return { ok: false, jobs: [] };
+      if (careerUrl.includes('isoco0')) return { ok: true, jobs: [fresh] };
+      return { ok: true, jobs: [] };
+    });
+
+    await runWithUser(USER, async () => {
+      saveNewJobs([stored]);
+    });
+
     const stats = await watchOnce();
-    expect(stats).toHaveProperty('errors');
+    expect(spy).toHaveBeenCalled();
     expect(stats.errors).toHaveLength(1);
     expect(stats.errors[0]).toContain('BoardCo3');
-    expect(stats.boardsChecked).toBe(7);
+    expect(stats.boardsChecked).toBe(7); // failed board is skipped, not counted
     expect(stats.skipped).toBe(false);
+    expect(stats.added).toBeGreaterThanOrEqual(1); // isoco0's job still processed → cycle continued
+
+    await runWithUser(USER, async () => {
+      const jobs = getAllJobs();
+      expect(jobs.find((j: any) => j.id === 'iso-stored')).toBeTruthy();
+      // Regression: a transient fetch failure must NEVER deactivate stored jobs.
+      expect((jobs.find((j: any) => j.id === 'iso-stored') as any).isActive).toBe(true);
+      expect(jobs.find((j: any) => j.id === 'iso-fresh')).toBeTruthy(); // cycle continued
+    });
+  });
+
+  it('genuine empty board (ok:true, no jobs) still deactivates stored jobs — only FAILURES skip the diff', async () => {
+    const db = getDb();
+    db.prepare('UPDATE company_career_sites SET isActive = 0').run();
+    db.prepare('DELETE FROM jobs').run(); // hermetic per-user state (temp DB)
+    seedBoards(1, 'empty'); // emptyco0 (BoardCo0)
+    const stored = mk('empty-stored', {
+      company: 'BoardCo0',
+      url: 'https://boards.greenhouse.io/emptyco0/jobs/777',
+      applyUrl: 'https://boards.greenhouse.io/emptyco0/jobs/777',
+    });
+    // A successful fetch of a genuinely-empty board IS "removed everything" —
+    // deactivation semantics must survive the ok-flag change.
+    vi.spyOn(providerModule, 'fetchBoard').mockImplementation(async (_source, _platform, _companyName, careerUrl) => {
+      if (careerUrl.includes('emptyco0')) return { ok: true, jobs: [] };
+      return { ok: true, jobs: [] };
+    });
+
+    await runWithUser(USER, async () => {
+      saveNewJobs([stored]);
+    });
+
+    const stats = await watchOnce();
+    expect(stats.errors).toEqual([]);
+    expect(stats.missing).toBeGreaterThanOrEqual(1);
+
+    await runWithUser(USER, async () => {
+      expect((getAllJobs().find((j: any) => j.id === 'empty-stored') as any).isActive).toBe(false);
+    });
   });
 
   it('diffs fresh jobs against stored jobs and persists added/bumped/missing per user', async () => {
     const db = getDb();
     // Only one board returns fresh jobs; the rest are empty (deterministic totals).
-    db.prepare("UPDATE company_career_sites SET isActive = 0 WHERE id LIKE 'iso-%'").run();
+    db.prepare('UPDATE company_career_sites SET isActive = 0').run();
     db.prepare('DELETE FROM jobs').run(); // hermetic per-user state (temp DB)
     seedBoards(1, 'persist');
     // Stored jobs must carry the board's identity (hostname + path): the
@@ -91,8 +154,8 @@ describe('background watcher', () => {
       applyUrl: `https://boards.greenhouse.io/persistco0/${id}`,
     });
     const spy = vi.spyOn(providerModule, 'fetchBoard').mockImplementation(async (_source, _platform, _companyName, careerUrl) => {
-      if (careerUrl.includes('persistco0')) return [mk('a', onBoard('a')), mk('b', onBoard('b'))];
-      return [];
+      if (careerUrl.includes('persistco0')) return { ok: true, jobs: [mk('a', onBoard('a')), mk('b', onBoard('b'))] };
+      return { ok: true, jobs: [] };
     });
 
     await runWithUser(USER, async () => {
@@ -128,9 +191,9 @@ describe('background watcher', () => {
     const a = mk('mc-a', { company: 'BoardCo0', url: 'https://boards.greenhouse.io/multico0/jobs/111', applyUrl: 'https://boards.greenhouse.io/multico0/jobs/111' });
     const b = mk('mc-b', { company: 'BoardCo1', url: 'https://boards.greenhouse.io/multico1/jobs/222', applyUrl: 'https://boards.greenhouse.io/multico1/jobs/222' });
     const spy = vi.spyOn(providerModule, 'fetchBoard').mockImplementation(async (_source, _platform, _companyName, careerUrl) => {
-      if (careerUrl.includes('multico0')) return [a];
-      if (careerUrl.includes('multico1')) return [b];
-      return [];
+      if (careerUrl.includes('multico0')) return { ok: true, jobs: [a] };
+      if (careerUrl.includes('multico1')) return { ok: true, jobs: [b] };
+      return { ok: true, jobs: [] };
     });
 
     await runWithUser(USER, async () => {
@@ -176,8 +239,8 @@ describe('background watcher', () => {
       applyUrl: `https://boards.greenhouse.io/capco0/jobs/${i}`,
     }));
     const spy = vi.spyOn(providerModule, 'fetchBoard').mockImplementation(async (_source, _platform, _companyName, careerUrl) => {
-      if (careerUrl.includes('capco0')) return fresh;
-      return [];
+      if (careerUrl.includes('capco0')) return { ok: true, jobs: fresh };
+      return { ok: true, jobs: [] };
     });
 
     await runWithUser(USER, async () => {
@@ -221,8 +284,8 @@ describe('background watcher', () => {
       applyUrl: 'https://boards.greenhouse.io/cmpco0/jobs/777',
     });
     const spy = vi.spyOn(providerModule, 'fetchBoard').mockImplementation(async (_source, _platform, _companyName, careerUrl) => {
-      if (careerUrl.includes('cmpco0')) return [fresh];
-      return [];
+      if (careerUrl.includes('cmpco0')) return { ok: true, jobs: [fresh] };
+      return { ok: true, jobs: [] };
     });
 
     await runWithUser(USER, async () => {
@@ -243,7 +306,7 @@ describe('background watcher', () => {
   });
 
   it('startWatcher returns a stop handle and stops without throwing', async () => {
-    vi.spyOn(providerModule, 'fetchBoard').mockResolvedValue([] as any);
+    vi.spyOn(providerModule, 'fetchBoard').mockResolvedValue({ ok: true, jobs: [] } as any);
     const w = startWatcher(50);
     expect(typeof w.stop).toBe('function');
     await new Promise((r) => setTimeout(r, 120));

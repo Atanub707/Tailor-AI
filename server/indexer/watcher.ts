@@ -98,8 +98,17 @@ export async function watchOnce(): Promise<WatcherStats> {
   await withConcurrencyLimit(boards, MAX_CONCURRENT_BOARDS, async (board) => {
     const platform = board.atsPlatform.toLowerCase();
     try {
-      const fresh = await fetchBoard('Greenhouse', platform, board.companyName, board.careerUrl, MAX_JOBS_PER_BOARD);
+      const result = await fetchBoard('Greenhouse', platform, board.companyName, board.careerUrl, MAX_JOBS_PER_BOARD);
+      // "Record failure, skip": a failed fetch (HTTP error, timeout, no slug,
+      // unsupported platform) is NOT evidence that the board removed its jobs.
+      // Diffing an empty failure would mark every stored job missing and the
+      // retention sweep would delete them. Only ok:true results are diffed.
+      if (!result.ok) {
+        stats.errors.push(`${board.companyName}: board fetch failed — skipped (see DirectATS log)`);
+        return;
+      }
       stats.boardsChecked++;
+      const fresh = result.jobs;
       // The fresh set is ONE company's board — the diff must be scoped to the
       // SAME company's stored jobs, not the whole platform. A platform-wide
       // `existing` set would put every other company's jobs on this platform

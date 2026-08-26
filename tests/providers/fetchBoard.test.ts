@@ -34,27 +34,37 @@ describe('fetchBoard — board-level incremental fetch (mocked, zero live calls)
       };
     }));
 
-    const jobs = await fetchBoard('watcher', 'greenhouse', 'Stripe', 'https://boards.greenhouse.io/stripe', 10);
+    const res = await fetchBoard('watcher', 'greenhouse', 'Stripe', 'https://boards.greenhouse.io/stripe', 10);
     // Exactly ONE board request — never the platform-level rotation.
     expect(requested).toEqual(['https://boards-api.greenhouse.io/v1/boards/stripe/jobs']);
-    expect(jobs).toHaveLength(1);
-    expect(jobs[0].id).toBe('gh-123');
-    expect(jobs[0].company).toBe('Stripe');
-    expect(jobs[0].atsPlatform).toBe('greenhouse');
-    expect(jobs[0].provider).toBe('direct-ats');
+    expect(res.ok).toBe(true);
+    expect(res.jobs).toHaveLength(1);
+    expect(res.jobs[0].id).toBe('gh-123');
+    expect(res.jobs[0].company).toBe('Stripe');
+    expect(res.jobs[0].atsPlatform).toBe('greenhouse');
+    expect(res.jobs[0].provider).toBe('direct-ats');
   });
 
-  it('returns [] on HTTP error (never throws)', async () => {
+  it('returns ok=false on HTTP error (never throws)', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500 })));
-    const jobs = await fetchBoard('watcher', 'greenhouse', 'Stripe', 'https://boards.greenhouse.io/stripe', 10);
-    expect(jobs).toEqual([]);
+    const res = await fetchBoard('watcher', 'greenhouse', 'Stripe', 'https://boards.greenhouse.io/stripe', 10);
+    expect(res.ok).toBe(false);
+    expect(res.jobs).toEqual([]);
   });
 
-  it('returns [] when the careerUrl has no board slug (no fetch)', async () => {
+  it('returns ok=false when the careerUrl has no board slug (no fetch)', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
-    const jobs = await fetchBoard('watcher', 'greenhouse', 'Stripe', 'https://example.com/careers', 10);
-    expect(jobs).toEqual([]);
+    const res = await fetchBoard('watcher', 'greenhouse', 'Stripe', 'https://example.com/careers', 10);
+    expect(res.ok).toBe(false);
+    expect(res.jobs).toEqual([]);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('genuinely empty board (empty jobs array) is ok=true — a real "removed everything"', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ jobs: [] }) })));
+    const res = await fetchBoard('watcher', 'greenhouse', 'Stripe', 'https://boards.greenhouse.io/stripe', 10);
+    expect(res.ok).toBe(true);
+    expect(res.jobs).toEqual([]);
   });
 });
