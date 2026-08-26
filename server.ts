@@ -1461,15 +1461,26 @@ Return valid JSON only — NO markdown, NO code fences:
       // query+location+window, then link every RELEVANT job that survived the
       // scrape (added + already-stored) to it. The returned searchId lets the
       // UI scope its follow-up GET /api/jobs to exactly this search.
-      const { getOrCreateSearch, linkJobsToSearch } = await import('./server/storage/v2Tables.js');
+      const { getOrCreateSearch, replaceJobsForSearch } = await import('./server/storage/v2Tables.js');
+      // Every user-visible constraint is part of the context identity. A
+      // Glassdoor-only/Remote search must never reuse a prior all-ATS search.
+      const filterKey = JSON.stringify({
+        sources: [...(Array.isArray(sources) ? sources : [])].sort(),
+        jobType: jobType || 'all',
+        contractType: contractType || '',
+        experienceLevel: experienceLevel || '',
+        under10Applicants: wantUnder10,
+        limit: maxJobsPerSource ? Number(maxJobsPerSource) : 15,
+      });
       const searchId = getOrCreateSearch(
         getCurrentUserId(),
         keywords.trim(),
         location,
-        datePostedFilter || 'all'
+        datePostedFilter || 'all',
+        filterKey
       );
       const relevantIds = [...new Set(scrapedJobs.map((j) => j.id).filter(Boolean))];
-      linkJobsToSearch(searchId, relevantIds);
+      replaceJobsForSearch(searchId, relevantIds);
 
       res.json({
         success: true,

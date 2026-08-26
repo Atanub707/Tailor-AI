@@ -203,11 +203,12 @@ export function fingerprintJob(job: { atsPlatform?: string; externalId?: string;
 // stays ONE row in `jobs`. State (applied/tailored/ready) remains on the job
 // row, so history tabs are unaffected.
 
-export function canonicalQueryFp(query: string, location?: string, postedWindow?: string): string {
+export function canonicalQueryFp(query: string, location?: string, postedWindow?: string, filterKey?: string): string {
   const q = String(query || '').toLowerCase().trim().replace(/\s+/g, '-') || 'empty';
   const loc = String(location || 'any').toLowerCase().trim().replace(/\s+/g, '-');
   const win = postedWindow || 'all';
-  return `${q}|${loc}|${win}`;
+  const filters = String(filterKey || '').toLowerCase().trim().replace(/\s+/g, '-');
+  return filters ? `${q}|${loc}|${win}|${filters}` : `${q}|${loc}|${win}`;
 }
 
 /** Create a search context (or reuse an existing one for the same query_fp). */
@@ -215,11 +216,12 @@ export function getOrCreateSearch(
   userId: string,
   query: string,
   location: string | undefined,
-  postedWindow: string | undefined
+  postedWindow: string | undefined,
+  filterKey?: string
 ): string {
   ensureV2Tables();
   const db = getDb();
-  const fp = canonicalQueryFp(query, location, postedWindow);
+  const fp = canonicalQueryFp(query, location, postedWindow, filterKey);
   const existing = db.prepare('SELECT id FROM searches WHERE user_id = ? AND query_fp = ? LIMIT 1').get(userId, fp) as { id: string } | undefined;
   if (existing) return existing.id;
   const id = `search-${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`;
@@ -241,6 +243,21 @@ export function linkJobsToSearch(searchId: string, jobIds: string[]): void {
     for (const id of jobIds) stmt.run(searchId, id, now);
   });
   tx();
+}
+
+/** Replace one search run's result set instead of accumulating stale jobs. */
+export function replaceJobsForSearch(searchId: string, jobIds: string[]): void {
+  ensureV2Tables();
+  const db = getDb();
+  const now = new Date().toISOString();
+  const uniqueIds = [...new Set(jobIds.filter(Boolean))];
+  const insert = db.prepare(
+    'INSERT INTO search_jobs (search_id, job_id, relevance_score, match_type, discovered_at) VALUES (?, ?, 0, NULL, ?)'
+  );
+  db.transaction(() => {
+    db.prepare('DELETE FROM search_jobs WHERE search_id = ?').run(searchId);
+    for (const id of uniqueIds) insert.run(searchId, id, now);
+  })();
 }
 
 /** Job ids linked to a search context, newest link first. */

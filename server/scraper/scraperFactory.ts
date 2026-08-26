@@ -179,7 +179,11 @@ export class ScraperFactory {
           }
           const make = APIFY_SCRAPERS[source];
           if (make) {
-            jobs = await make().scrape(params);
+            const scraper = make();
+            jobs = await scraper.scrape(params);
+            if (jobs.length === 0 && scraper.lastError) {
+              ScraperFactory.lastSkippedSources.push({ source, reason: scraper.lastError });
+            }
           }
           // LinkedIn only: Apify → built-in free scraper fallback (respects
           // robots.txt since we would be crawling linkedin.com ourselves).

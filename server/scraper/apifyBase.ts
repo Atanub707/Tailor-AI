@@ -4,6 +4,18 @@ import { loadConfig } from '../config.js';
 const RUN_SYNC_URL = (token: string, actorId: string) =>
   `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
 
+export function readableApifyError(status: number, body: string): string {
+  let detail = body.trim();
+  try {
+    const parsed = JSON.parse(detail);
+    detail = String(parsed?.error?.message || parsed?.message || parsed?.error || '').trim();
+  } catch {
+    // Non-JSON gateway/proxy response — keep a short plain-text excerpt.
+  }
+  detail = detail.replace(/\s+/g, ' ').slice(0, 180);
+  return `Apify actor returned ${status}${detail ? `: ${detail}` : ''}`;
+}
+
 export function cleanDescription(raw: string | undefined): string {
   return (raw || '')
     .replace(/<br\s*\/?>/gi, '\n')
@@ -115,6 +127,10 @@ const DATE_WINDOWS_MS: Record<string, number> = {
 export abstract class ApifyBaseScraper {
   abstract readonly source: JobSource;
   abstract readonly actorId: string;
+  // Populated when the actor could not complete. An empty successful dataset
+  // remains null so callers can distinguish "no matching jobs" from an API,
+  // quota, actor, or timeout failure.
+  lastError: string | null = null;
 
   // Actors with a native date input (LinkedIn r86400, Indeed days, Naukri
   // jobAge, Glassdoor daysOld) already window correctly — double-filtering
@@ -127,6 +143,7 @@ export abstract class ApifyBaseScraper {
   protected abstract mapItem(item: any): Job | null;
 
   async scrape(params: ScraperParams): Promise<Job[]> {
+    this.lastError = null;
     const config = loadConfig();
     const token = config.apify.token?.trim();
     if (!token || config.apify.enabled !== true) return [];
@@ -142,7 +159,8 @@ export abstract class ApifyBaseScraper {
 
       if (!response.ok) {
         const body = await response.text().catch(() => '');
-        console.warn(`[Apify] ${this.source} actor returned ${response.status}: ${body.slice(0, 200)}`);
+        this.lastError = readableApifyError(response.status, body);
+        console.warn(`[Apify] ${this.source} ${this.lastError}`);
         return [];
       }
 
@@ -192,7 +210,8 @@ export abstract class ApifyBaseScraper {
       return result;
     } catch (err: any) {
       // Isolated failure — callers fall back (LinkedIn) or report skipped.
-      console.warn(`[Apify] ${this.source} failed: ${err?.message || err}`);
+      this.lastError = String(err?.message || err || 'Actor request failed').slice(0, 200);
+      console.warn(`[Apify] ${this.source} failed: ${this.lastError}`);
       return [];
     }
   }
