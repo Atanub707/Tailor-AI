@@ -1,4 +1,4 @@
-import { getDb, runWithUser, saveNewJobs, bumpLastSeen, markJobsInactive, getAllJobs, listUsers } from '../storage/fileStorage.js';
+import { getDb, runWithUser, saveNewJobs, bumpLastSeen, markJobsInactive, getAllJobs, listActiveUsers } from '../storage/fileStorage.js';
 import { ensureV2Tables } from '../storage/v2Tables.js';
 import { fetchBoard } from '../providers/directAtsProvider.js';
 import { diffBoard } from './diff.js';
@@ -81,7 +81,10 @@ export async function watchOnce(): Promise<WatcherStats> {
   }
 
   const db = getDb();
-  const users = listUsers();
+  // Only active users (stored jobs OR session within 30d) get their corpus
+  // refreshed — dormant/test users are skipped, so a many-user install does
+  // not write the full corpus N× per cycle.
+  const users = listActiveUsers(30);
   if (!users.length) return stats;
 
   const placeholders = FREE_ATS_PLATFORMS.map(() => '?').join(',');

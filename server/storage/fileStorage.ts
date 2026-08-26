@@ -193,6 +193,24 @@ export function listUsers(): User[] {
   } catch { return []; }
 }
 
+// Users worth refreshing in the background watcher: someone with stored jobs
+// OR a session within the window (a real, recent user). Dormant/test users
+// with neither are skipped — the watcher writes a full corpus per user, so
+// this is what keeps a many-user install from doing N× the work.
+export function listActiveUsers(sessionWindowDays = 30): User[] {
+  try {
+    const d = getDb();
+    const cutoff = new Date(Date.now() - sessionWindowDays * 24 * 60 * 60 * 1000).toISOString();
+    return (d.prepare(
+      `SELECT id, email, name, is_guest, created_at FROM users
+       WHERE id IN (SELECT DISTINCT user_id FROM jobs)
+          OR id IN (SELECT DISTINCT user_id FROM sessions WHERE created_at >= ?)
+       ORDER BY is_guest ASC, name`
+    ).all(cutoff) as any[])
+      .map((r) => ({ id: r.id, email: r.email, name: r.name, isGuest: r.is_guest === 1, createdAt: r.created_at }));
+  } catch { return []; }
+}
+
 export function getUserById(id: string): User | undefined {
   try {
     const d = getDb();
