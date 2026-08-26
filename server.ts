@@ -431,6 +431,10 @@ async function startServer() {
 
   // Seed sample jobs if store is completely empty on initial startup.
   // Runs in the first user's context so the seed lands in a real account.
+  const { ensureV2Tables, seedCompanyCareerSites } = await import('./server/storage/v2Tables.js');
+  ensureV2Tables();
+  seedCompanyCareerSites();
+
   const seedUser = (getDb().prepare('SELECT id FROM users ORDER BY is_guest ASC, created_at ASC LIMIT 1').get() as any)?.id as string | undefined;
   if (seedUser) {
     runWithUser(seedUser, () => {
@@ -1476,26 +1480,38 @@ Return valid JSON only — NO markdown, NO code fences:
     }
   });
 
-  // V2 — Santa Maria ATS search (DB-first, 25 ATS) — keeps V1 /api/jobs/scrape untouched
+  // V2 — unified ATS search (DB-first, budgeted Santa Maria + provider router).
+  // Additive: V1 POST /api/jobs/scrape stays untouched. Cost-safe by design:
+  // local DB hit → $0; provider calls always go through the central fetch budget.
   app.post('/api/jobs/search', async (req, res) => {
     try {
-      const { keywords, location, remote, atsPlatforms, limit } = req.body;
+      const { keywords, location, remote, postedWithin, limit } = req.body;
       if (!keywords || !String(keywords).trim()) {
         res.status(400).json({ error: 'Keywords required' });
         return;
       }
-      const { searchJobsV2 } = await import('./server/services/jobSearchService.js');
-      const result = await searchJobsV2(
-        {
-          keywords: String(keywords).trim(),
-          location: location ? String(location).trim() : undefined,
-          remote: remote === true,
-          atsPlatforms: Array.isArray(atsPlatforms) ? atsPlatforms : undefined,
-          limit: limit ? Number(limit) : 25,
-        },
-        getCurrentUserId() || 'anonymous'
+      const userLimit = Math.min(Number(limit) || 25, 50);
+      const { searchWithCache } = await import('./server/services/searchService.js');
+      const { routeProvider } = await import('./server/services/providerRouter.js');
+      const searchRequest = {
+        query: String(keywords).trim(),
+        location: location ? String(location).trim() : undefined,
+        remote: remote === true,
+        postedWithin: (postedWithin as any) || 'all',
+        limit: userLimit,
+      };
+      const result = await searchWithCache(searchRequest, (providerId: string, fetchLimit: number) =>
+        routeProvider(searchRequest, providerId, fetchLimit)
       );
-      res.json(result);
+      res.json({
+        ...result,
+        jobs: result.jobs,
+        providersCalled: result.providersCalled,
+        cacheHit: result.cacheHit,
+        exhausted: result.exhausted === true,
+        seenCount: result.seenCount ?? 0,
+        totalStored: result.totalStored ?? 0,
+      });
     } catch (err: any) {
       console.error('V2 search error:', err);
       res.status(500).json({ error: err.message || 'Search failed' });
@@ -1527,6 +1543,26 @@ Return valid JSON only — NO markdown, NO code fences:
   });
 
   // Job stats for KPI dashboard (counts computed server-side from all jobs)
+  // Per-ATS official career-portal counts (source name → number of company boards)
+  app.get('/api/ats/company-counts', async (_req, res) => {
+    try {
+      const { ensureV2Tables } = await import('./server/storage/v2Tables.js');
+      const { getDb } = await import('./server/storage/fileStorage.js');
+      const { ATS_PLATFORM_BY_SOURCE } = await import('./server/scraper/scraperFactory.js');
+      ensureV2Tables();
+      const db = getDb();
+      const rows = db.prepare('SELECT LOWER(atsPlatform) p, count(*) c FROM company_career_sites WHERE isActive = 1 GROUP BY 1').all() as Array<{ p: string; c: number }>;
+      const byPlatform = new Map(rows.map((r) => [r.p, r.c]));
+      const counts: Record<string, number> = {};
+      for (const [source, platform] of Object.entries(ATS_PLATFORM_BY_SOURCE)) {
+        counts[source] = byPlatform.get(platform) || 0;
+      }
+      res.json({ counts });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get('/api/jobs/stats', (req, res) => {
     try {
       const all = getAllJobs();
@@ -2094,23 +2130,6 @@ Return valid JSON only, no markdown:
       }
 
       const masterCv = getMasterCv();
-
-      // Phase 5 — Tailor cache: reuse if fingerprint + CV version unchanged
-      const { fingerprintJob } = await import('./server/storage/v2Tables.js');
-      const currentFingerprint = (jobToTailor as any).fingerprint || fingerprintJob(jobToTailor as any);
-      const cvVersion = JSON.stringify(masterCv).slice(0, 32); // cheap hash for now
-      const cached = jobToTailor.tailoredCv && (jobToTailor as any).tailoredFingerprint === currentFingerprint && (jobToTailor as any).tailoredCvVersion === cvVersion;
-      if (cached) {
-        res.json({ success: true, tailoredCv: jobToTailor.tailoredCv, job: jobToTailor, cached: true });
-        return;
-      }
-
-      // Guard: description required for tailoring
-      if (!jobToTailor.description || jobToTailor.description.trim().length < 20 || jobToTailor.description === 'Description not available') {
-        res.status(422).json({ error: 'Job description unavailable — cannot tailor CV.', code: 'no_description' });
-        return;
-      }
-
       const tailorEngine = new LlmCvTailor();
 
       const tailoredCv = await tailorEngine.tailorCv(jobToTailor, masterCv);
@@ -2120,10 +2139,7 @@ Return valid JSON only, no markdown:
         tailoredCv,
         state: 'tailored',
         tailoredAt: new Date().toISOString(),
-        fingerprint: currentFingerprint,
-        tailoredFingerprint: currentFingerprint,
-        tailoredCvVersion: cvVersion,
-      } as any);
+      });
 
       res.json({
         success: true,

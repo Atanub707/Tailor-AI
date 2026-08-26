@@ -28,6 +28,69 @@ export interface ProviderRun {
 
 const JOB_CACHE_TTL_HOURS = 24;
 
+// 25 ATS career sites for Santa Maria — the registry Santa Maria queries.
+// Idempotent: INSERT OR IGNORE on every startup, so it only seeds once.
+const SEED_COMPANIES: Array<{ id: string; companyName: string; careerUrl: string; atsPlatform: string }> = [
+  // ── Greenhouse (largest ATS) — slugs verified live against boards-api.greenhouse.io ──
+  { id: 'stripe', companyName: 'Stripe', careerUrl: 'https://boards.greenhouse.io/stripe', atsPlatform: 'greenhouse' },
+  { id: 'airbnb', companyName: 'Airbnb', careerUrl: 'https://boards.greenhouse.io/airbnb', atsPlatform: 'greenhouse' },
+  { id: 'datadog', companyName: 'Datadog', careerUrl: 'https://boards.greenhouse.io/datadog', atsPlatform: 'greenhouse' },
+  { id: 'reddit', companyName: 'Reddit', careerUrl: 'https://boards.greenhouse.io/reddit', atsPlatform: 'greenhouse' },
+  { id: 'dropbox', companyName: 'Dropbox', careerUrl: 'https://boards.greenhouse.io/dropbox', atsPlatform: 'greenhouse' },
+  { id: 'coinbase', companyName: 'Coinbase', careerUrl: 'https://boards.greenhouse.io/coinbase', atsPlatform: 'greenhouse' },
+  { id: 'instacart', companyName: 'Instacart', careerUrl: 'https://boards.greenhouse.io/instacart', atsPlatform: 'greenhouse' },
+  { id: 'roblox', companyName: 'Roblox', careerUrl: 'https://boards.greenhouse.io/roblox', atsPlatform: 'greenhouse' },
+  { id: 'duolingo', companyName: 'Duolingo', careerUrl: 'https://boards.greenhouse.io/duolingo', atsPlatform: 'greenhouse' },
+  { id: 'gitlab', companyName: 'GitLab', careerUrl: 'https://boards.greenhouse.io/gitlab', atsPlatform: 'greenhouse' },
+  { id: 'mongodb', companyName: 'MongoDB', careerUrl: 'https://boards.greenhouse.io/mongodb', atsPlatform: 'greenhouse' },
+  { id: 'twilio', companyName: 'Twilio', careerUrl: 'https://boards.greenhouse.io/twilio', atsPlatform: 'greenhouse' },
+  { id: 'webflow', companyName: 'Webflow', careerUrl: 'https://boards.greenhouse.io/webflow', atsPlatform: 'greenhouse' },
+  { id: 'vercel', companyName: 'Vercel', careerUrl: 'https://boards.greenhouse.io/vercel', atsPlatform: 'greenhouse' },
+  { id: 'databricks', companyName: 'Databricks', careerUrl: 'https://boards.greenhouse.io/databricks', atsPlatform: 'greenhouse' },
+  { id: 'chime', companyName: 'Chime', careerUrl: 'https://boards.greenhouse.io/chime', atsPlatform: 'greenhouse' },
+  { id: 'gusto', companyName: 'Gusto', careerUrl: 'https://boards.greenhouse.io/gusto', atsPlatform: 'greenhouse' },
+  { id: 'brex', companyName: 'Brex', careerUrl: 'https://boards.greenhouse.io/brex', atsPlatform: 'greenhouse' },
+  { id: 'nubank', companyName: 'Nubank', careerUrl: 'https://boards.greenhouse.io/nubank', atsPlatform: 'greenhouse' },
+  { id: 'asana', companyName: 'Asana', careerUrl: 'https://boards.greenhouse.io/asana', atsPlatform: 'greenhouse' },
+  { id: 'okta', companyName: 'Okta', careerUrl: 'https://boards.greenhouse.io/okta', atsPlatform: 'greenhouse' },
+  // ── Ashby (verified slugs on jobs.ashbyhq.com) ──
+  { id: 'notion', companyName: 'Notion', careerUrl: 'https://jobs.ashbyhq.com/notion', atsPlatform: 'ashby' },
+  { id: 'ramp', companyName: 'Ramp', careerUrl: 'https://jobs.ashbyhq.com/ramp', atsPlatform: 'ashby' },
+  { id: 'linear', companyName: 'Linear', careerUrl: 'https://jobs.ashbyhq.com/linear', atsPlatform: 'ashby' },
+  { id: 'figma', companyName: 'Figma', careerUrl: 'https://jobs.ashbyhq.com/figma', atsPlatform: 'ashby' },
+  { id: 'deel', companyName: 'Deel', careerUrl: 'https://jobs.ashbyhq.com/deel', atsPlatform: 'ashby' },
+  { id: 'dover', companyName: 'Dover', careerUrl: 'https://jobs.ashbyhq.com/dover', atsPlatform: 'ashby' },
+  // ── Lever (verified slugs on jobs.lever.co) ──
+  { id: 'spotify', companyName: 'Spotify', careerUrl: 'https://jobs.lever.co/spotify', atsPlatform: 'lever' },
+  { id: 'netflix', companyName: 'Netflix', careerUrl: 'https://jobs.lever.co/netflix', atsPlatform: 'lever' },
+  { id: 'wework', companyName: 'WeWork', careerUrl: 'https://jobs.lever.co/wework', atsPlatform: 'lever' },
+  // ── Other ATS ──
+  { id: 'canva', companyName: 'Canva', careerUrl: 'https://jobs.lifeatcanva.com', atsPlatform: 'other' },
+  { id: 'personio', companyName: 'Personio', careerUrl: 'https://jobs.personio.com/search?q=', atsPlatform: 'personio' },
+  { id: 'teamtailor', companyName: 'Teamtailor', careerUrl: 'https://www.teamtailor.com/jobs', atsPlatform: 'teamtailor' },
+  { id: 'bamboo', companyName: 'BambooHR', careerUrl: 'https://www.bamboohr.com/careers', atsPlatform: 'bamboohr' },
+  { id: 'rippling', companyName: 'Rippling', careerUrl: 'https://ats.rippling.com/rippling/jobs', atsPlatform: 'rippling' },
+  { id: 'jazzhr', companyName: 'JazzHR', careerUrl: 'https://www.jazzhr.com/jobs', atsPlatform: 'jazzhr' },
+  { id: 'smartrecruiters', companyName: 'SmartRecruiters', careerUrl: 'https://jobs.smartrecruiters.com/SmartRecruiters', atsPlatform: 'smartrecruiters' },
+  { id: 'workday', companyName: 'Workday', careerUrl: 'https://workday.wd5.myworkdayjobs.com/Workday', atsPlatform: 'workday' },
+  { id: 'recruitee', companyName: 'Recruitee', careerUrl: 'https://jobs.recruitee.com', atsPlatform: 'recruitee' },
+  { id: 'comeet', companyName: 'Comeet', careerUrl: 'https://www.comeet.com/jobs', atsPlatform: 'comeet' },
+];
+
+export function seedCompanyCareerSites(): void {
+  const db = getDb();
+  // Additive, not one-shot: INSERT OR IGNORE keeps existing installs up to
+  // date when new companies are added to the seed list.
+  const stmt = db.prepare(
+    `INSERT OR IGNORE INTO company_career_sites (id, companyName, careerUrl, atsPlatform, isActive, createdAt, updatedAt)
+     VALUES (@id, @companyName, @careerUrl, @atsPlatform, 1, @now, @now)`
+  );
+  const now = new Date().toISOString();
+  for (const c of SEED_COMPANIES) stmt.run({ ...c, now });
+  const total = (db.prepare('SELECT count(*) AS c FROM company_career_sites').get() as any).c;
+  console.log(`[V2] Company registry seeded — ${total} career sites (${SEED_COMPANIES.length} in seed list)`);
+}
+
 export function ensureV2Tables(): void {
   const db = getDb();
   db.exec(`
@@ -54,6 +117,22 @@ export function ensureV2Tables(): void {
       status TEXT NOT NULL,
       startedAt TEXT NOT NULL,
       completedAt TEXT
+    );
+    CREATE TABLE IF NOT EXISTS search_seen (
+      user_id TEXT NOT NULL,
+      query_fp TEXT NOT NULL,
+      fingerprint TEXT NOT NULL,
+      seen_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, query_fp, fingerprint)
+    );
+    CREATE TABLE IF NOT EXISTS provider_cursors (
+      user_id TEXT NOT NULL,
+      query_fp TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      cursor TEXT,
+      fetched_count INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, query_fp, provider)
     );
     CREATE INDEX IF NOT EXISTS idx_company_career_sites_ats ON company_career_sites(atsPlatform);
     CREATE INDEX IF NOT EXISTS idx_provider_runs_provider ON provider_runs(provider);
@@ -101,4 +180,78 @@ export function isJobFresh(scrapedAt?: string, ttlHours = JOB_CACHE_TTL_HOURS): 
   if (!scrapedAt) return false;
   const age = Date.now() - new Date(scrapedAt).getTime();
   return age < ttlHours * 60 * 60 * 1000;
+}
+
+export function markSeen(userId: string, queryFp: string, fingerprints: string[]): void {
+  if (!userId || !queryFp || fingerprints.length === 0) return;
+  const db = getDb();
+  const now = new Date().toISOString();
+  const stmt = db.prepare(
+    `INSERT OR IGNORE INTO search_seen (user_id, query_fp, fingerprint, seen_at) VALUES (?, ?, ?, ?)`
+  );
+  const tx = db.transaction(() => {
+    for (const fp of fingerprints) stmt.run(userId, queryFp, fp, now);
+  });
+  tx();
+}
+
+export function getSeenFingerprints(userId: string, queryFp: string): Set<string> {
+  if (!userId || !queryFp) return new Set();
+  const db = getDb();
+  const rows = db.prepare('SELECT fingerprint FROM search_seen WHERE user_id = ? AND query_fp = ?').all(userId, queryFp) as { fingerprint: string }[];
+  return new Set(rows.map((r) => r.fingerprint));
+}
+
+export function getProviderCursor(userId: string, queryFp: string, provider: string): { cursor?: string; fetchedCount: number } {
+  if (!userId || !queryFp) return { cursor: undefined, fetchedCount: 0 };
+  const db = getDb();
+  const row = db.prepare('SELECT cursor, fetched_count FROM provider_cursors WHERE user_id = ? AND query_fp = ? AND provider = ?')
+    .get(userId, queryFp, provider) as { cursor: string | null; fetched_count: number } | undefined;
+  return { cursor: row?.cursor ?? undefined, fetchedCount: row?.fetched_count ?? 0 };
+}
+
+export function saveProviderCursor(userId: string, queryFp: string, provider: string, cursor: string | undefined, fetchedCount: number): void {
+  if (!userId || !queryFp) return;
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO provider_cursors (user_id, query_fp, provider, cursor, fetched_count, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, query_fp, provider) DO UPDATE SET cursor = excluded.cursor, fetched_count = excluded.fetched_count, updated_at = excluded.updated_at`
+  ).run(userId, queryFp, provider, cursor ?? null, fetchedCount, new Date().toISOString());
+}
+
+// Posted-window check shared by V1 scrape and V2 search — the user's
+// "Last 24 hours" filters by the JOB's posting time, not our scrape time.
+// Unknown/absent dates FAIL the window (honest — can't prove freshness).
+export function isWithinPostedWindow(j: any, postedWithin?: string): boolean {
+  if (!postedWithin || postedWithin === 'all') return true;
+  const hours = { '24h': 24, '7d': 24 * 7, '30d': 24 * 30 }[postedWithin as '24h' | '7d' | '30d'];
+  if (!hours) return true;
+  const cutoff = Date.now() - hours * 60 * 60 * 1000;
+  let t = j.postedDateParsed ? new Date(`${String(j.postedDateParsed).slice(0, 10)}T23:59:59Z`).getTime() : NaN;
+  if (!Number.isFinite(t)) {
+    const m = String(j.postedDate || '').match(/^(\d{4}-\d{2}-\d{2})/);
+    t = m ? new Date(`${m[1]}T23:59:59Z`).getTime() : NaN;
+  }
+  if (!Number.isFinite(t)) t = j.postedDate ? new Date(j.postedDate).getTime() : NaN;
+  return Number.isFinite(t) && t >= cutoff;
+}
+
+// DevOps-adjacent relevance — shared by the V1 scrape guard and the Santa
+// Maria keyword filter. A title must EITHER state DevOps/SRE outright, OR
+// pair an infra word (platform/infrastructure/cloud/systems/…) with an
+// ENGINEERING role word. This is what keeps "Account Executive, Enterprise
+// Platforms" and "Product Manager – Platforms" OUT of a DevOps search —
+// the bare word "platform" alone is not a DevOps role.
+const DEVOPS_WORDS = /\b(devops|sre|site reliability)\b/i;
+const INFRA_WORDS = /\b(platform|infrastructure|cloud|systems|deployment|release|operations|infra)\b/i;
+const ENG_ROLE_WORDS = /\b(engineer|engineering|developer|architect|administrator|admin|analyst|technician|sre|devops|platform engineer|infrastructure engineer|cloud engineer|systems engineer|ops)\b/i;
+
+export function isDevOpsAdjacent(text: string): boolean {
+  const t = String(text || '');
+  if (DEVOPS_WORDS.test(t)) return true;
+  // Both signals required: infra word AND an engineering role word. The
+  // "ops" role word is deliberately narrow (site reliability ops, devops)
+  // so sales/PM titles never sneak through on "platform" alone.
+  return INFRA_WORDS.test(t) && ENG_ROLE_WORDS.test(t);
 }
