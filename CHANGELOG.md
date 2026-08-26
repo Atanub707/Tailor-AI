@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.0.1 (2026-08-26)
+
+### ⚡ Indexer efficiency
+- **Watcher refreshes only ACTIVE users** — users with stored jobs or a session within 30 days. Dormant/test accounts are skipped, so a many-user install no longer writes the full corpus N× per cycle (was ~25× on test installs).
+
 ## v2.0.0 (2026-08-26)
 
 ### 🏗️ Architecture: Tailor AI becomes a local job-search engine
