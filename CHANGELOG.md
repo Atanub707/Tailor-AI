@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.9.11 (2026-08-26)
+
+### 🐛 Fix: DevOps search returned Data/ML Engineer jobs
+- The relevance fallback regex included **"engineer"** — so when a DevOps search found no exact title matches, it relaxed to ANY engineering role (Data Engineer, ML Engineer, …). Removed  from the fallback: only truly DevOps-adjacent titles pass (SRE, Platform, Infrastructure, Cloud, Deployment, Release, Systems).
+- Verified: search "DevOps Engineer" now drops Data/ML/Security Engineer roles (81 dropped in one test); only real DevOps/platform roles pass.
+
 ## v1.9.10 (2026-08-26)
 
 ### 🐛 Fixes

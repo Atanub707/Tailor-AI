@@ -272,7 +272,7 @@ export class ScraperFactory {
         return title.includes(primary);
       });
       if (relevant.length === 0) {
-        const adjacent = /(sre|site reliability|platform|infrastructure|cloud|devops|deployment|release|systems|engineer)/i;
+        const adjacent = /(sre|site reliability|platform|infrastructure|cloud|devops|deployment|release|systems)/i;
         relevant = allJobs.filter((j) => adjacent.test(`${j.title} ${j.company}`));
       }
       if (relevant.length > 0) {
