@@ -41,15 +41,21 @@ function pickBoards(platform: string, cap: number): { companyName: string; slug:
   const db = getDb();
   const priorities = (PRIORITY_BY_PLATFORM[platform] || []).map((s) => `%/${s}%` as const);
   const where = `LOWER(atsPlatform) = ?`;
-  // priority slugs first (by URL match), then tail with rotation
-  const prioClause = priorities.length
-    ? `ORDER BY CASE ${priorities.map((p, i) => `WHEN careerUrl LIKE ? THEN ${i}`).join(' ')} ELSE 999 END, rowid`
-    : 'ORDER BY rowid';
-  const args: any[] = [platform, ...priorities];
-  const rows = db.prepare(
-    `SELECT companyName, careerUrl FROM company_career_sites WHERE isActive = 1 AND ${where} ${prioClause} LIMIT ?`
-  ).all(...args, cap) as { companyName: string; careerUrl: string }[];
-  return rows
+  const args: any[] = [platform];
+  // Priority boards ALWAYS included (results never empty); the tail rotates
+  // each search so repeated searches explore new boards instead of returning
+  // the same jobs ("all already in your job list" every time).
+  const prioRows = priorities.length
+    ? (db.prepare(`SELECT companyName, careerUrl FROM company_career_sites WHERE isActive = 1 AND ${where} AND (${priorities.map(() => `careerUrl LIKE ?`).join(' OR ')}) ORDER BY rowid LIMIT 3`).all(...args, ...priorities) as { companyName: string; careerUrl: string }[])
+    : [];
+  const tailRows = db.prepare(`SELECT companyName, careerUrl FROM company_career_sites WHERE isActive = 1 AND ${where} ORDER BY rowid`).all(...args) as { companyName: string; careerUrl: string }[];
+  const tail = tailRows.filter((r) => !priorities.some((p) => r.careerUrl.toLowerCase().includes(p.slice(1, -1))));
+  const tailCap = Math.max(cap - prioRows.length, 1);
+  // Advance ~1 board per 15s of wall clock — each search lands on a fresh
+  // slice; wraps so every board is eventually reached.
+  const offset = Math.floor(Date.now() / 15000) % Math.max(tail.length, tailCap);
+  const slice = [...tail.slice(offset), ...tail.slice(0, offset)].slice(0, tailCap);
+  return [...prioRows, ...slice]
     .map((r) => {
       const m = (r.careerUrl || '').match(SLUG_RE[platform]);
       return m ? { companyName: r.companyName, slug: m[1] } : null;

@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.9.9 (2026-08-26)
+
+### 🐛 Fix: repeat searches never found new jobs
+- **"Scraped N live postings! (All N were already in your job list)" on every search — fixed.** The direct-API provider always picked the SAME 8 company boards, so re-searching returned the same jobs every time and the list never grew.
+- Board selection now **rotates per search** (priority boards always included, tail advances ~1 board per 15s, wraps through all 41k companies). Each search explores new boards and surfaces genuinely new postings.
+- Verified live: repeated search went from 0 new → **6 new jobs added** from fresh boards.
+
 ## v1.9.8 (2026-08-26)
 
 ### 🐛 Critical fix: multi-account job isolation
