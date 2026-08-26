@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.9.6 (2026-08-26)
+
+### 🐛 Fixes
+- **Greenhouse/ATS "No results" with default filters — fixed.** The Santa Maria provider never mapped the actor’s posting timestamp, so ATS jobs fell back to a synthetic scrape-time date; the 24h posted-window guard then dropped them all. The provider now maps // and returns newest-first, so a "Last 24 hours" search surfaces real fresh postings.
+
+### ✨ UI
+- **Removed the ✓ checkmark from source chips** — selection is shown by the filled brand-colored chip itself.
+
 ## v1.9.5 (2026-08-26)
 
 ### ✨ Enhancements

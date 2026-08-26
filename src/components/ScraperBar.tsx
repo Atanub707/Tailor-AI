@@ -166,7 +166,6 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
         {isComingSoon && (
           <span className="text-[8.5px] font-extrabold uppercase text-[var(--color-faint)] bg-white/60 border border-[var(--color-hairline)] rounded-full px-[7px] py-[2px]">Soon</span>
         )}
-        <span className={`w-[15px] h-[15px] inline-flex items-center justify-center rounded-full text-[9px] font-black transition-all ${isSelected ? 'bg-white/25 text-white' : 'hidden'}`}>✓</span>
       </button>
     );
   };

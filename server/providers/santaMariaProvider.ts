@@ -80,7 +80,15 @@ export class SantaMariaApifyProvider implements JobProvider {
     }
 
     // Deduplicate + LIMIT enforcement is done by caller; we return filtered.
-    const limited = jobs.slice(0, params.limit);
+    // Newest-first: the actor returns jobs in board order, and a "Last 24h"
+    // search must surface yesterday's postings, not months-old ones — the
+    // posted-window guard drops old jobs and the user sees a false empty.
+    const byFreshness = (a: Job, b: Job) => {
+      const ta = a.postedDate ? new Date(a.postedDate).getTime() : 0;
+      const tb = b.postedDate ? new Date(b.postedDate).getTime() : 0;
+      return tb - ta;
+    };
+    const limited = [...jobs].sort(byFreshness).slice(0, params.limit);
 
     return {
       jobs: limited,
@@ -216,6 +224,10 @@ export class SantaMariaApifyProvider implements JobProvider {
       applyUrl: String(applyUrl),
       url: String(applyUrl), // backward compat with existing Job.url
       source: 'Custom' as any, // will be mapped to ATS source later
+      // Santa Maria items carry published/updated timestamps (snake_case) —
+      // map them so the posted-window filter sees a real posting date instead
+      // of the scrape-time fallback.
+      postedDate: item.postedDate || (item as any).posted_at || item.publishedAt || (item as any).published_at || item.updatedAt || (item as any).updated_at || item.createdAt || (item as any).created_at || undefined,
       createdAt: item.createdAt || (item as any).created_at || now,
       updatedAt: item.updatedAt || (item as any).updated_at || now,
       scrapedAt: now,
