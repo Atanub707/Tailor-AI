@@ -15,10 +15,11 @@ const providerModule = await import('../../server/providers/directAtsProvider.js
 const { watchOnce, setSearchInFlight, isSearchInFlight, startWatcher } = await import('../../server/indexer/watcher.js');
 
 const USER = 'watcher-user';
-const mk = (id: string) => ({
+const mk = (id: string, overrides: Record<string, unknown> = {}) => ({
   id, title: 'DevOps Engineer', company: 'Stripe',
   url: `https://boards.greenhouse.io/stripe/${id}`, applyUrl: `https://boards.greenhouse.io/stripe/${id}`,
   atsPlatform: 'greenhouse', source: 'Greenhouse', location: 'Remote', description: 'devops', state: 'pending',
+  ...overrides,
 } as any);
 
 const seedBoards = (n: number, prefix = 'w') => {
@@ -82,13 +83,20 @@ describe('background watcher', () => {
     db.prepare("UPDATE company_career_sites SET isActive = 0 WHERE id LIKE 'iso-%'").run();
     db.prepare('DELETE FROM jobs').run(); // hermetic per-user state (temp DB)
     seedBoards(1, 'persist');
+    // Stored jobs must carry the board's identity (hostname + path): the
+    // watcher scopes the diff to the refreshed board, not the whole platform.
+    const onBoard = (id: string) => ({
+      company: 'BoardCo0',
+      url: `https://boards.greenhouse.io/persistco0/${id}`,
+      applyUrl: `https://boards.greenhouse.io/persistco0/${id}`,
+    });
     const spy = vi.spyOn(providerModule, 'fetchBoard').mockImplementation(async (_source, _platform, _companyName, careerUrl) => {
-      if (careerUrl.includes('persistco0')) return [mk('a'), mk('b')];
+      if (careerUrl.includes('persistco0')) return [mk('a', onBoard('a')), mk('b', onBoard('b'))];
       return [];
     });
 
     await runWithUser(USER, async () => {
-      saveNewJobs([mk('a'), mk('stale')]);
+      saveNewJobs([mk('a', onBoard('a')), mk('stale', onBoard('stale'))]);
     });
 
     const stats = await watchOnce();
@@ -108,6 +116,40 @@ describe('background watcher', () => {
       expect(jobs.find((j: any) => j.id === 'b')).toBeTruthy();
       expect((jobs.find((j: any) => j.id === 'stale') as any).isActive).toBe(false);
       expect((jobs.find((j: any) => j.id === 'a') as any).isActive).not.toBe(false);
+    });
+  });
+
+  it('multi-company: refreshing one board never marks another company\u2019s same-platform jobs inactive', async () => {
+    const db = getDb();
+    // Only this test's two boards are active — deterministic slice.
+    db.prepare('UPDATE company_career_sites SET isActive = 0').run();
+    db.prepare('DELETE FROM jobs').run(); // hermetic per-user state (temp DB)
+    seedBoards(2, 'multi'); // multico0 (BoardCo0) + multico1 (BoardCo1), both greenhouse
+    const a = mk('mc-a', { company: 'BoardCo0', url: 'https://boards.greenhouse.io/multico0/jobs/111', applyUrl: 'https://boards.greenhouse.io/multico0/jobs/111' });
+    const b = mk('mc-b', { company: 'BoardCo1', url: 'https://boards.greenhouse.io/multico1/jobs/222', applyUrl: 'https://boards.greenhouse.io/multico1/jobs/222' });
+    const spy = vi.spyOn(providerModule, 'fetchBoard').mockImplementation(async (_source, _platform, _companyName, careerUrl) => {
+      if (careerUrl.includes('multico0')) return [a];
+      if (careerUrl.includes('multico1')) return [b];
+      return [];
+    });
+
+    await runWithUser(USER, async () => {
+      saveNewJobs([a, b]);
+    });
+
+    const stats = await watchOnce();
+    expect(spy).toHaveBeenCalled();
+    expect(stats.boardsChecked).toBe(2);
+    expect(stats.errors).toEqual([]);
+    // Regression: platform-wide scoping would put the OTHER company's job in
+    // `missing` on the first real cycle and deactivate it.
+    expect(stats.missing).toBe(0);
+
+    await runWithUser(USER, async () => {
+      const jobs = getAllJobs();
+      expect(jobs.map((j: any) => j.id).sort()).toEqual(['mc-a', 'mc-b']);
+      expect((jobs.find((j: any) => j.id === 'mc-a') as any).isActive).not.toBe(false);
+      expect((jobs.find((j: any) => j.id === 'mc-b') as any).isActive).not.toBe(false);
     });
   });
 

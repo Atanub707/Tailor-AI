@@ -2,12 +2,33 @@ import { getDb, runWithUser, saveNewJobs, bumpLastSeen, markJobsInactive, getAll
 import { ensureV2Tables } from '../storage/v2Tables.js';
 import { fetchBoard } from '../providers/directAtsProvider.js';
 import { diffBoard } from './diff.js';
+import type { Job } from '../../src/types.js';
 
 const WATCHER_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4h
 const MAX_CONCURRENT_BOARDS = 3;
 const BOARDS_PER_CYCLE = 8;
 const MAX_JOBS_PER_BOARD = 25;
 const FREE_ATS_PLATFORMS = ['greenhouse', 'lever', 'ashby'];
+
+// Board identity: normalized hostname + pathname of a career URL (lowercase,
+// trailing slashes stripped). Job URLs extend the board path with /jobs/<id>
+// etc., so a job belongs to a board when its identity starts with the board's
+// (boards.greenhouse.io/stripe/jobs/1 → boards.greenhouse.io/stripe).
+function boardIdentity(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.hostname}${u.pathname}`.replace(/\/+$/, '').toLowerCase();
+  } catch {
+    return String(url).trim().toLowerCase();
+  }
+}
+
+function belongsToBoard(job: Job, boardId: string): boolean {
+  const raw = job.applyUrl || job.url;
+  if (!raw) return false;
+  const id = boardIdentity(raw);
+  return id === boardId || id.startsWith(`${boardId}/`);
+}
 
 let searchInFlight = false;
 
@@ -41,9 +62,10 @@ async function withConcurrencyLimit<T>(items: T[], limit: number, fn: (item: T) 
 
 /**
  * One refresh cycle: pick a rotating slice of active free-ATS boards (one
- * request per board), diff each against the users' stored jobs (platform-
- * scoped), persist changes. Never throws — per-board errors are recorded and
- * skipped. Skips entirely while a user search is in flight.
+ * request per board), diff each against the users' stored jobs (scoped to the
+ * board's own company — never the whole platform), persist changes. Never
+ * throws — per-board errors are recorded and skipped. Skips entirely while a
+ * user search is in flight.
  */
 export async function watchOnce(): Promise<WatcherStats> {
   const stats: WatcherStats = { boardsChecked: 0, added: 0, updated: 0, missing: 0, errors: [], skipped: false };
@@ -78,10 +100,34 @@ export async function watchOnce(): Promise<WatcherStats> {
     try {
       const fresh = await fetchBoard('Greenhouse', platform, board.companyName, board.careerUrl, MAX_JOBS_PER_BOARD);
       stats.boardsChecked++;
+      // The fresh set is ONE company's board — the diff must be scoped to the
+      // SAME company's stored jobs, not the whole platform. A platform-wide
+      // `existing` set would put every other company's jobs on this platform
+      // into `missing` and deactivate them (e.g. 5 greenhouse companies:
+      // refreshing Stripe would hide the other 4).
+      const boardId = boardIdentity(board.careerUrl);
       for (const user of users) {
         await runWithUser(user.id, async () => {
-          const existing = getAllJobs().filter((j) => j.atsPlatform === platform);
+          const existing = getAllJobs().filter((j) => {
+            if (j.atsPlatform !== platform) return false;
+            // Same career-site board (hostname + path identity) — this
+            // company's jobs on THIS board.
+            if (belongsToBoard(j, boardId)) return true;
+            // Fallback: a stored job whose URL can't be matched to the board
+            // (e.g. a career-site URL that differs) still belongs to this
+            // company — never wrongly mark legitimate jobs missing.
+            return j.company === board.companyName;
+          });
           const diff = diffBoard(existing, fresh, user.id);
+          // Cap guard: fetchBoard slices at MAX_JOBS_PER_BOARD, so a board
+          // with more live jobs than the cap would yield false "missing"
+          // entries for the overflow (the 26th+ job). Absence is only
+          // trustworthy when the fetch returned fewer jobs than its cap.
+          // (Cross-company false-missing is already excluded by the
+          // board-identity scoping above.)
+          if (diff.missing.length && fresh.length >= MAX_JOBS_PER_BOARD) {
+            diff.missing = [];
+          }
           if (diff.added.length) {
             saveNewJobs(diff.added);
             stats.added += diff.added.length;
