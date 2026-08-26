@@ -1,5 +1,6 @@
 import { getAllJobs, getCurrentUserId, saveNewJobs, getDb } from '../storage/fileStorage.js';
 import { isJobFresh, fingerprintJob, markSeen, getSeenFingerprints, isWithinPostedWindow } from '../storage/v2Tables.js';
+import { rankRelevant } from '../search/rank.js';
 import { getFetchBudget } from '../providers/searchBudget.js';
 import type { SearchRequest } from '../providers/searchBudget.js';
 
@@ -58,14 +59,12 @@ export async function searchWithCache(
   });
 
   if (freshJobs.length >= req.limit) {
-    // Enough fresh in DB — return without calling any provider
-    const ranked = [...freshJobs].sort((a, b) => {
-      const aTitle = a.title.toLowerCase().includes(req.query.toLowerCase()) ? 0 : 1;
-      const bTitle = b.title.toLowerCase().includes(req.query.toLowerCase()) ? 0 : 1;
-      if (aTitle !== bTitle) return aTitle - bTitle;
-      return (b.postedDate || '').localeCompare(a.postedDate || '');
-    });
-    markSeen(getCurrentUserId(), queryFp, ranked.slice(0, req.limit).map((j: any) => (j as any).fingerprint || fingerprintJob(j)));
+    // Enough fresh in DB — return without calling any provider.
+    // Relevance tier first, freshness second, deterministic tie-breakers.
+    const ranked = rankRelevant(freshJobs, req.query, (j) => j.title || '', (j) => j.company || '')
+      .map((r) => r.job)
+      .slice(0, req.limit);
+    markSeen(getCurrentUserId(), queryFp, ranked.map((j: any) => (j as any).fingerprint || fingerprintJob(j)));
     return {
       jobs: ranked.slice(0, req.limit),
       providersCalled: [],
@@ -160,12 +159,8 @@ export async function searchWithCache(
     }
   }
 
-  const ranked = [...deduped].sort((a, b) => {
-    const aTitle = a.title.toLowerCase().includes(req.query.toLowerCase()) ? 0 : 1;
-    const bTitle = b.title.toLowerCase().includes(req.query.toLowerCase()) ? 0 : 1;
-    if (aTitle !== bTitle) return aTitle - bTitle;
-    return (b.postedDate || '').localeCompare(a.postedDate || '');
-  });
+  const ranked = rankRelevant(deduped, req.query, (j: any) => j.title || '', (j: any) => j.company || '')
+      .map((r) => r.job);
 
   // Persist provider results so the NEXT identical search within 24h hits the
   // local DB and pays $0 (DB-first). Existing jobs (e.g. from V1) are enriched
