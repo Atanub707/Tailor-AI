@@ -1,4 +1,4 @@
-import { getDb, runWithUser, saveNewJobs, bumpLastSeen, markJobsInactive, getAllJobs, listActiveUsers } from '../storage/fileStorage.js';
+import { getDb, runWithUser, saveNewJobs, bumpLastSeen, markJobsInactive, getAllJobs, listActiveUsers, updateJobInStorage } from '../storage/fileStorage.js';
 import { ensureV2Tables } from '../storage/v2Tables.js';
 import { fetchBoard } from '../providers/directAtsProvider.js';
 import { diffBoard } from './diff.js';
@@ -143,6 +143,19 @@ export async function watchOnce(): Promise<WatcherStats> {
           if (diff.added.length) {
             saveNewJobs(diff.added);
             stats.added += diff.added.length;
+          }
+          if (diff.changed.length) {
+            // Board-side edits (title/location/applyUrl/postedDate/…) propagate
+            // to the stored copy. App-owned fields (state, matchScore, cv,
+            // lifecycle) are preserved by spreading over the stored row.
+            const freshById = new Map(fresh.map((j) => [j.id, j]));
+            for (const id of diff.changed) {
+              const stored = existing.find((j) => j.id === id);
+              const freshJob = freshById.get(id);
+              if (!stored || !freshJob) continue;
+              updateJobInStorage({ ...stored, ...freshJob, id: stored.id } as any);
+            }
+            stats.updated += diff.changed.length;
           }
           if (diff.bumped.length) {
             bumpLastSeen(diff.bumped);

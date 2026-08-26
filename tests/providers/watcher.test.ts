@@ -182,6 +182,38 @@ describe('background watcher', () => {
     });
   });
 
+  it('material change: a board-side title edit propagates to the stored job', async () => {
+    const db = getDb();
+    db.prepare('UPDATE company_career_sites SET isActive = 0').run();
+    db.prepare('DELETE FROM jobs').run();
+    seedBoards(1, 'chg'); // chgco0 (BoardCo0)
+    const onBoard = (id: string, title: string) => ({
+      company: 'BoardCo0',
+      title,
+      url: `https://boards.greenhouse.io/chgco0/${id}`,
+      applyUrl: `https://boards.greenhouse.io/chgco0/${id}`,
+    });
+    const spy = vi.spyOn(providerModule, 'fetchBoard').mockImplementation(async (_source, _platform, _companyName, careerUrl) => {
+      if (careerUrl.includes('chgco0')) return { ok: true, jobs: [mk('a', onBoard('a', 'DevOps Engineer (New Title)'))] };
+      return { ok: true, jobs: [] };
+    });
+
+    await runWithUser(USER, async () => {
+      saveNewJobs([mk('a', onBoard('a', 'DevOps Engineer (Old Title)'))]);
+    });
+
+    const stats = await watchOnce();
+    expect(spy).toHaveBeenCalled();
+    expect(stats.errors).toEqual([]);
+
+    await runWithUser(USER, async () => {
+      const jobs = getAllJobs();
+      const stored = jobs.find((j: any) => j.id === 'a');
+      expect((stored as any).title).toBe('DevOps Engineer (New Title)'); // propagated
+      expect((stored as any).state).toBe('pending'); // app-owned field preserved
+    });
+  });
+
   it('multi-company: refreshing one board never marks another company\u2019s same-platform jobs inactive', async () => {
     const db = getDb();
     // Only this test's two boards are active — deterministic slice.
