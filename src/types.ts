@@ -262,6 +262,8 @@ export interface JobFilterQueryParams {
   state?: 'all' | JobState;
   source?: 'all' | JobSource;
   search?: string;
+  searchId?: string; // scope results to a search context (search_jobs link)
+  jobIds?: string[]; // resolved from searchId by the caller (server.ts)
   jobType?: 'all' | 'remote' | 'onsite' | 'hybrid';
   location?: string;
   datePostedFilter?: 'all' | '24h' | '7d' | '30d';

@@ -71,6 +71,10 @@ export default function App() {
     total: 0, pending: 0, matched: 0, tailored: 0, applied: 0, scoredCount: 0, avgScore: 0, byState: {},
   });
   const [searchTerm, setSearchTerm] = useState('');
+  // Current search context returned by the last scrape. Scopes the follow-up
+  // GET /api/jobs to exactly the jobs that search produced — NOT the toolbar
+  // search box (which is a manual text filter, unrelated to scrape keywords).
+  const [currentSearchId, setCurrentSearchId] = useState<string | null>(null);
   const [sourceFilter, setSourceFilter] = useState<'all' | JobSource>('all');
   const [sortBy, setSortBy] = useState<'createdAt' | 'postedDate' | 'matchScore' | 'salaryMax'>('createdAt');
   const [page, setPage] = useState(1);
@@ -130,6 +134,10 @@ export default function App() {
       page: String(page),
       limit: String(pageSize),
     });
+    // Scope to the current search context ONLY on the all-jobs view. State
+    // tabs (Applied/Tailored/Ready/Pending) stay global — history must not be
+    // hidden by an unrelated later search.
+    if (currentSearchId && activeStateTab === 'all') params.set('searchId', currentSearchId);
     const [listRes, statsRes] = await Promise.all([
       fetch(`/api/jobs?${params}`),
       fetch('/api/jobs/stats'),
@@ -142,7 +150,7 @@ export default function App() {
     if (statsRes.ok) {
       setStats(await statsRes.json());
     }
-  }, [activeStateTab, sourceFilter, searchTerm, sortBy, page, pageSize]);
+  }, [activeStateTab, sourceFilter, searchTerm, sortBy, page, pageSize, currentSearchId]);
 
   // Back/Close from any screen: land on the dashboard with FRESH data from
   // the server (newly saved LinkedIn posts, scraped jobs, updated scores)
@@ -265,10 +273,11 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        // Searching ADDS jobs to the store. The list always shows your full
-        // library (newest scraped first) — the search never narrows or hides
-        // existing jobs. Use the toolbar search box / source / sort controls
+        // Searching ADDS jobs to the store. The list now scopes to the current
+        // search context (searchId) so a later, unrelated search does not mix
+        // its results in. Use the toolbar search box / source / sort controls
         // to filter the view manually.
+        if (data.searchId) setCurrentSearchId(data.searchId);
         setActiveStateTab('all');
         setPage(1);
         await fetchJobs();

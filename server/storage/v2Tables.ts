@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { getDb } from './fileStorage.js';
 
 export interface CompanyCareerSite {
@@ -134,6 +135,25 @@ export function ensureV2Tables(): void {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (user_id, query_fp, provider)
     );
+    CREATE TABLE IF NOT EXISTS searches (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      query_fp TEXT NOT NULL,
+      query TEXT NOT NULL,
+      location TEXT,
+      posted_window TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS search_jobs (
+      search_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      relevance_score INTEGER NOT NULL DEFAULT 0,
+      match_type TEXT,
+      discovered_at TEXT NOT NULL,
+      PRIMARY KEY (search_id, job_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_search_jobs_job ON search_jobs(job_id);
+    CREATE INDEX IF NOT EXISTS idx_searches_user_fp ON searches(user_id, query_fp);
     CREATE INDEX IF NOT EXISTS idx_company_career_sites_ats ON company_career_sites(atsPlatform);
     CREATE INDEX IF NOT EXISTS idx_provider_runs_provider ON provider_runs(provider);
   `);
@@ -174,6 +194,66 @@ export function fingerprintJob(job: { atsPlatform?: string; externalId?: string;
   let hash = 0;
   for (let i = 0; i < base.length; i++) hash = (hash * 31 + base.charCodeAt(i)) >>> 0;
   return `${ats}-${hash.toString(16)}`;
+}
+
+// ── Search-context isolation ────────────────────────────────────────────────
+// A `searches` row is the durable identity of a distinct search context
+// (query + location + posted window). `search_jobs` links jobs to searches —
+// many-to-many: one physical job may be discovered by several searches, but
+// stays ONE row in `jobs`. State (applied/tailored/ready) remains on the job
+// row, so history tabs are unaffected.
+
+export function canonicalQueryFp(query: string, location?: string, postedWindow?: string): string {
+  const q = String(query || '').toLowerCase().trim().replace(/\s+/g, '-') || 'empty';
+  const loc = String(location || 'any').toLowerCase().trim().replace(/\s+/g, '-');
+  const win = postedWindow || 'all';
+  return `${q}|${loc}|${win}`;
+}
+
+/** Create a search context (or reuse an existing one for the same query_fp). */
+export function getOrCreateSearch(
+  userId: string,
+  query: string,
+  location: string | undefined,
+  postedWindow: string | undefined
+): string {
+  ensureV2Tables();
+  const db = getDb();
+  const fp = canonicalQueryFp(query, location, postedWindow);
+  const existing = db.prepare('SELECT id FROM searches WHERE user_id = ? AND query_fp = ? LIMIT 1').get(userId, fp) as { id: string } | undefined;
+  if (existing) return existing.id;
+  const id = `search-${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`;
+  db.prepare(
+    'INSERT INTO searches (id, user_id, query_fp, query, location, posted_window, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, userId, fp, String(query || '').trim(), location ?? null, postedWindow ?? null, new Date().toISOString());
+  return id;
+}
+
+/** Link persisted jobs to a search context (idempotent). */
+export function linkJobsToSearch(searchId: string, jobIds: string[]): void {
+  ensureV2Tables();
+  const db = getDb();
+  const now = new Date().toISOString();
+  const stmt = db.prepare(
+    'INSERT OR IGNORE INTO search_jobs (search_id, job_id, relevance_score, match_type, discovered_at) VALUES (?, ?, 0, NULL, ?)'
+  );
+  const tx = db.transaction(() => {
+    for (const id of jobIds) stmt.run(searchId, id, now);
+  });
+  tx();
+}
+
+/** Job ids linked to a search context, newest link first. */
+export function getJobIdsForSearch(userId: string, searchId: string): string[] {
+  ensureV2Tables();
+  const db = getDb();
+  const rows = db.prepare(
+    `SELECT sj.job_id FROM search_jobs sj
+     JOIN searches s ON s.id = sj.search_id
+     WHERE s.user_id = ? AND sj.search_id = ?
+     ORDER BY sj.discovered_at DESC`
+  ).all(userId, searchId) as { job_id: string }[];
+  return rows.map((r) => r.job_id);
 }
 
 export function isJobFresh(scrapedAt?: string, ttlHours = JOB_CACHE_TTL_HOURS): boolean {

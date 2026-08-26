@@ -36,7 +36,7 @@ export interface HrContact {
 
 export interface ContactEmail { id: string; recipient: string; subject: string; body: string; attachmentName: string | null; status: string; sentAt: string; }
 
-const DATA_DIR = path.join(process.cwd(), 'data');
+const DATA_DIR = process.env.TAILOR_DATA_DIR || path.join(process.cwd(), 'data');
 const JSON_FILE_PATH = path.join(DATA_DIR, 'jobs.json');
 const SQLITE_DB_PATH = path.join(DATA_DIR, 'ats_jobs.sqlite');
 const LEGACY_PRIMARY_JSON = path.join(DATA_DIR, 'ats_jobs.sqlite.json');
@@ -1406,6 +1406,14 @@ export function deleteAllJobs(): number {
 
 export function queryJobs(params: JobFilterQueryParams) {
   let jobs = getAllJobs();
+
+  // Search-context isolation: when jobIds are supplied (resolved from a
+  // searchId by the caller), scope to only those jobs. Absent → current
+  // behavior (all stored jobs).
+  if (params.jobIds) {
+    const ids = new Set(params.jobIds);
+    jobs = jobs.filter((j) => ids.has(j.id));
+  }
 
   // State filter
   if (params.state && params.state !== 'all') {

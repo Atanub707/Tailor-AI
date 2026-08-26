@@ -1457,8 +1457,23 @@ Return valid JSON only — NO markdown, NO code fences:
       // real URL, recruiter name. Kept as one job — no duplicate.
       const { added, skipped, newContacts, upgradedCount } = persistJobsWithUpgrade(scrapedJobs);
 
+      // Search-context isolation: create/reuse a `searches` row for this
+      // query+location+window, then link every RELEVANT job that survived the
+      // scrape (added + already-stored) to it. The returned searchId lets the
+      // UI scope its follow-up GET /api/jobs to exactly this search.
+      const { getOrCreateSearch, linkJobsToSearch } = await import('./server/storage/v2Tables.js');
+      const searchId = getOrCreateSearch(
+        getCurrentUserId(),
+        keywords.trim(),
+        location,
+        datePostedFilter || 'all'
+      );
+      const relevantIds = [...new Set(scrapedJobs.map((j) => j.id).filter(Boolean))];
+      linkJobsToSearch(searchId, relevantIds);
+
       res.json({
         success: true,
+        searchId,
         scrapedTotal: scrapedJobs.length,
         addedCount: added.length,
         skippedDuplicates: skipped,
@@ -1960,12 +1975,13 @@ Return valid JSON only, no markdown:
     }
   });
 
-  app.get('/api/jobs', (req, res) => {
+  app.get('/api/jobs', async (req, res) => {
     try {
       const queryParams: JobFilterQueryParams = {
         state: (req.query.state as any) || 'all',
         source: (req.query.source as any) || 'all',
         search: (req.query.search as string) || '',
+        searchId: (req.query.searchId as string) || undefined,
         jobType: (req.query.jobType as any) || 'all',
         location: (req.query.location as string) || '',
         datePostedFilter: (req.query.datePostedFilter as any) || 'all',
@@ -1977,6 +1993,13 @@ Return valid JSON only, no markdown:
         page: req.query.page ? Number(req.query.page) : 1,
         limit: req.query.limit ? Number(req.query.limit) : 25,
       };
+
+      // Resolve searchId → the job ids linked to that search context, so the
+      // result view shows only jobs belonging to the current search.
+      if (queryParams.searchId) {
+        const { getJobIdsForSearch } = await import('./server/storage/v2Tables.js');
+        queryParams.jobIds = getJobIdsForSearch(getCurrentUserId(), queryParams.searchId);
+      }
 
       const result = queryJobs(queryParams);
       res.json(result);
