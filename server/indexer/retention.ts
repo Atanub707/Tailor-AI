@@ -33,7 +33,9 @@ export function runRetentionSweep(): { deleted: number; kept: number } {
       const tx = db.transaction(() => {
         for (const id of ids) {
           db.prepare('DELETE FROM jobs WHERE id = ? AND user_id = ?').run(id, user.id);
-          db.prepare('DELETE FROM search_jobs WHERE job_id = ?').run(id);
+          db.prepare(
+            'DELETE FROM search_jobs WHERE job_id = ? AND search_id IN (SELECT id FROM searches WHERE user_id = ?)'
+          ).run(id, user.id);
         }
       });
       tx();

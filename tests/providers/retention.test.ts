@@ -14,6 +14,7 @@ const { ensureV2Tables, linkJobsToSearch, getOrCreateSearch } = await import('..
 const { runRetentionSweep } = await import('../../server/indexer/retention.js');
 
 const USER = 'retention-user';
+const OTHER = 'retention-other';
 const DAY = 24 * 60 * 60 * 1000;
 const mk = (id: string, opts: { ageMs?: number; state?: string; isActive?: boolean } = {}) => ({
   id, title: `DevOps Engineer ${id}`, company: 'Stripe',
@@ -30,6 +31,7 @@ describe('retention sweep — Option B', () => {
     ensureV2Tables();
     const db = getDb();
     db.prepare('INSERT OR IGNORE INTO users (id, name, email, is_guest) VALUES (?, ?, ?, 1)').run(USER, 'Retention', 'ret@test.local');
+    db.prepare('INSERT OR IGNORE INTO users (id, name, email, is_guest) VALUES (?, ?, ?, 1)').run(OTHER, 'Retention Other', 'ret-other@test.local');
   });
   afterAll(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
 
@@ -83,5 +85,34 @@ describe('retention sweep — Option B', () => {
       const orphans = (db.prepare('SELECT count(*) c FROM search_jobs WHERE search_id = ?').get(searchId) as any).c;
       expect(orphans).toBe(0); // …and its now-orphaned search_jobs link
     });
+  });
+
+  it('scopes search_jobs cleanup to the deleting user', async () => {
+    let searchA: string;
+    let searchB: string;
+    // User A: stale job + link (should be swept away)
+    await runWithUser(USER, async () => {
+      saveNewJobs([mk('shared-orphan', { ageMs: 8 * DAY })]);
+      searchA = getOrCreateSearch(USER, 'Shared Board Engineer', '', 'all');
+      linkJobsToSearch(searchA, ['shared-orphan']);
+      const beforeA = (getDb().prepare('SELECT count(*) c FROM search_jobs WHERE search_id = ?').get(searchA) as any).c;
+      expect(beforeA).toBe(1); // precondition: A's link exists
+    });
+    // User B: SAME job id but fresh (kept by the sweep) + link
+    await runWithUser(OTHER, async () => {
+      saveNewJobs([mk('shared-orphan', { ageMs: DAY })]);
+      searchB = getOrCreateSearch(OTHER, 'Shared Board Engineer', '', 'all');
+      linkJobsToSearch(searchB, ['shared-orphan']);
+      const beforeB = (getDb().prepare('SELECT count(*) c FROM search_jobs WHERE search_id = ?').get(searchB) as any).c;
+      expect(beforeB).toBe(1); // precondition: B's link exists
+    });
+    const r = await runRetentionSweep();
+    expect(r.deleted).toBeGreaterThanOrEqual(1);
+    const aLinks = (getDb().prepare('SELECT count(*) c FROM search_jobs WHERE search_id = ?').get(searchA) as any).c;
+    expect(aLinks).toBe(0); // A's orphaned link is removed
+    const bLinks = (getDb().prepare('SELECT count(*) c FROM search_jobs WHERE search_id = ?').get(searchB) as any).c;
+    expect(bLinks).toBe(1); // B's link survives (B's job is still alive)
+    const bJob = (getDb().prepare('SELECT count(*) c FROM jobs WHERE id = ? AND user_id = ?').get('shared-orphan', OTHER) as any).c;
+    expect(bJob).toBe(1); // B's job row is untouched
   });
 });
