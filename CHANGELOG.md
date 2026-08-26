@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.0.2 (2026-08-26)
+
+### ⚡ Indexer freshness
+- **Material-change updates** — when a board edits a job (title, location, apply URL, posted date, description), the watcher now propagates the change to the stored copy instead of only bumping lastSeenAt. App-owned fields (state, match score, CV, lifecycle) are preserved.
+
 ## v2.0.1 (2026-08-26)
 
 ### ⚡ Indexer efficiency
