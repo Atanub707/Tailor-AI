@@ -116,6 +116,7 @@ import {
   addPostsDailyUsage,
 } from './server/storage/fileStorage.js';
 import { ScraperFactory } from './server/scraper/scraperFactory.js';
+import { setSearchInFlight } from './server/indexer/watcher.js';
 import { LinkedInPostsScraper } from './server/scraper/linkedInPostsScraper.js';
 import { LlmMatcher } from './server/matcher/llmMatcher.js';
 import { hasApiKeyConfigured, mapLlmError } from './server/llm/apiKeyGuard.js';
@@ -1421,6 +1422,9 @@ Return valid JSON only — NO markdown, NO code fences:
           .slice(0, 1000);
       } catch { jobIds = []; }
 
+      // Let the background watcher know a user scrape is in flight so it
+      // skips its cycle (avoids racing the interactive path over the same rows).
+      setSearchInFlight(true);
       const scrapedJobsRaw = await ScraperFactory.runScrape({
         keywords: keywords.trim(),
         location: location || 'Remote',
@@ -1503,6 +1507,8 @@ Return valid JSON only — NO markdown, NO code fences:
     } catch (err: any) {
       console.error('Scrape error:', err);
       res.status(500).json({ error: err.message || 'Scraping failed.' });
+    } finally {
+      setSearchInFlight(false);
     }
   });
 
@@ -2711,6 +2717,32 @@ Return valid JSON only, no markdown:
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`ATS Job Search & CV Tailor server running at http://0.0.0.0:${PORT}`);
   });
+
+  // Background job indexer — silently fills the local corpus from free-ATS
+  // boards. Never calls Apify; never blocks requests; stops with the process.
+  try {
+    const { startWatcher } = await import('./server/indexer/watcher.js');
+    startWatcher();
+  } catch (err: any) {
+    console.error('[Indexer] watcher start failed (non-fatal):', err);
+  }
+
+  // Retention + watcher share one scheduler tick — never concurrent.
+  try {
+    const { runRetentionSweep } = await import('./server/indexer/retention.js');
+    const sweep = async () => {
+      try {
+        const r = await runRetentionSweep();
+        if (r.deleted > 0) console.log(`[Indexer] retention sweep: deleted ${r.deleted} stale jobs`);
+      } catch (err) {
+        console.error('[Indexer] retention sweep failed (non-fatal):', err);
+      }
+    };
+    void sweep(); // on boot
+    setInterval(sweep, 24 * 60 * 60 * 1000).unref?.();
+  } catch (err: any) {
+    console.error('[Indexer] retention wiring failed (non-fatal):', err);
+  }
 
   // One-time backfill: extract recruiter/HR emails from descriptions of
   // jobs that were scraped before the contacts feature existed.
