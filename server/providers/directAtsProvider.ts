@@ -69,6 +69,13 @@ async function fetchJson(url: string, timeoutMs = 15000): Promise<any> {
   return res.json();
 }
 
+// Single source of truth for board API URLs — shared by the interactive
+// search path (scrapeDirectAts) and the board-level watcher fetch.
+function boardUrl(platform: string, slug: string): string {
+  const base = API_BASE[platform];
+  return `${base}/${encodeURIComponent(slug)}${platform === 'lever' ? '?mode=json' : ''}${platform === 'greenhouse' ? '/jobs' : ''}`;
+}
+
 // ── Normalizers → Job (source tagged by caller) ──────────────────────────────
 // Date handling rules (NEVER guess semantics):
 //   * Greenhouse exposes first_published (true posting date) AND updated_at —
@@ -276,7 +283,7 @@ export async function scrapeDirectAts(
   if (!base) return [];
   const norm = (fn: (j: any, c: string, p: string) => Job | null) => async (b: { companyName: string; slug: string }) => {
     try {
-      const url = `${base}/${encodeURIComponent(b.slug)}${platform === 'lever' ? '?mode=json' : ''}${platform === 'greenhouse' ? '/jobs' : ''}${platform === 'ashby' ? '' : ''}`;
+      const url = boardUrl(platform, b.slug);
       const data = await fetchJson(url);
       const raw = platform === 'smartrecruiters' ? data.content : platform === 'ashby' ? data.jobs : data.jobs || data;
       if (!Array.isArray(raw)) return [];
@@ -298,4 +305,53 @@ export async function scrapeDirectAts(
   const results = await Promise.all(boards.map(norm(fns[platform as keyof typeof fns])));
   void keywords;
   return results.flat();
+}
+
+/**
+ * Board-level fetch for the incremental watcher: ONE board, ONE request.
+ * Unlike scrapeDirectAts (platform-level rotation over 8 boards), this fetches
+ * the exact board a company's career page points to — the watcher diffs per
+ * board and needs deterministic per-board freshness.
+ * Pure fetch + normalize: returns [] on any failure (never throws, logs a
+ * warn). Reuses fetchJson + stripHtml + the platform normalizers.
+ */
+export async function fetchBoard(
+  source: string,
+  platform: string,
+  companyName: string,
+  careerUrl: string,
+  maxJobs: number
+): Promise<Job[]> {
+  const base = API_BASE[platform];
+  const slugRe = SLUG_RE[platform];
+  if (!base || !slugRe) {
+    console.warn(`[DirectATS] fetchBoard: unsupported platform ${platform}`);
+    return [];
+  }
+  const m = (careerUrl || '').match(slugRe);
+  if (!m) {
+    console.warn(`[DirectATS] fetchBoard: no board slug in ${careerUrl}`);
+    return [];
+  }
+  const slug = m[1];
+  const fns = { greenhouse: ghJob, lever: leverJob, ashby: ashbyJob, smartrecruiters: srJob };
+  const fn = fns[platform as keyof typeof fns];
+  if (!fn) {
+    console.warn(`[DirectATS] fetchBoard: no normalizer for ${platform}`);
+    return [];
+  }
+  try {
+    const data = await fetchJson(boardUrl(platform, slug));
+    const raw = platform === 'smartrecruiters' ? data.content : platform === 'ashby' ? data.jobs : data.jobs || data;
+    if (!Array.isArray(raw)) return [];
+    const cap = Math.min(maxJobs || 15, 50);
+    return raw
+      .map((j: any) => fn(j, companyName, platform))
+      .filter((j: Job | null): j is Job => !!j)
+      .sort((a: Job, c: Job) => new Date(c.postedDate || 0).getTime() - new Date(a.postedDate || 0).getTime())
+      .slice(0, cap);
+  } catch (err: any) {
+    console.warn(`[DirectATS] ${source} ${slug} failed: ${err.message}`);
+    return [];
+  }
 }
