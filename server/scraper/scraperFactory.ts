@@ -24,7 +24,7 @@ import { SOURCES } from '../../src/constants/sources.js';
 import { contradictsWanted } from './workMode.js';
 import { ApifyBaseScraper } from './apifyBase.js';
 import { SantaMariaApifyProvider } from '../providers/santaMariaProvider.js';
-import { isWithinPostedWindow } from '../storage/v2Tables.js';
+import { isWithinPostedWindow, isDevOpsAdjacent } from '../storage/v2Tables.js';
 
 // Apify-powered sources — constructed from the shared registry (Task 1).
 const APIFY_SCRAPERS: Partial<Record<JobSource, () => ApifyBaseScraper>> = {
@@ -272,8 +272,7 @@ export class ScraperFactory {
         return title.includes(primary);
       });
       if (relevant.length === 0) {
-        const adjacent = /(sre|site reliability|platform|infrastructure|cloud|devops|deployment|release|systems)/i;
-        relevant = allJobs.filter((j) => adjacent.test(`${j.title} ${j.company}`));
+        relevant = allJobs.filter((j) => isDevOpsAdjacent(`${j.title} ${j.company}`));
       }
       if (relevant.length > 0) {
         allJobs = relevant;

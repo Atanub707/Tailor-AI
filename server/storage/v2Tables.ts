@@ -236,3 +236,22 @@ export function isWithinPostedWindow(j: any, postedWithin?: string): boolean {
   if (!Number.isFinite(t)) t = j.postedDate ? new Date(j.postedDate).getTime() : NaN;
   return Number.isFinite(t) && t >= cutoff;
 }
+
+// DevOps-adjacent relevance — shared by the V1 scrape guard and the Santa
+// Maria keyword filter. A title must EITHER state DevOps/SRE outright, OR
+// pair an infra word (platform/infrastructure/cloud/systems/…) with an
+// ENGINEERING role word. This is what keeps "Account Executive, Enterprise
+// Platforms" and "Product Manager – Platforms" OUT of a DevOps search —
+// the bare word "platform" alone is not a DevOps role.
+const DEVOPS_WORDS = /\b(devops|sre|site reliability)\b/i;
+const INFRA_WORDS = /\b(platform|infrastructure|cloud|systems|deployment|release|operations|infra)\b/i;
+const ENG_ROLE_WORDS = /\b(engineer|engineering|developer|architect|administrator|admin|analyst|technician|sre|devops|platform engineer|infrastructure engineer|cloud engineer|systems engineer|ops)\b/i;
+
+export function isDevOpsAdjacent(text: string): boolean {
+  const t = String(text || '');
+  if (DEVOPS_WORDS.test(t)) return true;
+  // Both signals required: infra word AND an engineering role word. The
+  // "ops" role word is deliberately narrow (site reliability ops, devops)
+  // so sales/PM titles never sneak through on "platform" alone.
+  return INFRA_WORDS.test(t) && ENG_ROLE_WORDS.test(t);
+}

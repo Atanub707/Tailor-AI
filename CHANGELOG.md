@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.9.13 (2026-08-26)
+
+### 🐛 Fix: sales/PM jobs still leaking into DevOps searches
+- The DevOps-adjacent fallback matched the bare word "platform" — so Account Executive, Enterprise Platforms / Product Manager, Cash Platform / Director, Product Management passed.
+- New rule (shared by scrape guard + Santa Maria filter): a title must EITHER state DevOps/SRE outright, OR pair an infra word (platform/infrastructure/cloud/systems/…) with an ENGINEERING role word (engineer/developer/architect/admin/…). Sales and product titles never match.
+- 4 new tests; verified live: 122 irrelevant jobs dropped, only real DevOps/platform roles pass.
+- Cleaned 19 legacy sales/PM jobs from existing accounts.
+
 ## v1.9.12 (2026-08-26)
 
 ### ✨ Official brand icons for the main portals

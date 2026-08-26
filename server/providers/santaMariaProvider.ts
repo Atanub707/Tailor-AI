@@ -3,7 +3,7 @@ import type { Job } from '../../src/types.js';
 import { loadConfig } from '../config.js';
 import { getProviderFetchLimit } from './searchBudget.js';
 import { getDb } from '../storage/fileStorage.js';
-import { ensureV2Tables } from '../storage/v2Tables.js';
+import { ensureV2Tables, isDevOpsAdjacent } from '../storage/v2Tables.js';
 
 /**
  * Santa Maria Apify Provider — BYOK, provider-agnostic.
@@ -90,11 +90,10 @@ export class SantaMariaApifyProvider implements JobProvider {
           jobs = titleFirst;
           console.log(`[SantaMaria] Keyword filter "${terms.join(' ')}" → ${before} → ${jobs.length} jobs (title-exact first + description matches)`);
         } else {
-          // Soft fallback: DevOps-adjacent titles (SRE/Platform/Infrastructure/Cloud).
-          // The title/company match IS the relevance — a "Platform Engineer" is a
-          // DevOps role without needing the literal word in its description.
-          const adjacent = /(sre|site reliability|platform|infrastructure|cloud|devops|deployment|release|systems)/i;
-          const soft = jobs.filter((j) => adjacent.test(`${j.title} ${j.company}`));
+          // Soft fallback: DevOps-adjacent titles (SRE/Platform/Infrastructure/Cloud
+          // PAIRED with an engineering role — "Platform" alone is not DevOps,
+          // so Account Execs / PMs never sneak in).
+          const soft = jobs.filter((j) => isDevOpsAdjacent(`${j.title} ${j.company}`));
           jobs = [...titleExact, ...soft.filter((j) => !titleExact.includes(j))];
           console.log(`[SantaMaria] Keyword filter "${terms.join(' ')}" → ${before} → ${jobs.length} jobs (soft fallback: DevOps-adjacent)`);
         }
