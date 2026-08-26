@@ -1457,6 +1457,12 @@ export function deleteAllJobs(): number {
 export function queryJobs(params: JobFilterQueryParams) {
   let jobs = getAllJobs();
 
+  // Default view: hide jobs removed from their source board. State tabs
+  // (applied/tailored/ready/pending) still show them — history survives.
+  if (!params.state || params.state === 'all') {
+    jobs = jobs.filter((j) => j.isActive !== false);
+  }
+
   // Search-context isolation: when jobIds are supplied (resolved from a
   // searchId by the caller), scope to only those jobs. Absent → current
   // behavior (all stored jobs).
