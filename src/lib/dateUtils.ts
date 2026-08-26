@@ -32,3 +32,13 @@ export function formatTimeAgo(dateStr?: string): string {
   const diffMonths = Math.floor(diffDays / 30);
   return `${diffMonths}mo ago`;
 }
+
+// Semantics-aware age label: "Published 6h ago" when the provider gave a real
+// posting date; "Updated 6h ago" when only updated_at exists. Never label an
+// update timestamp as a posting.
+export function formatTimeAgoSemantic(dateStr?: string, semantics?: 'published' | 'created' | 'updated' | 'unknown'): string {
+  const label = semantics === 'updated' ? 'Updated' : semantics === 'unknown' ? 'Seen' : 'Posted';
+  const t = formatTimeAgo(dateStr);
+  if (t === 'Recently') return label === 'Posted' ? t : `${label} ${t}`;
+  return `${label} ${t}`;
+}

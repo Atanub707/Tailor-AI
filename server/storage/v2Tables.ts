@@ -222,36 +222,116 @@ export function saveProviderCursor(userId: string, queryFp: string, provider: st
 
 // Posted-window check shared by V1 scrape and V2 search — the user's
 // "Last 24 hours" filters by the JOB's posting time, not our scrape time.
-// Unknown/absent dates FAIL the window (honest — can't prove freshness).
+// Semantics-aware (provider-verified):
+//   * published/created timestamps → eligible normally (they ARE posting dates)
+//   * updated-only timestamps → eligible IF within the window, but the UI must
+//     label them "Updated X ago" — never silently "Published X ago" (the
+//     presentation layer reads postedDateSemantics)
+//   * unknown (no timestamp at all) → excluded from a strict date-filtered
+//     search — honest, we can't prove freshness
 export function isWithinPostedWindow(j: any, postedWithin?: string): boolean {
   if (!postedWithin || postedWithin === 'all') return true;
   const hours = { '24h': 24, '7d': 24 * 7, '30d': 24 * 30 }[postedWithin as '24h' | '7d' | '30d'];
   if (!hours) return true;
   const cutoff = Date.now() - hours * 60 * 60 * 1000;
-  let t = j.postedDateParsed ? new Date(`${String(j.postedDateParsed).slice(0, 10)}T23:59:59Z`).getTime() : NaN;
-  if (!Number.isFinite(t)) {
-    const m = String(j.postedDate || '').match(/^(\d{4}-\d{2}-\d{2})/);
-    t = m ? new Date(`${m[1]}T23:59:59Z`).getTime() : NaN;
-  }
-  if (!Number.isFinite(t)) t = j.postedDate ? new Date(j.postedDate).getTime() : NaN;
+  const t = resolvePostedTime(j);
   return Number.isFinite(t) && t >= cutoff;
 }
 
-// DevOps-adjacent relevance — shared by the V1 scrape guard and the Santa
-// Maria keyword filter. A title must EITHER state DevOps/SRE outright, OR
-// pair an infra word (platform/infrastructure/cloud/systems/…) with an
-// ENGINEERING role word. This is what keeps "Account Executive, Enterprise
-// Platforms" and "Product Manager – Platforms" OUT of a DevOps search —
-// the bare word "platform" alone is not a DevOps role.
-const DEVOPS_WORDS = /\b(devops|sre|site reliability)\b/i;
-const INFRA_WORDS = /\b(platform|infrastructure|cloud|systems|deployment|release|operations|infra)\b/i;
-const ENG_ROLE_WORDS = /\b(engineer|engineering|developer|architect|administrator|admin|analyst|technician|sre|devops|platform engineer|infrastructure engineer|cloud engineer|systems engineer|ops)\b/i;
+function resolvePostedTime(j: any): number {
+  if (j.postedDateParsed) {
+    const t = new Date(`${String(j.postedDateParsed).slice(0, 10)}T23:59:59Z`).getTime();
+    if (Number.isFinite(t)) return t;
+  }
+  if (j.postedDate) {
+    const m = String(j.postedDate).match(/^(\d{4}-\d{2}-\d{2})/);
+    if (m) {
+      const t = new Date(`${m[1]}T23:59:59Z`).getTime();
+      if (Number.isFinite(t)) return t;
+    }
+    const t = new Date(j.postedDate).getTime();
+    if (Number.isFinite(t)) return t;
+  }
+  return NaN;
+}
 
-export function isDevOpsAdjacent(text: string): boolean {
+// ── Query-aware deterministic relevance ─────────────────────────────────────
+// The query decides the vocabulary. "DevOps Engineer" and "Cyber Security
+// Engineer" accept DIFFERENT titles — a universal "contains engineer" fallback
+// is exactly what let Data Engineer leak in. No LLM, no fuzzy matching: each
+// category has explicit strong/adjacent title patterns.
+
+interface RelevanceCategory {
+  // Words that place the query into this category (matched against the query).
+  triggers: RegExp;
+  // Titles that ARE the role outright (strong accept).
+  strong: RegExp;
+  // Titles that are adjacent to the role — only accepted when combined with
+  // an engineering role word (never bare words like "platform").
+  adjacent: RegExp;
+}
+
+// Engineering role words ONLY — "manager"/"executive" deliberately absent so
+// Product Manager / Account Executive titles can never pair with an infra word.
+const ROLE_WORDS = /\b(engineer|engineering|developer|architect|administrator|admin|analyst|technician|specialist|lead)\b/i;
+
+const CATEGORIES: RelevanceCategory[] = [
+  {
+    triggers: /\b(devops|devops engineer|devsecops|sre|site reliability|platform engineering|infrastructure engineering|cloud engineering)\b/i,
+    strong: /\b(devops|devsecops|sre|site reliability)\b/i,
+    adjacent: /\b(platform|infrastructure|cloud|systems|deployment|release|operations|infra|kubernetes|terraform|ci\/?cd|docker|aws|azure|gcp)\b/i,
+  },
+  {
+    triggers: /\b(cyber|cybersecurity|security engineer|infosec|application security|cloud security)\b/i,
+    strong: /\b(cyber|cybersecurity|infosec|security)\b/i,
+    adjacent: /\b(cloud|application|network|devsecops|penetration|incident response|threat|vulnerability|red team|blue team|identity|iam)\b/i,
+  },
+];
+
+export function relevanceCategory(query: string): { strong: RegExp; adjacent: RegExp } | null {
+  const q = String(query || '');
+  for (const c of CATEGORIES) {
+    if (c.triggers.test(q)) return { strong: c.strong, adjacent: c.adjacent };
+  }
+  return null;
+}
+
+/**
+ * Deterministic relevance score for a job title/company against a query.
+ * Returns score > 0 when the job belongs to the query's category:
+ *   strong title match → 3
+ *   query term present in title → 2
+ *   adjacent title (infra word + role word) → 1
+ * Anything else → 0 (rejected). The "platform word alone" leak is impossible:
+ * adjacent titles require an engineering role word too.
+ */
+export function relevanceScore(query: string, text: string): number {
+  const q = String(query || '').toLowerCase().trim();
   const t = String(text || '');
-  if (DEVOPS_WORDS.test(t)) return true;
-  // Both signals required: infra word AND an engineering role word. The
-  // "ops" role word is deliberately narrow (site reliability ops, devops)
-  // so sales/PM titles never sneak through on "platform" alone.
-  return INFRA_WORDS.test(t) && ENG_ROLE_WORDS.test(t);
+  if (!q) return 1; // no query → everything passes to the next filter stage
+
+  const cat = relevanceCategory(q);
+  const terms = q.split(/\s+/).filter((w) => w.length > 2);
+  const primary = terms[0] || '';
+
+  // Exact query term in title/company — always a strong signal regardless of
+  // category (searching "devops" must match "DevOps Engineer").
+  if (primary && t.toLowerCase().includes(primary)) return 2;
+
+  if (cat) {
+    if (cat.strong.test(t)) return 3;
+    if (cat.adjacent.test(t) && ROLE_WORDS.test(t)) return 1;
+  }
+  return 0;
+}
+
+// Kept for the V1 scrape guard: a job is relevant when its score > 0.
+export function isRelevantJob(query: string, titleCompany: string): boolean {
+  return relevanceScore(query, titleCompany) > 0;
+}
+
+// Back-compat: strict DevOps adjacency check (used where the query is known
+// to be DevOps-flavoured, e.g. tests).
+export function isDevOpsAdjacent(text: string): boolean {
+  return relevanceScore('devops', text) > 0;
 }

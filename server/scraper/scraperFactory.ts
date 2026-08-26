@@ -24,7 +24,7 @@ import { SOURCES } from '../../src/constants/sources.js';
 import { contradictsWanted } from './workMode.js';
 import { ApifyBaseScraper } from './apifyBase.js';
 import { SantaMariaApifyProvider } from '../providers/santaMariaProvider.js';
-import { isWithinPostedWindow, isDevOpsAdjacent } from '../storage/v2Tables.js';
+import { isWithinPostedWindow, isRelevantJob } from '../storage/v2Tables.js';
 
 // Apify-powered sources — constructed from the shared registry (Task 1).
 const APIFY_SCRAPERS: Partial<Record<JobSource, () => ApifyBaseScraper>> = {
@@ -256,27 +256,19 @@ export class ScraperFactory {
       }
     }
 
-    // Relevance guarantee across ALL sources: the FIRST keyword term must appear
-    // in the title or company (the strongest signal). "DevOps Engineer" → "DevOps"
-    // in title/company; description-only matches are dropped so generic roles
-    // (Account Executive whose JD mentions engineers) never leak. If the strict
-    // match yields nothing, relax to DevOps-adjacent titles (SRE/Platform/
-    // Infrastructure/Cloud) — same rule Santa Maria uses — rather than an
-    // empty result.
-    const terms = (params.keywords || '').toLowerCase().split(/\s+/).filter((t) => t.length > 2);
-    if (terms.length > 0) {
-      const primary = terms[0];
+    // Relevance guarantee across ALL sources — QUERY-AWARE scoring: the query
+    // decides the vocabulary ("DevOps Engineer" ≠ "Cyber Security Engineer").
+    // A job scores > 0 when its title/company contains the query term, matches
+    // the category's strong titles (DevOps/SRE/…), or pairs an adjacent infra
+    // word with an engineering role word. Sales/PM/Data titles score 0 — they
+    // can never pass, whatever the query says.
+    const query = (params.keywords || '').trim();
+    if (query) {
       const before = allJobs.length;
-      let relevant = allJobs.filter((j) => {
-        const title = `${j.title} ${j.company}`.toLowerCase();
-        return title.includes(primary);
-      });
-      if (relevant.length === 0) {
-        relevant = allJobs.filter((j) => isDevOpsAdjacent(`${j.title} ${j.company}`));
-      }
+      const relevant = allJobs.filter((j) => isRelevantJob(query, `${j.title} ${j.company}`));
       if (relevant.length > 0) {
         allJobs = relevant;
-        console.log(`[ScraperFactory] Relevance guard: ${before - allJobs.length} jobs dropped (no "${primary}" / adjacent in title/company)`);
+        console.log(`[ScraperFactory] Relevance guard: ${before - allJobs.length} jobs dropped (score 0 for "${query}")`);
       }
     }
 

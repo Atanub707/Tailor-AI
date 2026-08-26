@@ -1,6 +1,6 @@
 import React from 'react';
 import { Job, JobState, JobSource } from '../types';
-import { formatTimeAgo } from '../lib/dateUtils';
+import { formatTimeAgoSemantic } from '../lib/dateUtils';
 import { getValidJobUrl } from '../lib/jobUrlUtils';
 import { DownloadCvDropdown } from './DownloadCvDropdown';
 import { applicantCountLabel } from '../lib/applicantInfo';
@@ -78,7 +78,7 @@ const JobCard = React.memo(function JobCard({
   onUpdateStatus: (jobId: string, state: JobState) => Promise<void>;
 }) {
   const score = job.matchScore;
-  const timeAgoStr = formatTimeAgo(job.postedDate);
+  const timeAgoStr = formatTimeAgoSemantic(job.postedDate, job.postedDateSemantics);
   const isScoreLoading = scoreMsg !== null;
   const isTailorLoading = tailorMsg !== null;
 

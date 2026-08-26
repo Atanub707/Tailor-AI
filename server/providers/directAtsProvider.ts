@@ -70,10 +70,43 @@ async function fetchJson(url: string, timeoutMs = 15000): Promise<any> {
 }
 
 // ── Normalizers → Job (source tagged by caller) ──────────────────────────────
+// Date handling rules (NEVER guess semantics):
+//   * Greenhouse exposes first_published (true posting date) AND updated_at —
+//     first_published is canonical. updated_at is only a fallback when the
+//     board hides first_published, and is then labelled dateSemantics=updated.
+//   * Lever exposes createdAt (ms epoch) — the posting creation date.
+//   * Ashby exposes publishedAt — the posting date.
+//   * SmartRecruiters exposes releasedDate/publicationDate — posting dates.
+// The first element of the returned tuple is the FILTERING timestamp; the
+// second is the semantics label.
+export function normalizeDates(
+  publishedRaw: string | number | undefined,
+  createdRaw: string | number | undefined,
+  updatedRaw: string | number | undefined,
+  preferUpdatedOnly = false
+): { ts?: string; semantics: 'published' | 'created' | 'updated' | 'unknown' } {
+  const toIso = (v: string | number | undefined): string | undefined => {
+    if (v === undefined || v === null || v === '') return undefined;
+    const n = Number(v);
+    const t = Number.isFinite(n) && !String(v).includes('-') && n > 1e12 ? new Date(n).getTime() : new Date(String(v)).getTime();
+    return Number.isFinite(t) ? new Date(t).toISOString() : undefined;
+  };
+  const published = toIso(publishedRaw);
+  if (published) return { ts: published, semantics: 'published' };
+  const created = toIso(createdRaw);
+  if (created && !preferUpdatedOnly) return { ts: created, semantics: 'created' };
+  const updated = toIso(updatedRaw);
+  if (updated) return { ts: updated, semantics: 'updated' };
+  return { semantics: 'unknown' };
+}
+
+// Greenhouse: first_published is the canonical posting date. updated_at is
+// NEVER presented as a posting date when first_published exists.
 function ghJob(j: any, companyName: string, platform: string): Job | null {
   const url = j.absolute_url || j.id;
   if (!j.title || !url) return null;
   const description = stripHtml(j.content || '');
+  const d = normalizeDates(j.first_published, undefined, j.updated_at);
   return {
     id: `gh-${j.id}`,
     externalId: String(j.id),
@@ -91,9 +124,10 @@ function ghJob(j: any, companyName: string, platform: string): Job | null {
     applyUrl: url,
     url,
     source: 'Custom' as any,
-    postedDate: j.updated_at,
-    createdAt: j.updated_at,
-    updatedAt: j.updated_at,
+    postedDate: d.ts,
+    postedDateSemantics: d.semantics,
+    createdAt: d.semantics === 'created' ? d.ts : undefined,
+    updatedAt: j.updated_at ? new Date(j.updated_at).toISOString() : undefined,
     scrapedAt: new Date().toISOString(),
     provider: 'direct-ats',
     fingerprint: `gh-${j.id}`,
@@ -102,9 +136,11 @@ function ghJob(j: any, companyName: string, platform: string): Job | null {
   } as unknown as Job;
 }
 
+// Lever: createdAt (ms epoch) is the posting creation date.
 function leverJob(j: any, companyName: string, platform: string): Job | null {
   const url = j.hostedUrl || j.applyUrl;
   if (!j.text || !url) return null;
+  const d = normalizeDates(undefined, j.createdAt, j.createdAt);
   return {
     id: `lev-${j.id}`,
     externalId: String(j.id),
@@ -122,9 +158,10 @@ function leverJob(j: any, companyName: string, platform: string): Job | null {
     applyUrl: url,
     url,
     source: 'Custom' as any,
-    postedDate: j.createdAt,
-    createdAt: j.createdAt,
-    updatedAt: j.createdAt,
+    postedDate: d.ts,
+    postedDateSemantics: d.semantics,
+    createdAt: d.semantics === 'created' ? d.ts : undefined,
+    updatedAt: undefined,
     scrapedAt: new Date().toISOString(),
     provider: 'direct-ats',
     fingerprint: `lev-${j.id}`,
@@ -133,9 +170,11 @@ function leverJob(j: any, companyName: string, platform: string): Job | null {
   } as unknown as Job;
 }
 
+// Ashby: publishedAt is the posting date.
 function ashbyJob(j: any, companyName: string, platform: string): Job | null {
   const url = j.applyUrl || j.jobUrl;
   if (!j.title || !url) return null;
+  const d = normalizeDates(j.publishedAt, j.publishedAt, j.publishedAt);
   return {
     id: `ash-${j.id}`,
     externalId: String(j.id),
@@ -153,9 +192,10 @@ function ashbyJob(j: any, companyName: string, platform: string): Job | null {
     applyUrl: url,
     url,
     source: 'Custom' as any,
-    postedDate: j.publishedAt,
-    createdAt: j.publishedAt,
-    updatedAt: j.publishedAt,
+    postedDate: d.ts,
+    postedDateSemantics: d.semantics,
+    createdAt: d.semantics === 'created' ? d.ts : undefined,
+    updatedAt: d.semantics === 'updated' ? d.ts : undefined,
     scrapedAt: new Date().toISOString(),
     provider: 'direct-ats',
     fingerprint: `ash-${j.id}`,
@@ -169,6 +209,8 @@ function srJob(j: any, companyName: string, platform: string): Job | null {
   if (!j.name || !url) return null;
   const sections = (j.jobAd?.sections || []).map((s: any) => s.content || '').filter(Boolean).join('\n\n');
   const location = [j.location?.city, j.location?.country].filter(Boolean).join(', ') || j.location?.city;
+  // SmartRecruiters: releasedDate (ms epoch) is the posting date.
+  const d = normalizeDates(j.releasedDate ?? j.publicationDate, j.publicationDate, undefined);
   return {
     id: `sr-${j.id}`,
     externalId: String(j.id),
@@ -186,9 +228,10 @@ function srJob(j: any, companyName: string, platform: string): Job | null {
     applyUrl: url,
     url,
     source: 'Custom' as any,
-    postedDate: j.releasedDate ? new Date(j.releasedDate).toISOString() : j.publicationDate ? new Date(j.publicationDate).toISOString() : undefined,
-    createdAt: j.publicationDate ? new Date(j.publicationDate).toISOString() : undefined,
-    updatedAt: j.releasedDate ? new Date(j.releasedDate).toISOString() : undefined,
+    postedDate: d.ts,
+    postedDateSemantics: d.semantics,
+    createdAt: d.semantics === 'created' ? d.ts : undefined,
+    updatedAt: d.semantics === 'updated' ? d.ts : undefined,
     scrapedAt: new Date().toISOString(),
     provider: 'direct-ats',
     fingerprint: `sr-${j.id}`,

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Job, JobState, TemplateId } from '../types';
-import { formatTimeAgo } from '../lib/dateUtils';
+import { formatTimeAgoSemantic } from "../lib/dateUtils";
 import { applicantCountLabel } from '../lib/applicantInfo';
 import { getValidJobUrl } from '../lib/jobUrlUtils';
 import { DownloadCvDropdown } from './DownloadCvDropdown';
@@ -117,7 +117,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
 
   const gap = job.gapAnalysis;
   const tailored = job.tailoredCv;
-  const timeAgoStr = formatTimeAgo(job.postedDate || job.createdAt);
+  const timeAgoStr = formatTimeAgoSemantic(job.postedDate || job.createdAt, job.postedDateSemantics);
 
   const handleCopyTextCv = () => {
     if (!tailored) return;
@@ -158,7 +158,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
               </span>
               <span className="flex items-center space-x-1 text-[var(--color-faint)]">
                 <Calendar className="w-3 h-3 text-[var(--color-faint)]" />
-                <span>Posted {timeAgoStr}</span>
+                <span>{timeAgoStr}</span>
               </span>
             </div>
             <h2 className="text-lg font-bold text-[var(--color-ink)]">

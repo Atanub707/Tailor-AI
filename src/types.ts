@@ -11,6 +11,7 @@ export interface Job {
   url: string;
   postedDate?: string; // real posting time from the source (absent = unknown, never scrape time)
   postedDateParsed?: string; // YYYY-MM-DD
+  postedDateSemantics?: 'published' | 'created' | 'updated' | 'unknown'; // what postedDate actually means
   salaryMin?: number;
   salaryMax?: number;
   salaryText?: string;

@@ -3,7 +3,7 @@ import type { Job } from '../../src/types.js';
 import { loadConfig } from '../config.js';
 import { getProviderFetchLimit } from './searchBudget.js';
 import { getDb } from '../storage/fileStorage.js';
-import { ensureV2Tables, isDevOpsAdjacent } from '../storage/v2Tables.js';
+import { ensureV2Tables, isWithinPostedWindow, relevanceScore } from '../storage/v2Tables.js';
 
 /**
  * Santa Maria Apify Provider — BYOK, provider-agnostic.
@@ -67,36 +67,23 @@ export class SantaMariaApifyProvider implements JobProvider {
 
     let jobs = items.map((item) => this.normalize(item, runId)).filter((j): j is Job => j !== null);
 
-    // Keyword relevance (deterministic, no LLM) — RANK, don't over-filter:
-    //   1. exact primary term in title/company (e.g. "devops" in "DevOps Engineer")
-    //   2. all terms in description (e.g. a Platform Engineer describing DevOps work)
-    //   3. DevOps-adjacent titles (SRE, Platform, Infrastructure, Cloud) as a
-    //      soft fallback so the 25 ATS never collapse to 1 job.
-    // Irrelevant roles (Account Executive, Sales) never sneak in — they match none.
-    const terms = params.keywords.map((k) => String(k).toLowerCase()).filter((t) => t.length > 2);
-    if (terms.length > 0) {
+    // Keyword relevance (deterministic, no LLM) — QUERY-AWARE scoring shared
+    // with the V1 guard: the query decides the vocabulary, so "DevOps Engineer"
+    // and "Cyber Security Engineer" accept different titles. Score > 0 keeps
+    // a job: exact query term in title/company, strong category title
+    // (DevOps/SRE/Security/…), or adjacent infra word PAIRED with an
+    // engineering role word. Sales/PM/Data titles always score 0.
+    const query = params.keywords.join(' ').trim();
+    if (query) {
       const before = jobs.length;
-      const primary = terms[0];
-      const hay = (j: Job) => `${j.title} ${j.company} ${j.description || ''}`.toLowerCase();
-      const titleExact = jobs.filter((j) => `${j.title} ${j.company}`.toLowerCase().includes(primary) && terms.every((t) => hay(j).includes(t)));
-      if (titleExact.length >= Math.min(params.limit, 5)) {
-        jobs = titleExact;
-        console.log(`[SantaMaria] Keyword filter "${terms.join(' ')}" → ${before} → ${jobs.length} jobs (title/company exact)`);
-      } else {
-        const descMatch = jobs.filter((j) => terms.every((t) => hay(j).includes(t)));
-        if (descMatch.length >= 3) {
-          // Keep description matches, but push title-exact to the top.
-          const titleFirst = [...titleExact, ...descMatch.filter((j) => !titleExact.includes(j))];
-          jobs = titleFirst;
-          console.log(`[SantaMaria] Keyword filter "${terms.join(' ')}" → ${before} → ${jobs.length} jobs (title-exact first + description matches)`);
-        } else {
-          // Soft fallback: DevOps-adjacent titles (SRE/Platform/Infrastructure/Cloud
-          // PAIRED with an engineering role — "Platform" alone is not DevOps,
-          // so Account Execs / PMs never sneak in).
-          const soft = jobs.filter((j) => isDevOpsAdjacent(`${j.title} ${j.company}`));
-          jobs = [...titleExact, ...soft.filter((j) => !titleExact.includes(j))];
-          console.log(`[SantaMaria] Keyword filter "${terms.join(' ')}" → ${before} → ${jobs.length} jobs (soft fallback: DevOps-adjacent)`);
-        }
+      const scored = jobs
+        .map((j) => ({ j, s: relevanceScore(query, `${j.title} ${j.company}`) }))
+        .filter((x) => x.s > 0)
+        .sort((a, b) => b.s - a.s)
+        .map((x) => x.j);
+      if (scored.length > 0) {
+        jobs = scored;
+        console.log(`[SantaMaria] Keyword filter "${query}" → ${before} → ${jobs.length} jobs (query-aware score)`);
       }
     }
 
@@ -245,12 +232,29 @@ export class SantaMariaApifyProvider implements JobProvider {
       applyUrl: String(applyUrl),
       url: String(applyUrl), // backward compat with existing Job.url
       source: 'Custom' as any, // will be mapped to ATS source later
-      // Santa Maria items carry published/updated timestamps (snake_case) —
-      // map them so the posted-window filter sees a real posting date instead
-      // of the scrape-time fallback.
-      postedDate: item.postedDate || (item as any).posted_at || item.publishedAt || (item as any).published_at || item.updatedAt || (item as any).updated_at || item.createdAt || (item as any).created_at || undefined,
-      createdAt: item.createdAt || (item as any).created_at || now,
-      updatedAt: item.updatedAt || (item as any).updated_at || now,
+      // Santa Maria passes through each underlying ATS's timestamps. Resolve
+      // the FIRST real posting-date field (published > created > updated) and
+      // declare its semantics — never pretend updated_at is a posting date.
+      postedDate: (() => {
+        const pick = (v: any): string | undefined => {
+          if (v === undefined || v === null || v === '') return undefined;
+          const n = Number(v);
+          const t = Number.isFinite(n) && !String(v).includes('-') && n > 1e12 ? new Date(n).getTime() : new Date(String(v)).getTime();
+          return Number.isFinite(t) ? new Date(t).toISOString() : undefined;
+        };
+        const p = pick(item.postedDate || (item as any).posted_at || item.publishedAt || (item as any).published_at);
+        const c = pick(item.createdAt || (item as any).created_at);
+        const u = pick(item.updatedAt || (item as any).updated_at);
+        return p ?? c ?? u;
+      })(),
+      postedDateSemantics: (() => {
+        const p = item.postedDate || (item as any).posted_at || item.publishedAt || (item as any).published_at;
+        const c = item.createdAt || (item as any).created_at;
+        const u = item.updatedAt || (item as any).updated_at;
+        return p ? 'published' : c ? 'created' : u ? 'updated' : 'unknown';
+      })(),
+      createdAt: item.createdAt || (item as any).created_at || undefined,
+      updatedAt: item.updatedAt || (item as any).updated_at || undefined,
       scrapedAt: now,
       provider: this.id,
       providerRunId: runId,
