@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.9.12 (2026-08-26)
+
+### ✨ Official brand icons for the main portals
+- **LinkedIn, Indeed, Glassdoor, Upwork, Greenhouse, Personio now render their official brand-mark SVGs, bundled locally** (simple-icons, CC0) — crisp at any size, zero network calls at render time, no more favicon-sized blobs.
+- Other portals (ATS + built-in sources) keep the favicon service with emoji fallback — those platforms don't publish brand-mark SVGs.
+
 ## v1.9.11 (2026-08-26)
 
 ### 🐛 Fix: DevOps search returned Data/ML Engineer jobs
