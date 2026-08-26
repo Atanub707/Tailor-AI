@@ -10,6 +10,9 @@ export interface Job {
   description: string;
   url: string;
   postedDate?: string; // real posting time from the source (absent = unknown, never scrape time)
+  firstSeenAt?: string;   // first discovery (watcher or search)
+  lastSeenAt?: string;    // last confirmed still on the source board
+  isActive?: boolean;     // false = removed from the source board (never deleted for applied jobs)
   postedDateParsed?: string; // YYYY-MM-DD
   postedDateSemantics?: 'published' | 'created' | 'updated' | 'unknown'; // what postedDate actually means
   salaryMin?: number;
@@ -54,7 +57,6 @@ export interface Job {
   provider?: string;
   providerRunId?: string;
   fingerprint?: string;
-  isActive?: boolean;
   scrapedAt?: string;
   descriptionAvailable?: boolean;
 }

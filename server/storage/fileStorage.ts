@@ -829,7 +829,12 @@ function getJobsForUser(userId: string): Job[] {
 export function getAllJobs(): Job[] {
   const userId = getCurrentUserId();
   if (!userId) return [];
-  return getJobsForUser(userId);
+  return getJobsForUser(userId).map((j) => ({
+    ...j,
+    firstSeenAt: j.firstSeenAt || j.scrapedAt,
+    lastSeenAt: j.lastSeenAt || j.scrapedAt,
+    isActive: j.isActive !== false,
+  }));
 }
 
 export function saveNewJobs(newJobs: Job[]): { added: Job[]; skipped: number; newContacts: HrContact[] } {
@@ -841,6 +846,12 @@ export function saveNewJobs(newJobs: Job[]): { added: Job[]; skipped: number; ne
     .filter(Boolean));
 
   const insert = d.prepare('INSERT OR IGNORE INTO jobs (id, user_id, data) VALUES (?, ?, ?)');
+  const now = new Date().toISOString();
+  for (const job of newJobs) {
+    job.firstSeenAt = job.firstSeenAt || now;
+    job.lastSeenAt = now;
+    job.isActive = job.isActive !== false;
+  }
   const added: Job[] = [];
   let skipped = 0;
 
@@ -888,6 +899,45 @@ export function saveNewJobs(newJobs: Job[]): { added: Job[]; skipped: number; ne
   }
 
   return { added, skipped, newContacts };
+}
+
+// Bump lastSeenAt on jobs still present in a refresh. Idempotent.
+export function bumpLastSeen(jobIds: string[]): void {
+  if (!jobIds.length) return;
+  const userId = getCurrentUserId();
+  if (!userId) return;
+  const d = getDb();
+  const now = new Date().toISOString();
+  const tx = d.transaction(() => {
+    for (const id of jobIds) {
+      const row = d.prepare('SELECT data FROM jobs WHERE id = ? AND user_id = ?').get(id, userId) as { data: string } | undefined;
+      if (!row) continue;
+      const j = JSON.parse(row.data);
+      j.lastSeenAt = now;
+      d.prepare('UPDATE jobs SET data = ? WHERE id = ? AND user_id = ?').run(JSON.stringify(j), id, userId);
+    }
+  });
+  tx();
+}
+
+// Mark jobs as removed from their source board. Never deletes — the retention
+// scheduler decides deletion; applied/tailored/ready rows survive regardless.
+export function markJobsInactive(jobIds: string[]): void {
+  if (!jobIds.length) return;
+  const userId = getCurrentUserId();
+  if (!userId) return;
+  const d = getDb();
+  const tx = d.transaction(() => {
+    for (const id of jobIds) {
+      const row = d.prepare('SELECT data FROM jobs WHERE id = ? AND user_id = ?').get(id, userId) as { data: string } | undefined;
+      if (!row) continue;
+      const j = JSON.parse(row.data);
+      if (j.state === 'applied' || j.state === 'tailored' || j.state === 'ready') continue; // history preserved
+      j.isActive = false;
+      d.prepare('UPDATE jobs SET data = ? WHERE id = ? AND user_id = ?').run(JSON.stringify(j), id, userId);
+    }
+  });
+  tx();
 }
 
 // Save scraped jobs AND upgrade stored truncated copies in place. A job with
