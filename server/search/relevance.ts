@@ -232,6 +232,20 @@ export function isRelevantJob(query: string, titleCompany: string): boolean {
   return relevanceScore(query, titleCompany) > 0;
 }
 
+/**
+ * The V1 relevance guard. UNCONDITIONAL: when the query yields zero relevant
+ * jobs, the result is [] — a fully-irrelevant slice must never survive into
+ * persistence. Returns the filtered jobs (callers persist only these).
+ */
+export function applyRelevanceGuard<T extends { title?: string; company?: string }>(
+  jobs: T[],
+  query: string
+): T[] {
+  const q = String(query || '').trim();
+  if (!q) return jobs;
+  return jobs.filter((j) => isRelevantJob(q, `${j.title || ''} ${j.company || ''}`));
+}
+
 /** Back-compat for the existing test surface. */
 export function isDevOpsAdjacent(text: string): boolean {
   return relevanceScore('devops', text) > 0;

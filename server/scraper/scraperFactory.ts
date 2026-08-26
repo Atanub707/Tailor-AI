@@ -24,7 +24,7 @@ import { SOURCES } from '../../src/constants/sources.js';
 import { contradictsWanted } from './workMode.js';
 import { ApifyBaseScraper } from './apifyBase.js';
 import { SantaMariaApifyProvider } from '../providers/santaMariaProvider.js';
-import { isWithinPostedWindow, isRelevantJob } from '../storage/v2Tables.js';
+import { isWithinPostedWindow, applyRelevanceGuard } from '../storage/v2Tables.js';
 
 // Apify-powered sources — constructed from the shared registry (Task 1).
 const APIFY_SCRAPERS: Partial<Record<JobSource, () => ApifyBaseScraper>> = {
@@ -265,9 +265,14 @@ export class ScraperFactory {
     const query = (params.keywords || '').trim();
     if (query) {
       const before = allJobs.length;
-      const relevant = allJobs.filter((j) => isRelevantJob(query, `${j.title} ${j.company}`));
-      if (relevant.length > 0) {
-        allJobs = relevant;
+      // UNCONDITIONAL relevance guard: a fully-irrelevant slice must never
+      // survive. When a board returns only unrelated roles (all score 0), the
+      // result is [] and nothing from that provider is persisted. Previously
+      // the `if (relevant.length > 0)` guard skipped the filter exactly when a
+      // board's fresh slice was entirely irrelevant — leaking Account Exec /
+      // Data Engineer / Customer Success jobs into the DB.
+      allJobs = applyRelevanceGuard(allJobs, query);
+      if (allJobs.length !== before) {
         console.log(`[ScraperFactory] Relevance guard: ${before - allJobs.length} jobs dropped (score 0 for "${query}")`);
       }
     }

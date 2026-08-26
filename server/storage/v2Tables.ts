@@ -259,4 +259,4 @@ function resolvePostedTime(j: any): number {
 // The engine lives in server/search/relevance.ts (profiles, tiers, metadata)
 // and server/search/rank.ts (tier-first ranking). Re-exported here so the V1
 // scrape guard and existing imports keep working unchanged.
-export { relevanceScore, isRelevantJob, isDevOpsAdjacent, evaluateRelevance, selectProfile, queryProfiles } from '../search/relevance.js';
+export { relevanceScore, isRelevantJob, isDevOpsAdjacent, evaluateRelevance, selectProfile, queryProfiles, applyRelevanceGuard } from '../search/relevance.js';
