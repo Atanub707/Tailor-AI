@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.1.1 (2026-08-27)
+
+### 🐛 Fix: search no longer hides previous jobs
+- Searching now ADDS jobs to the top of the full job list (previous behavior) instead of scoping the list to only the current search results. The search-context isolation remains server-side for cache/session identity; the All Jobs view always shows the complete stored library.
+
 ## v2.1.0 (2026-08-27)
 
 ### 🎯 Search: one source per search, honest limits
