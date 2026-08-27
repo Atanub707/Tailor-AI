@@ -1512,6 +1512,40 @@ Return valid JSON only — NO markdown, NO code fences:
     }
   });
 
+  // V2 — provider-driven unified search (cache-first, Jobo primary, top-up).
+  // Additive: V1 POST /api/jobs/scrape stays untouched; V2 path is flag-gated
+  // (V2_SEARCH_ENABLED). Cost-safe: providers get bounded budgets only.
+  app.post('/api/jobs/search-v2', async (req, res) => {
+    try {
+      const { V2_FLAGS, buildProviderOrder } = await import('./server/providers/providerRegistry.js');
+      if (!V2_FLAGS.V2_SEARCH_ENABLED) {
+        res.status(404).json({ error: 'V2 search disabled (V2_SEARCH_ENABLED=false)' });
+        return;
+      }
+      const { keywords, location, datePostedFilter, jobType, workMode, level, limit } = req.body;
+      if (!keywords || !String(keywords).trim()) {
+        res.status(400).json({ error: 'Keywords required' });
+        return;
+      }
+      const { JoboProvider } = await import('./server/providers/joboProvider.js');
+      const { runV2Search } = await import('./server/search/searchOrchestrator.js');
+      const providers = buildProviderOrder([new JoboProvider()]);
+      const result = await runV2Search(getCurrentUserId(), {
+        keywords: String(keywords).trim(),
+        location: location ? String(location).trim() : undefined,
+        postedWindow: (datePostedFilter as any) || 'any',
+        jobType: jobType || 'all',
+        workMode: workMode || 'all',
+        level: level || 'any',
+        limit: Math.min(Number(limit) || 25, 50),
+      }, providers);
+      res.json(result);
+    } catch (err: any) {
+      console.error('V2 search error:', err);
+      res.status(500).json({ error: err.message || 'Search failed' });
+    }
+  });
+
   // V2 — unified ATS search (DB-first, budgeted Santa Maria + provider router).
   // Additive: V1 POST /api/jobs/scrape stays untouched. Cost-safe by design:
   // local DB hit → $0; provider calls always go through the central fetch budget.
