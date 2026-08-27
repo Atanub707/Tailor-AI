@@ -23,7 +23,15 @@ interface ScraperBarProps {
   apifyAvailable?: boolean; // Apify enabled + token saved — lights up Apify-only sources
 }
 
-const ALL_SOURCES: JobSource[] = ['LinkedIn', 'Arbeitnow', 'SimplyHired', 'Dice', 'Reed', 'MyCareersFuture', 'Cutshort', 'Gupy', 'JobsCh', 'Daijob', 'MyJobMag', 'Indeed', 'Naukri', 'Glassdoor', 'Upwork', 'Greenhouse', 'Lever', 'Ashby', 'Workable', 'SmartRecruiters', 'Comeet', 'Join', 'Workday', 'Teamtailor', 'Personio', 'BambooHR', 'Rippling', 'JazzHR', 'Recruitee', 'iCIMS', 'Jobvite', 'Pinpoint'];
+// The FINAL production source list — only sources that can actually return
+// jobs today. 5 Apify job boards + 10 free scrapers + 3 direct-API ATS.
+// The 14 other ATS (Workable, Workday, BambooHR, …) are NOT shown: they have
+// no working implementation and would mislead users.
+const VISIBLE_SOURCES: JobSource[] = [
+  'LinkedIn', 'Indeed', 'Naukri', 'Glassdoor', 'Upwork',
+  'Arbeitnow', 'SimplyHired', 'Dice', 'Reed', 'MyCareersFuture', 'Cutshort', 'Gupy', 'JobsCh', 'Daijob', 'MyJobMag',
+  'Greenhouse', 'Lever', 'Ashby',
+];
 const COMING_SOON: JobSource[] = [];
 
 export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, apifyAvailable }) => {
@@ -40,47 +48,23 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
   const [scrapeSuccessMsg, setScrapeSuccessMsg] = useState<string | null>(null);
   const [scrapeNewContacts, setScrapeNewContacts] = useState<{ name: string | null; email: string | null; phone: string | null; whatsapp: boolean; recruiterUrl: string | null }[]>([]);
   const [selectedSources, setSelectedSources] = useState<JobSource[]>(['LinkedIn']);
-  const [atsCounts, setAtsCounts] = useState<Record<string, number>>({});
-
-  // Per-ATS official career-portal counts — orders ATS chips by popularity
-  // and labels each with its company-board count.
-  React.useEffect(() => {
-    let cancelled = false;
-    fetch('/api/ats/company-counts')
-      .then((r) => r.json())
-      .then((d) => { if (!cancelled && d?.counts) setAtsCounts(d.counts); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
-
-  // Non-ATS sources keep their fixed order; ATS (sources with official
-  // career-portal counts) sorted by count desc, locked last.
-  const visibleSources = React.useMemo(() => {
-    const isAts = (s: JobSource) => atsCounts[s] !== undefined;
-    const nonAts = ALL_SOURCES.filter((s) => !isAts(s));
-    const locked = ALL_SOURCES.filter((s) => isAts(s) && getSourceMeta(s)?.locked);
-    const activeAts = ALL_SOURCES.filter((s) => isAts(s) && !getSourceMeta(s)?.locked);
-    const byCount = (list: JobSource[]) => [...list].sort((a, b) => (atsCounts[b] ?? 0) - (atsCounts[a] ?? 0));
-    return [...nonAts, ...byCount(activeAts), ...byCount(locked)];
-  }, [atsCounts]);
 
   const roleSuggestions = getRoleSuggestions(keywords);
   const keywordSuggestions = getKeywordSuggestions(keywords);
 
   const isApifyGated = (source: JobSource) => !!getSourceMeta(source)?.needsApify && !apifyAvailable;
 
-  // Estimated Apify cost for the current selection at the chosen per-source limit.
+  // Estimated Apify cost for the current selection at the chosen limit.
   const costPerSearch = selectedSources.reduce((acc, s) => {
     const meta = getSourceMeta(s);
     const price = parseFloat(String(meta?.pricePer1K || '0').replace('$', '').replace(',', '')) || 0;
     return acc + price * (maxJobsPerSource / 1000);
   }, 0);
 
-  const toggleSource = (source: JobSource) => {
-    if (COMING_SOON.includes(source) || isApifyGated(source) || getSourceMeta(source)?.locked) return;
-    setSelectedSources((prev) =>
-      prev.includes(source) ? prev.filter((s) => s !== source) : [...prev, source]
-    );
+  // EXACTLY ONE source: clicking a source replaces the selection — never adds.
+  const selectSource = (source: JobSource) => {
+    if (COMING_SOON.includes(source) || isApifyGated(source)) return;
+    setSelectedSources([source]);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -135,12 +119,9 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
     const isSelected = selectedSources.includes(src);
     const gated = isApifyGated(src);
     const meta = getSourceMeta(src);
-    const locked = !!meta?.locked;
-    const disabled = isComingSoon || gated || locked;
+    const disabled = isComingSoon || gated;
     const title = isComingSoon
       ? `${src} — Coming soon`
-      : locked
-      ? `${src} — paid/enterprise-only API — locked`
       : gated
       ? `${src} — requires Apify API key — enable in Settings`
       : `${src} — ${getSourceCountry(src)}${meta?.pricePer1K ? ` · ${meta.pricePer1K}/1K jobs` : ''}`;
@@ -148,7 +129,7 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
       <button
         key={src}
         type="button"
-        onClick={() => toggleSource(src)}
+        onClick={() => selectSource(src)}
         disabled={disabled}
         title={title}
         aria-pressed={isSelected}
@@ -162,12 +143,6 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
       >
         <SourceIcon source={src} size={15} />
         <span>{src}</span>
-        {meta?.apifyActorId && !locked && atsCounts[src] > 1 && (
-          <span className={`text-[9px] font-extrabold tabular-nums rounded-full px-[6px] py-[1px] ${isSelected ? 'bg-white/20 text-white' : 'bg-[var(--color-brand-soft)] text-[var(--color-brand-strong)] border border-[var(--color-brand-line)]'}`} title="Official career portals in registry">{atsCounts[src].toLocaleString()}</span>
-        )}
-        {locked && (
-          <span className="text-[8.5px] font-extrabold uppercase text-[var(--color-faint)] bg-white/60 border border-[var(--color-hairline)] rounded-full px-[7px] py-[2px]">🔒 {atsCounts[src] > 0 ? atsCounts[src].toLocaleString() : ''}</span>
-        )}
         {isComingSoon && (
           <span className="text-[8.5px] font-extrabold uppercase text-[var(--color-faint)] bg-white/60 border border-[var(--color-hairline)] rounded-full px-[7px] py-[2px]">Soon</span>
         )}
@@ -394,7 +369,7 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
         <div className="flex items-start gap-3 pt-4 border-t border-[var(--color-hairline)]">
           <span className={`${fieldLabelCls} pt-[9px] whitespace-nowrap shrink-0`}>Sources</span>
           <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
-            {visibleSources.map((src) => renderSourceChip(src))}
+            {VISIBLE_SOURCES.map((src) => renderSourceChip(src))}
           </div>
         </div>
 

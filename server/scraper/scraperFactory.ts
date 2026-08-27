@@ -37,7 +37,7 @@ const APIFY_SCRAPERS: Partial<Record<JobSource, () => ApifyBaseScraper>> = {
 // ATS sources (Greenhouse, Lever, Ashby, Workable, …). The three with FREE
 // public job APIs (Greenhouse, Lever, Ashby) are fetched directly — zero
 // Apify credits. Other ATS platforms have no direct integration in V1; V2
-// covers them via the FetchCat ATS provider.
+// covered by the V2 search path.
 export const ATS_PLATFORM_BY_SOURCE: Partial<Record<JobSource, string>> = {
   Greenhouse: 'greenhouse',
   Lever: 'lever',
@@ -69,7 +69,7 @@ async function scrapeAtsDirect(source: JobSource, params: ScraperParams): Promis
   const platform = ATS_PLATFORM_BY_SOURCE[source];
   const freePlatform = FREE_API_SOURCES[source];
   if (!freePlatform) {
-    throw new Error(`${source} has no direct ATS integration — use V2 search (FetchCat) for this ATS`);
+    throw new Error(`${source} has no direct ATS integration in V1`);
   }
   const { scrapeDirectAts } = await import('../providers/directAtsProvider.js');
   const jobs = await scrapeDirectAts(source, freePlatform, params.keywords.trim().split(/\s+/).filter(Boolean), params.maxJobsPerSource || 15);
@@ -142,7 +142,7 @@ export class ScraperFactory {
 
         // ATS sources: free-API boards route through the direct provider (no Apify
         // needed — Greenhouse/Lever/Ashby public APIs). Unsupported ATS are
-        // handled by V2 search (FetchCat), not V1.
+        // not wired in V1.
         if (ATS_PLATFORM_BY_SOURCE[source]) {
           jobs = await scrapeAtsDirect(source, params);
         } else if (meta?.apifyActorId) {

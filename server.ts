@@ -1408,6 +1408,17 @@ Return valid JSON only — NO markdown, NO code fences:
         return;
       }
 
+      // Single-source enforcement (server-side, not just UI): exactly one
+      // source per search. No multi-source fan-out, no hidden sources.
+      if (!Array.isArray(sources) || sources.length === 0) {
+        res.status(400).json({ error: 'Select exactly one job source per search.' });
+        return;
+      }
+      if (sources.length > 1) {
+        res.status(400).json({ error: 'Select exactly one job source per search.' });
+        return;
+      }
+
       const wantUnder10 = under10Applicants === true;
 
       // skipJobId: tell the Apify actor to skip LinkedIn jobs we already have
@@ -1506,12 +1517,13 @@ Return valid JSON only — NO markdown, NO code fences:
     }
   });
 
-  // V2 — provider-driven unified search (cache-first, broad boards first,
-  // FetchCat ATS coverage, top-up). Additive: V1 POST /api/jobs/scrape stays
-  // untouched; V2 path is flag-gated (V2_SEARCH_ENABLED).
+  // V2 — provider-driven unified search (cache-first, top-up). Additive: V1
+  // POST /api/jobs/scrape stays untouched; V2 path is flag-gated
+  // (V2_SEARCH_ENABLED). No V2 providers are wired yet — this endpoint
+  // returns an honest empty result until a real provider is integrated.
   app.post('/api/jobs/search-v2', async (req, res) => {
     try {
-      const { V2_FLAGS, buildProviderOrder } = await import('./server/providers/providerRegistry.js');
+      const { V2_FLAGS } = await import('./server/providers/providerRegistry.js');
       if (!V2_FLAGS.V2_SEARCH_ENABLED) {
         res.status(404).json({ error: 'V2 search disabled (V2_SEARCH_ENABLED=false)' });
         return;
@@ -1521,9 +1533,7 @@ Return valid JSON only — NO markdown, NO code fences:
         res.status(400).json({ error: 'Keywords required' });
         return;
       }
-      const { FetchCatProvider } = await import('./server/providers/fetchCatProvider.js');
       const { runV2Search } = await import('./server/search/searchOrchestrator.js');
-      const providers = buildProviderOrder([new FetchCatProvider()]);
       const result = await runV2Search(getCurrentUserId(), {
         keywords: String(keywords).trim(),
         location: location ? String(location).trim() : undefined,
@@ -1532,7 +1542,7 @@ Return valid JSON only — NO markdown, NO code fences:
         workMode: workMode || 'all',
         level: level || 'any',
         limit: Math.min(Number(limit) || 25, 50),
-      }, providers);
+      }, []); // no providers wired — honest empty result
       res.json(result);
     } catch (err: any) {
       console.error('V2 search error:', err);
@@ -1604,25 +1614,6 @@ Return valid JSON only — NO markdown, NO code fences:
 
   // Job stats for KPI dashboard (counts computed server-side from all jobs)
   // Per-ATS official career-portal counts (source name → number of company boards)
-  app.get('/api/ats/company-counts', async (_req, res) => {
-    try {
-      const { ensureV2Tables } = await import('./server/storage/v2Tables.js');
-      const { getDb } = await import('./server/storage/fileStorage.js');
-      const { ATS_PLATFORM_BY_SOURCE } = await import('./server/scraper/scraperFactory.js');
-      ensureV2Tables();
-      const db = getDb();
-      const rows = db.prepare('SELECT LOWER(atsPlatform) p, count(*) c FROM company_career_sites WHERE isActive = 1 GROUP BY 1').all() as Array<{ p: string; c: number }>;
-      const byPlatform = new Map(rows.map((r) => [r.p, r.c]));
-      const counts: Record<string, number> = {};
-      for (const [source, platform] of Object.entries(ATS_PLATFORM_BY_SOURCE)) {
-        counts[source] = byPlatform.get(platform) || 0;
-      }
-      res.json({ counts });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
   app.get('/api/jobs/stats', (req, res) => {
     try {
       const all = getAllJobs();

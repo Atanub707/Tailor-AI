@@ -12,6 +12,7 @@ export interface JobSearchParams {
   workMode?: 'remote' | 'hybrid' | 'onsite' | 'all';
   level?: string;
   limit: number; // how many jobs the user wants to SEE
+  source?: string; // selected source (LinkedIn/Naukri/Greenhouse/…) — part of cache fingerprint
 }
 
 // Normalized candidate — a provider result BEFORE Tailor's own filters.

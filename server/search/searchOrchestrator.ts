@@ -55,7 +55,9 @@ export async function runV2Search(
   params: JobSearchParams,
   providers: JobSearchProvider[]
 ): Promise<OrchestratorResult> {
-  const queryFp = canonicalQueryFp(params.keywords, params.location, params.postedWindow || 'any');
+  // The selected source is part of the cache fingerprint — a LinkedIn
+  // DevOps search must never reuse a Naukri DevOps cache.
+  const queryFp = canonicalQueryFp(params.keywords, params.location, params.postedWindow || 'any', params.source);
   const searchId = getOrCreateSearch(userId, params.keywords, params.location, params.postedWindow || 'all');
   const providerCalls: ProviderCall[] = [];
 
