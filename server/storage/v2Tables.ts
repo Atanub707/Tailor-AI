@@ -29,7 +29,7 @@ export interface ProviderRun {
 
 const JOB_CACHE_TTL_HOURS = 24;
 
-// 25 ATS career sites for Santa Maria — the registry Santa Maria queries.
+// ATS career sites registry — the source of boards for direct ATS fetch.
 // Idempotent: INSERT OR IGNORE on every startup, so it only seeds once.
 const SEED_COMPANIES: Array<{ id: string; companyName: string; careerUrl: string; atsPlatform: string }> = [
   // ── Greenhouse (largest ATS) — slugs verified live against boards-api.greenhouse.io ──

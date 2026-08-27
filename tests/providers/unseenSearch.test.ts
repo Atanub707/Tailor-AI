@@ -117,7 +117,7 @@ describe('searchWithCache — unseen-first', () => {
     );
 
     expect(fetchFn).toHaveBeenCalledTimes(2); // exactly one main call + one bounded top-up
-    expect(result.providersCalled).toEqual(['santa-maria', 'linkedin']); // 'linkedin' = the top-up provider
+    expect(result.providersCalled).toEqual(['linkedin', 'indeed']); // 'indeed' = the top-up provider
     expect(result.jobs.length).toBe(24); // 10 DB + 10 main + 5 top-up − 1 seen top-up job
     expect(result.jobs.map((j: any) => j.fingerprint)).not.toContain('fp-62'); // seen-exclusion holds
     expect(result.jobs.map((j: any) => j.fingerprint)).toContain('fp-50'); // main-call jobs still included

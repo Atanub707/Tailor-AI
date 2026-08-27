@@ -12,10 +12,10 @@ const { promoteCandidate } = await import('../../server/search/searchOrchestrato
 
 const USER = 'promo-user';
 const cand = {
-  fingerprint: 'jobo-xyz123', title: 'DevOps Engineer', company: 'Stripe',
+  fingerprint: 'fetchcat-xyz123', title: 'DevOps Engineer', company: 'Stripe',
   location: 'India', applyUrl: 'https://boards.greenhouse.io/stripe/xyz123',
   url: 'https://boards.greenhouse.io/stripe/xyz123', atsPlatform: 'greenhouse',
-  source: 'jobo', postedDate: '2026-08-26T10:00:00Z', postedDateSemantics: 'published',
+  source: 'fetchcat', postedDate: '2026-08-26T10:00:00Z', postedDateSemantics: 'published',
 };
 
 describe('promotion: cached candidate → durable job', () => {
@@ -30,13 +30,13 @@ describe('promotion: cached candidate → durable job', () => {
     await runWithUser(USER, async () => {
       promoteCandidate(USER, cand as any);
       const db = getDb();
-      const row = db.prepare('SELECT data FROM jobs WHERE user_id = ? AND id = ?').get(USER, 'jobo-xyz123') as any;
+      const row = db.prepare('SELECT data FROM jobs WHERE user_id = ? AND id = ?').get(USER, 'fetchcat-xyz123') as any;
       expect(row).toBeTruthy();
       const j = JSON.parse(row.data);
-      expect(j.source).toBe('jobo');
+      expect(j.source).toBe('fetchcat');
       expect(j.applyUrl).toBe(cand.applyUrl);
       expect(j.url).toBe(cand.applyUrl);
-      expect(j.fingerprint).toBe('jobo-xyz123');
+      expect(j.fingerprint).toBe('fetchcat-xyz123');
       expect(j.postedDate).toBe(cand.postedDate);
       expect(j.postedDateSemantics).toBe('published');
       expect(j.atsPlatform).toBe('greenhouse');
@@ -48,7 +48,7 @@ describe('promotion: cached candidate → durable job', () => {
     await runWithUser(USER, async () => {
       promoteCandidate(USER, cand as any);
       const db = getDb();
-      const c = (db.prepare('SELECT count(*) c FROM jobs WHERE user_id = ? AND id = ?').get(USER, 'jobo-xyz123') as any).c;
+      const c = (db.prepare('SELECT count(*) c FROM jobs WHERE user_id = ? AND id = ?').get(USER, 'fetchcat-xyz123') as any).c;
       expect(c).toBe(1);
     });
   });

@@ -23,7 +23,6 @@ import { loadConfig } from '../config.js';
 import { SOURCES } from '../../src/constants/sources.js';
 import { contradictsWanted } from './workMode.js';
 import { ApifyBaseScraper } from './apifyBase.js';
-import { SantaMariaApifyProvider } from '../providers/santaMariaProvider.js';
 import { isWithinPostedWindow, applyRelevanceGuard } from '../storage/v2Tables.js';
 
 // Apify-powered sources — constructed from the shared registry (Task 1).
@@ -35,12 +34,10 @@ const APIFY_SCRAPERS: Partial<Record<JobSource, () => ApifyBaseScraper>> = {
   Upwork: () => new UpworkScraper(),
 };
 
-// ATS-25 sources (Greenhouse, Lever, Ashby, Workable, Workday, SmartRecruiters,
-// …) all route through the ONE Santa Maria actor — never per-ATS scrapers.
-// The selected source's platform filters the company_career_sites registry.
-// EXCEPTION: the four ATS with FREE public job APIs (Greenhouse, Lever, Ashby,
-// SmartRecruiters) are fetched directly — zero Apify credits. Santa Maria is
-// the fallback for the rest.
+// ATS sources (Greenhouse, Lever, Ashby, Workable, …). The three with FREE
+// public job APIs (Greenhouse, Lever, Ashby) are fetched directly — zero
+// Apify credits. Other ATS platforms have no direct integration in V1; V2
+// covers them via the FetchCat ATS provider.
 export const ATS_PLATFORM_BY_SOURCE: Partial<Record<JobSource, string>> = {
   Greenhouse: 'greenhouse',
   Lever: 'lever',
@@ -61,39 +58,22 @@ export const ATS_PLATFORM_BY_SOURCE: Partial<Record<JobSource, string>> = {
   Join: 'join',
 };
 
-// Free public job APIs — fetched directly, never through the paid actor.
-// SmartRecruiters EXCLUDED: its public API uses per-company tenant slugs that
-// differ from careers-site slugs (the open directory lists stale/404 slugs),
-// so it goes through the Santa Maria actor which knows the correct mapping.
+// Free public job APIs — fetched directly, never through a paid actor.
 const FREE_API_SOURCES: Partial<Record<JobSource, string>> = {
   Greenhouse: 'greenhouse',
   Lever: 'lever',
   Ashby: 'ashby',
 };
 
-async function scrapeAtsViaSantaMaria(source: JobSource, params: ScraperParams): Promise<Job[]> {
+async function scrapeAtsDirect(source: JobSource, params: ScraperParams): Promise<Job[]> {
   const platform = ATS_PLATFORM_BY_SOURCE[source];
-
-  // Free public APIs first — Greenhouse/Lever/Ashby/SmartRecruiters need no
-  // Apify credits. The paid actor is ONLY for the other ATS.
   const freePlatform = FREE_API_SOURCES[source];
-  if (freePlatform) {
-    const { scrapeDirectAts } = await import('../providers/directAtsProvider.js');
-    const jobs = await scrapeDirectAts(source, freePlatform, params.keywords.trim().split(/\s+/).filter(Boolean), params.maxJobsPerSource || 15);
-    return jobs.map((j) => ({ ...j, source, atsPlatform: platform || (j as any).atsPlatform }));
+  if (!freePlatform) {
+    throw new Error(`${source} has no direct ATS integration — use V2 search (FetchCat) for this ATS`);
   }
-
-  const provider = new SantaMariaApifyProvider();
-  const result = await provider.search({
-    keywords: params.keywords.trim().split(/\s+/).filter(Boolean),
-    locations: params.location && params.location !== 'Remote' ? [params.location] : undefined,
-    atsPlatforms: platform ? [platform as any] : undefined,
-    limit: Math.min(params.maxJobsPerSource || 15, 50),
-    queries: [], // provider reads the registry itself (filtered by platform)
-  });
-  // Tag with the source the user selected (e.g. "Greenhouse"), not "Custom" —
-  // so the dashboard source filter and ATS badge work correctly.
-  return result.jobs.map((j) => ({ ...j, source, atsPlatform: platform || (j as any).atsPlatform }));
+  const { scrapeDirectAts } = await import('../providers/directAtsProvider.js');
+  const jobs = await scrapeDirectAts(source, freePlatform, params.keywords.trim().split(/\s+/).filter(Boolean), params.maxJobsPerSource || 15);
+  return jobs.map((j) => ({ ...j, source, atsPlatform: platform || (j as any).atsPlatform }));
 }
 
 export class ScraperFactory {
@@ -160,15 +140,11 @@ export class ScraperFactory {
       try {
         let jobs: Job[] = [];
 
-        // Plan B: ATS-25 sources route through the single Santa Maria actor.
+        // ATS sources: free-API boards route through the direct provider (no Apify
+        // needed — Greenhouse/Lever/Ashby public APIs). Unsupported ATS are
+        // handled by V2 search (FetchCat), not V1.
         if (ATS_PLATFORM_BY_SOURCE[source]) {
-          const apifyConfig = loadConfig().apify;
-          const apifyAvailable = apifyConfig.enabled && !!apifyConfig.token?.trim();
-          if (!apifyAvailable) {
-            ScraperFactory.lastSkippedSources.push({ source, reason: 'requires Apify API key — enable in Settings' });
-            continue;
-          }
-          jobs = await scrapeAtsViaSantaMaria(source, params);
+          jobs = await scrapeAtsDirect(source, params);
         } else if (meta?.apifyActorId) {
           // Apify path — generic for all Apify-powered sources.
           const apifyConfig = loadConfig().apify;

@@ -1,6 +1,7 @@
 // Provider registry — the ordered set of search providers and their flags.
-// Order matters for top-up: primary indexed provider first, free/indexed
-// second, job-board actors next, Santa Maria last (explicit fallback only).
+// Order matters for top-up: broad job-board providers first, ATS coverage
+// (FetchCat) as the ATS provider, and no blind fan-out — the orchestrator
+// stops as soon as the requested LIMIT of unique relevant jobs is reached.
 
 import type { JobSearchProvider } from './types.js';
 
@@ -8,41 +9,40 @@ import type { JobSearchProvider } from './types.js';
 // No behavior depends on undocumented magic values.
 export const V2_FLAGS = {
   V2_SEARCH_ENABLED: (process.env.V2_SEARCH_ENABLED ?? 'true') !== 'false',
-  ENABLE_JOBO_PROVIDER: (process.env.ENABLE_JOBO_PROVIDER ?? 'true') !== 'false',
-  ENABLE_SANTA_MARIA_FALLBACK: (process.env.ENABLE_SANTA_MARIA_FALLBACK ?? 'false') !== 'false',
-  ENABLE_LOCAL_INDEX_MODE: (process.env.ENABLE_LOCAL_INDEX_MODE ?? 'false') !== 'false',
+  ENABLE_FETCHCAT_PROVIDER: (process.env.ENABLE_FETCHCAT_PROVIDER ?? 'true') !== 'false',
 };
 
 /**
  * Build the ordered provider list from the registered providers + flags.
  * The provider array passed in is the full known set; the registry returns
  * only the enabled, ordered subset for a given search.
+ *
+ * Order: existing job-board providers first (LinkedIn/Naukri/Indeed etc. as
+ * registered), FetchCat ATS coverage last — it is the ATS provider, not the
+ * primary broad query source.
  */
 export function buildProviderOrder(providers: JobSearchProvider[]): JobSearchProvider[] {
   const order: JobSearchProvider[] = [];
   const byId = new Map(providers.map((p) => [p.id, p]));
 
-  // 1. Primary: Jobo indexed ATS provider.
-  if (V2_FLAGS.ENABLE_JOBO_PROVIDER) {
-    const jobo = byId.get('jobo');
-    if (jobo) order.push(jobo);
+  // 1. Existing job-board providers (LinkedIn, Naukri, Indeed, …) in the
+  //    order they were registered — they are broad query sources.
+  for (const p of providers) {
+    if (p.id === 'fetchcat') continue; // ATS provider is appended last
+    order.push(p);
   }
 
-  // 2. Future zero-cost/free indexed providers slot in here.
-
-  // 3. Job-board actors (LinkedIn/Indeed/Naukri) — only when their search
-  //    mode enables them (not wired in this step; providers register later).
-
-  // 4. Santa Maria — explicit fallback ONLY (flag-gated).
-  if (V2_FLAGS.ENABLE_SANTA_MARIA_FALLBACK) {
-    const sm = byId.get('santa-maria');
-    if (sm) order.push(sm);
+  // 2. FetchCat — ATS coverage (Greenhouse/Lever/Ashby/Recruitee/
+  //    SmartRecruiters/Personio), flag-gated.
+  if (V2_FLAGS.ENABLE_FETCHCAT_PROVIDER) {
+    const fc = byId.get('fetchcat');
+    if (fc) order.push(fc);
   }
 
   return order;
 }
 
-/** All registered providers (for tests/introspection). */
+/** All registered provider ids (for tests/introspection). */
 export function knownProviders(providers: JobSearchProvider[]): string[] {
   return providers.map((p) => p.id);
 }

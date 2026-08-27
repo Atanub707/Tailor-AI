@@ -268,7 +268,7 @@ export default function App() {
     try {
       // V2 unified search behind a feature flag: when enabled, ScraperBar
       // submissions route to the provider-driven search endpoint (cache-first,
-      // Jobo primary). When disabled, the V1 scrape path stays untouched.
+      // FetchCat ATS + board providers). When disabled, V1 stays untouched.
       const v2Enabled = (import.meta.env.VITE_V2_SEARCH_ENABLED ?? 'false') !== 'false';
       const endpoint = v2Enabled ? '/api/jobs/search-v2' : '/api/jobs/scrape';
       const res = await fetch(endpoint, {
