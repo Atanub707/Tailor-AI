@@ -154,6 +154,21 @@ export function ensureV2Tables(): void {
     );
     CREATE INDEX IF NOT EXISTS idx_search_jobs_job ON search_jobs(job_id);
     CREATE INDEX IF NOT EXISTS idx_searches_user_fp ON searches(user_id, query_fp);
+    CREATE TABLE IF NOT EXISTS search_cache (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      query_fp TEXT NOT NULL,
+      job_fingerprint TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      job_json TEXT NOT NULL,
+      relevance_score INTEGER NOT NULL DEFAULT 0,
+      match_type TEXT,
+      discovered_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_search_cache_query ON search_cache(user_id, query_fp);
+    CREATE INDEX IF NOT EXISTS idx_search_cache_expires ON search_cache(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_search_cache_fp ON search_cache(job_fingerprint);
     CREATE INDEX IF NOT EXISTS idx_company_career_sites_ats ON company_career_sites(atsPlatform);
     CREATE INDEX IF NOT EXISTS idx_provider_runs_provider ON provider_runs(provider);
   `);
