@@ -53,7 +53,7 @@ export interface ProviderResult {
 
 // Deterministic provider priority — no LLM.
 // Job-board providers first (LinkedIn/Naukri/Indeed); ATS coverage is handled
-// by the V2 search-v2 path via FetchCat. Budget still caps each provider.
+// by the V2 search-v2 path. Budget still caps each provider.
 const PROVIDER_PRIORITY: Record<string, string[]> = {
   india: ['naukri', 'indeed', 'linkedin'],
   remote: ['indeed', 'linkedin', 'upwork'],

@@ -6,7 +6,7 @@ import { loadConfig } from '../config.js';
 /**
  * Direct free-API provider — Greenhouse, Lever, Ashby, SmartRecruiters all
  * publish OPEN job APIs (no key, no Apify credits). This is the default path
- * for those three; no paid-actor fallback — unsupported ATS goes to V2 FetchCat
+ * for those three; no paid-actor fallback in V1
  * no public API.
  *
  * Budget rule (same as searchBudget.ts): fetch up to 50 jobs per company,
