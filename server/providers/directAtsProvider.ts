@@ -6,7 +6,7 @@ import { loadConfig } from '../config.js';
 /**
  * Direct free-API provider — Greenhouse, Lever, Ashby, SmartRecruiters all
  * publish OPEN job APIs (no key, no Apify credits). This is the default path
- * for those four; the Santa Maria actor is only a fallback when a board has
+ * for those three; no paid-actor fallback in V1
  * no public API.
  *
  * Budget rule (same as searchBudget.ts): fetch up to 50 jobs per company,
@@ -265,7 +265,7 @@ function stripHtml(html: string): string {
 /**
  * Scrape a free-API ATS directly — no Apify credits.
  * Returns raw jobs (keyword filtering + tagging happens in scraperFactory,
- * exactly like the Santa Maria path).
+ * exactly like the direct ATS path).
  */
 export async function scrapeDirectAts(
   source: string,
@@ -305,61 +305,4 @@ export async function scrapeDirectAts(
   const results = await Promise.all(boards.map(norm(fns[platform as keyof typeof fns])));
   void keywords;
   return results.flat();
-}
-
-/**
- * Board-level fetch for the incremental watcher: ONE board, ONE request.
- * Unlike scrapeDirectAts (platform-level rotation over 8 boards), this fetches
- * the exact board a company's career page points to — the watcher diffs per
- * board and needs deterministic per-board freshness.
- * Pure fetch + normalize. Returns { ok: false, jobs: [] } on ANY failure
- * (HTTP error, timeout, no slug in careerUrl, unsupported platform, missing
- * normalizer, malformed payload — never throws, logs a warn). `ok: true`
- * means the board was genuinely fetched: an empty jobs list is a real
- * "removed everything" and MUST keep the watcher's deactivation semantics.
- * Reuses fetchJson + stripHtml + the platform normalizers.
- */
-export async function fetchBoard(
-  source: string,
-  platform: string,
-  companyName: string,
-  careerUrl: string,
-  maxJobs: number
-): Promise<{ ok: boolean; jobs: Job[] }> {
-  const base = API_BASE[platform];
-  const slugRe = SLUG_RE[platform];
-  if (!base || !slugRe) {
-    console.warn(`[DirectATS] fetchBoard: unsupported platform ${platform}`);
-    return { ok: false, jobs: [] };
-  }
-  const m = (careerUrl || '').match(slugRe);
-  if (!m) {
-    console.warn(`[DirectATS] fetchBoard: no board slug in ${careerUrl}`);
-    return { ok: false, jobs: [] };
-  }
-  const slug = m[1];
-  const fns = { greenhouse: ghJob, lever: leverJob, ashby: ashbyJob, smartrecruiters: srJob };
-  const fn = fns[platform as keyof typeof fns];
-  if (!fn) {
-    console.warn(`[DirectATS] fetchBoard: no normalizer for ${platform}`);
-    return { ok: false, jobs: [] };
-  }
-  try {
-    const data = await fetchJson(boardUrl(platform, slug));
-    const raw = platform === 'smartrecruiters' ? data.content : platform === 'ashby' ? data.jobs : data.jobs || data;
-    if (!Array.isArray(raw)) {
-      console.warn(`[DirectATS] ${source} ${slug}: malformed board payload (not a jobs list)`);
-      return { ok: false, jobs: [] };
-    }
-    const cap = Math.min(maxJobs || 15, 50);
-    const jobs = raw
-      .map((j: any) => fn(j, companyName, platform))
-      .filter((j: Job | null): j is Job => !!j)
-      .sort((a: Job, c: Job) => new Date(c.postedDate || 0).getTime() - new Date(a.postedDate || 0).getTime())
-      .slice(0, cap);
-    return { ok: true, jobs };
-  } catch (err: any) {
-    console.warn(`[DirectATS] ${source} ${slug} failed: ${err.message}`);
-    return { ok: false, jobs: [] };
-  }
 }

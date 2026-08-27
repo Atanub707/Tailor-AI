@@ -197,19 +197,6 @@ export function listUsers(): User[] {
 // OR a session within the window (a real, recent user). Dormant/test users
 // with neither are skipped — the watcher writes a full corpus per user, so
 // this is what keeps a many-user install from doing N× the work.
-export function listActiveUsers(sessionWindowDays = 30): User[] {
-  try {
-    const d = getDb();
-    const cutoff = new Date(Date.now() - sessionWindowDays * 24 * 60 * 60 * 1000).toISOString();
-    return (d.prepare(
-      `SELECT id, email, name, is_guest, created_at FROM users
-       WHERE id IN (SELECT DISTINCT user_id FROM jobs)
-          OR id IN (SELECT DISTINCT user_id FROM sessions WHERE created_at >= ?)
-       ORDER BY is_guest ASC, name`
-    ).all(cutoff) as any[])
-      .map((r) => ({ id: r.id, email: r.email, name: r.name, isGuest: r.is_guest === 1, createdAt: r.created_at }));
-  } catch { return []; }
-}
 
 export function getUserById(id: string): User | undefined {
   try {
@@ -920,44 +907,6 @@ export function saveNewJobs(newJobs: Job[]): { added: Job[]; skipped: number; ne
 }
 
 // Bump lastSeenAt on jobs still present in a refresh. Idempotent.
-export function bumpLastSeen(jobIds: string[]): void {
-  if (!jobIds.length) return;
-  const userId = getCurrentUserId();
-  if (!userId) return;
-  const d = getDb();
-  const now = new Date().toISOString();
-  const tx = d.transaction(() => {
-    for (const id of jobIds) {
-      const row = d.prepare('SELECT data FROM jobs WHERE id = ? AND user_id = ?').get(id, userId) as { data: string } | undefined;
-      if (!row) continue;
-      const j = JSON.parse(row.data);
-      j.lastSeenAt = now;
-      d.prepare('UPDATE jobs SET data = ? WHERE id = ? AND user_id = ?').run(JSON.stringify(j), id, userId);
-    }
-  });
-  tx();
-}
-
-// Mark jobs as removed from their source board. Never deletes — the retention
-// scheduler decides deletion; applied/tailored/ready rows survive regardless.
-export function markJobsInactive(jobIds: string[]): void {
-  if (!jobIds.length) return;
-  const userId = getCurrentUserId();
-  if (!userId) return;
-  const d = getDb();
-  const tx = d.transaction(() => {
-    for (const id of jobIds) {
-      const row = d.prepare('SELECT data FROM jobs WHERE id = ? AND user_id = ?').get(id, userId) as { data: string } | undefined;
-      if (!row) continue;
-      const j = JSON.parse(row.data);
-      if (j.state === 'applied' || j.state === 'tailored' || j.state === 'ready') continue; // history preserved
-      j.isActive = false;
-      d.prepare('UPDATE jobs SET data = ? WHERE id = ? AND user_id = ?').run(JSON.stringify(j), id, userId);
-    }
-  });
-  tx();
-}
-
 // Save scraped jobs AND upgrade stored truncated copies in place. A job with
 // `replacesUrl` (the Google-News token of the truncated stored copy) replaces
 // that stored job instead of being saved as a duplicate — full description,

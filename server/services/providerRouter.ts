@@ -1,4 +1,3 @@
-import { SantaMariaApifyProvider } from '../providers/santaMariaProvider.js';
 import { ApifyLinkedInScraper } from '../scraper/apifyScraper.js';
 import { NaukriScraper } from '../scraper/naukriScraper.js';
 import { IndeedScraper } from '../scraper/indeedScraper.js';
@@ -28,22 +27,6 @@ export async function routeProvider(req: SearchRequest, providerId: string, limi
 
   try {
     switch (providerId) {
-      case 'santa-maria': {
-        const provider = new SantaMariaApifyProvider();
-        const result = await provider.search({
-          keywords: req.query.split(/\s+/).filter(Boolean),
-          locations: req.location ? [req.location] : undefined,
-          remote: req.remote,
-          limit: providerLimit,
-          queries: [], // SantaMariaProvider reads the company_career_sites registry itself
-        });
-        return {
-          jobs: result.jobs,
-          runId: result.providerRunId,
-          requested: providerLimit,
-          returned: result.totalReturned,
-        };
-      }
       case 'linkedin': {
         const scraper = new ApifyLinkedInScraper();
         const cursor = getProviderCursor(getCurrentUserId(), getSearchFingerprint(req), 'linkedin');

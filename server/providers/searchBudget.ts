@@ -38,11 +38,7 @@ export function getFetchBudget(limit: number): FetchBudget {
   };
 }
 
-export function getProviderFetchLimit(limit: number, providerId: string): number {
+export function getProviderFetchLimit(limit: number, _providerId: string): number {
   const budget = getFetchBudget(limit);
-  // Santa Maria gets the ATS budget, others get per-provider budget
-  if (providerId === 'santa-maria') {
-    return Math.min(budget.fetchTarget, Number(process.env.ATS_MAX_RAW_RESULTS || SEARCH_CONFIG.ATS_MAX_RAW_RESULTS));
-  }
   return Math.min(budget.fetchTarget, budget.maxPerProvider);
 }

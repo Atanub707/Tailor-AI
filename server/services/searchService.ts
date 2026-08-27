@@ -52,13 +52,12 @@ export interface ProviderResult {
 }
 
 // Deterministic provider priority — no LLM.
-// Santa Maria (25 ATS: Greenhouse/Lever/Ashby/Workable/Workday…) is ALWAYS
-// first so the 25 ATS results always appear; job boards fill the gap only if
-// the ATS yield is short. Budget still caps Santa Maria (LIMIT 5 → 8/company).
+// Job-board providers first (LinkedIn/Naukri/Indeed); ATS coverage is handled
+// by the V2 search-v2 path. Budget still caps each provider.
 const PROVIDER_PRIORITY: Record<string, string[]> = {
-  india: ['santa-maria', 'naukri', 'indeed', 'linkedin'],
-  remote: ['santa-maria', 'indeed', 'linkedin', 'upwork'],
-  default: ['santa-maria', 'linkedin', 'indeed', 'naukri'],
+  india: ['naukri', 'indeed', 'linkedin'],
+  remote: ['indeed', 'linkedin', 'upwork'],
+  default: ['linkedin', 'indeed', 'naukri'],
 };
 
 function getProviderOrder(location?: string, remote?: boolean): string[] {

@@ -25,7 +25,7 @@ export interface JobSearchParams {
   atsPlatforms?: ATSPlatform[];
   limit: number;
   companyIds?: string[];
-  // Career URLs or {platform, company} objects for Santa Maria queries
+  // Career URLs or {platform, company} objects for provider queries
   queries?: Array<string | { platform: string; company: string }>;
 }
 

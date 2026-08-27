@@ -116,7 +116,6 @@ import {
   addPostsDailyUsage,
 } from './server/storage/fileStorage.js';
 import { ScraperFactory } from './server/scraper/scraperFactory.js';
-import { setSearchInFlight } from './server/indexer/watcher.js';
 import { LinkedInPostsScraper } from './server/scraper/linkedInPostsScraper.js';
 import { LlmMatcher } from './server/matcher/llmMatcher.js';
 import { hasApiKeyConfigured, mapLlmError } from './server/llm/apiKeyGuard.js';
@@ -1409,6 +1408,17 @@ Return valid JSON only — NO markdown, NO code fences:
         return;
       }
 
+      // Single-source enforcement (server-side, not just UI): exactly one
+      // source per search. No multi-source fan-out, no hidden sources.
+      if (!Array.isArray(sources) || sources.length === 0) {
+        res.status(400).json({ error: 'Select exactly one job source per search.' });
+        return;
+      }
+      if (sources.length > 1) {
+        res.status(400).json({ error: 'Select exactly one job source per search.' });
+        return;
+      }
+
       const wantUnder10 = under10Applicants === true;
 
       // skipJobId: tell the Apify actor to skip LinkedIn jobs we already have
@@ -1422,9 +1432,6 @@ Return valid JSON only — NO markdown, NO code fences:
           .slice(0, 1000);
       } catch { jobIds = []; }
 
-      // Let the background watcher know a user scrape is in flight so it
-      // skips its cycle (avoids racing the interactive path over the same rows).
-      setSearchInFlight(true);
       const scrapedJobsRaw = await ScraperFactory.runScrape({
         keywords: keywords.trim(),
         location: location || 'Remote',
@@ -1507,8 +1514,39 @@ Return valid JSON only — NO markdown, NO code fences:
     } catch (err: any) {
       console.error('Scrape error:', err);
       res.status(500).json({ error: err.message || 'Scraping failed.' });
-    } finally {
-      setSearchInFlight(false);
+    }
+  });
+
+  // V2 — provider-driven unified search (cache-first, top-up). Additive: V1
+  // POST /api/jobs/scrape stays untouched; V2 path is flag-gated
+  // (V2_SEARCH_ENABLED). No V2 providers are wired yet — this endpoint
+  // returns an honest empty result until a real provider is integrated.
+  app.post('/api/jobs/search-v2', async (req, res) => {
+    try {
+      const { V2_FLAGS } = await import('./server/providers/providerRegistry.js');
+      if (!V2_FLAGS.V2_SEARCH_ENABLED) {
+        res.status(404).json({ error: 'V2 search disabled (V2_SEARCH_ENABLED=false)' });
+        return;
+      }
+      const { keywords, location, datePostedFilter, jobType, workMode, level, limit } = req.body;
+      if (!keywords || !String(keywords).trim()) {
+        res.status(400).json({ error: 'Keywords required' });
+        return;
+      }
+      const { runV2Search } = await import('./server/search/searchOrchestrator.js');
+      const result = await runV2Search(getCurrentUserId(), {
+        keywords: String(keywords).trim(),
+        location: location ? String(location).trim() : undefined,
+        postedWindow: (datePostedFilter as any) || 'any',
+        jobType: jobType || 'all',
+        workMode: workMode || 'all',
+        level: level || 'any',
+        limit: Math.min(Number(limit) || 25, 50),
+      }, []); // no providers wired — honest empty result
+      res.json(result);
+    } catch (err: any) {
+      console.error('V2 search error:', err);
+      res.status(500).json({ error: err.message || 'Search failed' });
     }
   });
 
@@ -1576,25 +1614,6 @@ Return valid JSON only — NO markdown, NO code fences:
 
   // Job stats for KPI dashboard (counts computed server-side from all jobs)
   // Per-ATS official career-portal counts (source name → number of company boards)
-  app.get('/api/ats/company-counts', async (_req, res) => {
-    try {
-      const { ensureV2Tables } = await import('./server/storage/v2Tables.js');
-      const { getDb } = await import('./server/storage/fileStorage.js');
-      const { ATS_PLATFORM_BY_SOURCE } = await import('./server/scraper/scraperFactory.js');
-      ensureV2Tables();
-      const db = getDb();
-      const rows = db.prepare('SELECT LOWER(atsPlatform) p, count(*) c FROM company_career_sites WHERE isActive = 1 GROUP BY 1').all() as Array<{ p: string; c: number }>;
-      const byPlatform = new Map(rows.map((r) => [r.p, r.c]));
-      const counts: Record<string, number> = {};
-      for (const [source, platform] of Object.entries(ATS_PLATFORM_BY_SOURCE)) {
-        counts[source] = byPlatform.get(platform) || 0;
-      }
-      res.json({ counts });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
   app.get('/api/jobs/stats', (req, res) => {
     try {
       const all = getAllJobs();
@@ -2717,32 +2736,6 @@ Return valid JSON only, no markdown:
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`ATS Job Search & CV Tailor server running at http://0.0.0.0:${PORT}`);
   });
-
-  // Background job indexer — silently fills the local corpus from free-ATS
-  // boards. Never calls Apify; never blocks requests; stops with the process.
-  try {
-    const { startWatcher } = await import('./server/indexer/watcher.js');
-    startWatcher();
-  } catch (err: any) {
-    console.error('[Indexer] watcher start failed (non-fatal):', err);
-  }
-
-  // Retention + watcher share one scheduler tick — never concurrent.
-  try {
-    const { runRetentionSweep } = await import('./server/indexer/retention.js');
-    const sweep = async () => {
-      try {
-        const r = await runRetentionSweep();
-        if (r.deleted > 0) console.log(`[Indexer] retention sweep: deleted ${r.deleted} stale jobs`);
-      } catch (err) {
-        console.error('[Indexer] retention sweep failed (non-fatal):', err);
-      }
-    };
-    void sweep(); // on boot
-    setInterval(sweep, 24 * 60 * 60 * 1000).unref?.();
-  } catch (err: any) {
-    console.error('[Indexer] retention wiring failed (non-fatal):', err);
-  }
 
   // One-time backfill: extract recruiter/HR emails from descriptions of
   // jobs that were scraped before the contacts feature existed.

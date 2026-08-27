@@ -266,7 +266,12 @@ export default function App() {
   }) => {
     setIsScrapingLoading(true);
     try {
-      const res = await fetch('/api/jobs/scrape', {
+      // V2 unified search behind a feature flag: when enabled, ScraperBar
+      // submissions route to the provider-driven search endpoint (cache-first,
+      // single-source search). When disabled, V1 stays untouched.
+      const v2Enabled = (import.meta.env.VITE_V2_SEARCH_ENABLED ?? 'false') !== 'false';
+      const endpoint = v2Enabled ? '/api/jobs/search-v2' : '/api/jobs/scrape';
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params),
@@ -285,6 +290,20 @@ export default function App() {
         // descriptions (accumulates until the Recruiters screen is opened).
         if (data.newContacts?.length > 0) {
           setRecruiterBadge((prev) => prev + data.newContacts.length);
+        }
+        // V2 search returns cached candidates (searchId/returnedCount/jobs),
+        // not durable additions — the banner reports matches found.
+        if (data.queryFp !== undefined) {
+          return {
+            scrapedTotal: data.returnedCount || 0,
+            addedCount: data.returnedCount || 0,
+            skippedDuplicates: 0,
+            filteredOutCount: 0,
+            skippedSources: [],
+            newContacts: [],
+            isV2: true,
+            cacheHit: data.cacheHit === true,
+          };
         }
         return { scrapedTotal: data.scrapedTotal || 0, addedCount: data.addedCount || 0, skippedDuplicates: data.skippedDuplicates || 0, filteredOutCount: data.filteredOutCount || 0, skippedSources: data.skippedSources || [], newContacts: data.newContacts || [] };
       } else {
