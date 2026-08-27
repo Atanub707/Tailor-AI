@@ -1,35 +1,27 @@
 # Changelog
 
-## v2.0.2 (2026-08-26)
+## v2.1.0 (2026-08-27)
 
-### ⚡ Indexer freshness
-- **Material-change updates** — when a board edits a job (title, location, apply URL, posted date, description), the watcher now propagates the change to the stored copy instead of only bumping lastSeenAt. App-owned fields (state, match score, CV, lifecycle) are preserved.
+### 🎯 Search: one source per search, honest limits
 
-## v2.0.1 (2026-08-26)
+- **Exactly one source per search.** Clicking a source replaces the previous selection — no multi-source fan-out, no hidden sources. Enforced on both the UI and the backend (`POST /api/jobs/scrape` rejects 0 or >1 sources with "Select exactly one job source per search.").
+- **LIMIT is the true total result count** — never multiplied across sources.
+- **Removed broken/unavailable ATS sources from the UI.** Workable, Workday, BambooHR, JazzHR, iCIMS, Personio, Rippling, Teamtailor, Recruitee, Pinpoint, Jobvite, SmartRecruiters, Comeet and Join no longer appear as selectable chips — they had no working implementation and could not return jobs.
+- **Greenhouse, Lever and Ashby use free direct ATS APIs** (no Apify token needed) with local query/relevance/date filtering; `first_published`/`createdAt`/`publishedAt` date semantics preserved.
+- **Search results are isolated by query + source** — a "DevOps Engineer" search never mixes into a later "AI Engineer" search, and LinkedIn results never reuse a Naukri cache.
+- **Relevance remains strict** — unrelated Sales/Data/Recruiting/PM roles cannot enter a DevOps search; a fully-irrelevant board returns zero results (nothing persisted).
+- **Applied/Tailored/Ready history preserved and global.**
+- **Removed unused Jobo/Santa Maria/FetchCat/watcher code** — smaller, cleaner codebase with zero references to abandoned experiments.
+- **Free-scraper test coverage** — Arbeitnow, SimplyHired, Dice, Reed, MyCareersFuture, Cutshort, Gupy, JobsCh, Daijob and MyJobMag now have fixture-based parsing tests (keyword, LIMIT, malformed responses, zero live calls).
 
-### ⚡ Indexer efficiency
-- **Watcher refreshes only ACTIVE users** — users with stored jobs or a session within 30 days. Dormant/test accounts are skipped, so a many-user install no longer writes the full corpus N× per cycle (was ~25× on test installs).
+### ✅ Supported sources (18)
 
-## v2.0.0 (2026-08-26)
+- **Paid (Apify):** LinkedIn, Indeed, Naukri, Glassdoor, Upwork — require your own Apify API token.
+- **Free scrapers:** Arbeitnow, SimplyHired, Dice, Reed, MyCareersFuture, Cutshort, Gupy, JobsCh, Daijob, MyJobMag.
+- **Direct ATS (free):** Greenhouse, Lever, Ashby — no Apify needed.
 
-### 🏗️ Architecture: Tailor AI becomes a local job-search engine
-- **Background job indexer** — silently watches free-ATS boards (Greenhouse/Lever/Ashby) every 4h while the app runs: incremental refresh (new jobs inserted, changed bumped, removed marked inactive), bounded concurrency (3 boards), per-board failure isolation with skip-on-failure, boot catch-up. No Apify spend.
-- **Retention policy (Option B)** — jobs older than 7 days are auto-deleted unless Applied/Tailored/Ready (those survive forever). Runs on boot + daily; orphaned search links cleaned up.
-- **Job lifecycle fields** — `firstSeenAt`, `lastSeenAt`, `isActive` on every job; removed-from-board jobs are hidden from the default view but preserved for applied history.
-- **Search-context isolation** — `searches` + `search_jobs` tables: each search records its query/location/window and links only its relevant jobs. A "DevOps Engineer" search no longer shows results from an earlier "AI Engineer" search. State tabs (Applied/Tailored/Ready) remain global.
-- **Query-aware relevance engine** — 10 query profiles (DevOps/SRE, Cyber Security, AI/ML, Backend, Frontend, Full Stack, Data Engineering, QA, Mobile + conservative generic fallback). Named match tiers (EXACT → WEAK_RELATED), deterministic scoring, explicit exclusions. "Data Engineer" / "Product Manager" / "Account Executive" can never pass a DevOps search. Ranking: relevance tier first, freshness second.
-- **Greenhouse date fix** — `first_published` is now the canonical posting date (was `updated_at`, which let a February job pass "Last 24 hours"). Lever `createdAt` → created, Ashby `publishedAt` → published; `dateSemantics` labels each job's timestamp so the UI shows "Published Xh ago" vs "Updated Xh ago".
-- **Local-first search** — searches read the local corpus first (instant, $0); providers only top up shortages.
-- **Provider date semantics + local filter pipeline** — validity → date → location → job-type → relevance → dedup → rank → limit; normalized location matching ("India" matches "Bengaluru, India" / "Remote - India").
-- **Free-API ATS search** — Greenhouse/Lever/Ashby fetched directly from their free public APIs (zero Apify credits); SmartRecruiters stays on the Santa Maria actor.
-- **Source chips** — official brand SVG icons for the main portals, portal counts, popularity ordering, "More" dropdown removed, paid/enterprise ATS locked (🔒).
+### 📝 Notes
 
-### 🐛 Fixes
-- Relevance guard is unconditional — a fully-irrelevant board slice returns [] and is never persisted (was the "Account Executive leaked into DevOps search" bug).
-- Installer fixes: `Test-Path -and` PowerShell syntax error (2 spots), updater now locates git.exe and fails loudly instead of fake "OK Code updated".
-- Multi-account jobs PK is now `(user_id, id)` — each account owns its own copy of a job (was: account B saw "already exists" with an empty list).
-- No live Apify calls in any test — all hermetic (temp data dir + mocks); 195 tests passing.
-
-### ⚠️ Notes
-- Old jobs saved before this release remain in your DB — delete stale rows manually if you want them gone.
-- SmartRecruiters + job-board sources (Glassdoor/Indeed/Naukri/Upwork) still require Apify credits; the UI surfaces the real reason when the monthly cap is hit.
+- Paid sources (LinkedIn/Indeed/Naukri/Glassdoor/Upwork) need an Apify API token in Settings; without it they are skipped with a clear reason. All other sources work with no token.
+- Auto-apply is not included in this release — Apply opens the original job posting.
+- Free scrapers are verified against fixture data; runtime behavior depends on the source sites and is best-effort.
