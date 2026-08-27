@@ -1421,6 +1421,62 @@ Return valid JSON only — NO markdown, NO code fences:
 
       const wantUnder10 = under10Applicants === true;
 
+      // Local ATS index path (flag-gated): route the search through the
+      // neutral V2 pipeline — the selected ATS provider fetches + normalizes
+      // (no profession logic), the orchestrator applies date/location/
+      // relevance constraints, ranks, dedupes, and caps at LIMIT. Only
+      // survivors (relevance > 0) are persisted. Single-source is mandatory:
+      // exactly the selected ATS is queried — never a silent fallback to
+      // another provider. When the flag is OFF, the request-driven V1
+      // direct-ATS path below is unchanged.
+      const { ATS_FLAGS } = await import('./server/providers/providerRegistry.js');
+      const { greenhouseProvider } = await import('./server/providers/greenhouseProvider.js');
+      const { leverProvider } = await import('./server/providers/leverProvider.js');
+      const { ashbyProvider } = await import('./server/providers/ashbyProvider.js');
+      const { toDurableJob } = await import('./server/providers/atsProviderShared.js');
+      const atsProviders = { Greenhouse: greenhouseProvider, Lever: leverProvider, Ashby: ashbyProvider } as const;
+      if (ATS_FLAGS.ENABLE_LOCAL_ATS_INDEX && sources.length === 1) {
+        const selectedProvider = atsProviders[sources[0] as keyof typeof atsProviders];
+        if (selectedProvider) {
+          const { runV2Search } = await import('./server/search/searchOrchestrator.js');
+          const userLimit = Math.min(maxJobsPerSource ? Number(maxJobsPerSource) : 15, 50);
+          const result = await runV2Search(
+            getCurrentUserId(),
+            {
+              keywords: keywords.trim(),
+              // ATS path: empty location = no constraint (no 'Remote' default —
+              // that default belongs to the job-board sources, not ATS APIs).
+              location: (location || '').trim() || undefined,
+              postedWindow: datePostedFilter && datePostedFilter !== 'all' ? datePostedFilter : 'any',
+              jobType: jobType || 'all',
+              workMode: jobType || 'all',
+              level: (experienceLevel as any) || 'any',
+              limit: userLimit,
+              source: sources[0],
+            },
+            [selectedProvider]
+          );
+          // Persist ONLY the ranked survivors — every one passed the relevance
+          // guard (score 0 candidates never reach this point). saveNewJobs
+          // dedupes by fingerprint, so repeated searches never duplicate.
+          const { added, skipped } = persistJobsWithUpgrade(result.jobs.map(toDurableJob));
+          res.json({
+            success: true,
+            searchId: result.searchId,
+            scrapedTotal: result.returnedCount,
+            addedCount: added.length,
+            skippedDuplicates: skipped,
+            upgradedCount: 0,
+            filteredOutCount: 0,
+            skippedSources: [],
+            newContacts: [],
+            isAtsIndex: true,
+            cacheHit: result.cacheHit,
+          });
+          return;
+        }
+      }
+
       // skipJobId: tell the Apify actor to skip LinkedIn jobs we already have
       // (avoids re-fetching and re-paying for duplicates).
       let jobIds: string[] = [];

@@ -13,8 +13,10 @@ describe('rankRelevant — relevance tier beats freshness', () => {
   it('older exact match ranks above newer related match', () => {
     const ranked = rankRelevant([cloudNewest, platformNewer, devopsOlder], 'DevOps Engineer', (j) => j.title, (j) => j.company);
     expect(ranked[0].job.title).toBe('DevOps Engineer'); // exact, 48h old
-    expect(ranked[1].job.title).toBe('Platform Engineer'); // strong_related, 1h old
-    expect(ranked[2].job.title).toBe('Cloud Engineer'); // related, 10m old
+    // Platform Engineer and Cloud Engineer are both 'related' (spec §6);
+    // within the same tier, freshness decides → Cloud (10m) above Platform (1h).
+    expect(ranked[1].job.title).toBe('Cloud Engineer'); // related, 10m old
+    expect(ranked[2].job.title).toBe('Platform Engineer'); // related, 1h old
   });
 
   it('relevance score DESC then freshness DESC within tier', () => {

@@ -58,7 +58,10 @@ export async function runV2Search(
   // The selected source is part of the cache fingerprint — a LinkedIn
   // DevOps search must never reuse a Naukri DevOps cache.
   const queryFp = canonicalQueryFp(params.keywords, params.location, params.postedWindow || 'any', params.source);
-  const searchId = getOrCreateSearch(userId, params.keywords, params.location, params.postedWindow || 'all');
+  // The search CONTEXT is source-isolated too (same filterKey pattern as the
+  // V1 scrape path): a Greenhouse "DevOps Engineer" search never reuses a
+  // Lever or Ashby context for the same query.
+  const searchId = getOrCreateSearch(userId, params.keywords, params.location, params.postedWindow || 'all', params.source);
   const providerCalls: ProviderCall[] = [];
 
   // ── Step 1: cache ──

@@ -63,7 +63,16 @@ function pickBoards(platform: string, cap: number): { companyName: string; slug:
     .filter((x): x is { companyName: string; slug: string } => !!x);
 }
 
+// Test seam: override the network fetcher (fixtures/mocks, never live calls).
+// Default = global fetch. Production code never calls this.
+type JsonFetcher = (url: string, timeoutMs?: number) => Promise<any>;
+let fetcherOverride: JsonFetcher | undefined;
+export function setDirectAtsFetcher(fn: JsonFetcher | undefined): void {
+  fetcherOverride = fn;
+}
+
 async function fetchJson(url: string, timeoutMs = 15000): Promise<any> {
+  if (fetcherOverride) return fetcherOverride(url, timeoutMs);
   const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), headers: { 'User-Agent': 'TailorAI/1.0' } });
   if (!res.ok) throw new Error(`${url.split('/')[2]} API ${res.status}`);
   return res.json();
