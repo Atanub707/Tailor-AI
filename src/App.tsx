@@ -45,6 +45,10 @@ export default function App() {
 
   // Active filters and views
   const [activeStateTab, setActiveStateTab] = useState<'all' | JobState>('all');
+  // Current-search view: when set, the job list shows ONLY the jobs of this
+  // search context (searchId → search_jobs → jobs). null = the full library.
+  const [activeSearchId, setActiveSearchId] = useState<string | null>(null);
+  const [searchResultCount, setSearchResultCount] = useState<number | null>(null);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [selectedJobTab, setSelectedJobTab] = useState<'details' | 'gap' | 'tailored'>('details');
 
@@ -133,10 +137,12 @@ export default function App() {
       page: String(page),
       limit: String(pageSize),
     });
-    // The All Jobs list always shows the user's FULL stored library (newest
-    // scraped first) — a search ADDS jobs to it and never hides previous
-    // results. Search-context isolation applies to cache/session identity
-    // server-side, not to hiding existing jobs from the list.
+    // After a search, the primary view is the CURRENT SEARCH RESULT SET
+    // (searchId → search_jobs → jobs), not the whole library. The full
+    // library stays one click away via the search banner.
+    if (activeSearchId) {
+      params.set('searchId', activeSearchId);
+    }
     const [listRes, statsRes] = await Promise.all([
       fetch(`/api/jobs?${params}`),
       fetch('/api/jobs/stats'),
@@ -149,7 +155,7 @@ export default function App() {
     if (statsRes.ok) {
       setStats(await statsRes.json());
     }
-  }, [activeStateTab, sourceFilter, searchTerm, sortBy, page, pageSize]);
+  }, [activeStateTab, sourceFilter, searchTerm, sortBy, page, pageSize, activeSearchId]);
 
   // Back/Close from any screen: land on the dashboard with FRESH data from
   // the server (newly saved LinkedIn posts, scraped jobs, updated scores)
@@ -277,12 +283,12 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        // Searching ADDS jobs to the store. The list always shows the full
-        // library (newest scraped first) — the search never narrows or hides
-        // existing jobs. Use the toolbar search box / source / sort controls
-        // to filter the view manually.
+        // Primary view becomes THIS search's result set. scrapedTotal is the
+        // result count — NEVER addedCount (addedCount = newly persisted only).
         setActiveStateTab('all');
         setPage(1);
+        setActiveSearchId(data.searchId || null);
+        setSearchResultCount(data.scrapedTotal ?? null);
         await fetchJobs();
         // Notification badge: new recruiters found in this scrape's
         // descriptions (accumulates until the Recruiters screen is opened).
@@ -292,6 +298,11 @@ export default function App() {
         // V2 search returns cached candidates (searchId/returnedCount/jobs),
         // not durable additions — the banner reports matches found.
         if (data.queryFp !== undefined) {
+          setActiveSearchId(data.searchId || null);
+          setSearchResultCount(data.returnedCount ?? null);
+          setActiveStateTab('all');
+          setPage(1);
+          await fetchJobs();
           return {
             scrapedTotal: data.returnedCount || 0,
             addedCount: data.returnedCount || 0,
@@ -595,6 +606,22 @@ export default function App() {
 
           {/* Main Jobs Matrix View */}
           <main>
+            {activeSearchId && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', marginBottom: 8, background: 'var(--color-surface, #f6f7f8)', border: '1px solid var(--color-border, #e2e4e8)', borderRadius: 10, fontSize: 13 }}>
+                <span style={{ fontWeight: 600 }}>Search results: {searchResultCount ?? jobs.length}</span>
+                <button
+                  onClick={() => {
+                    setActiveSearchId(null);
+                    setSearchResultCount(null);
+                    setPage(1);
+                    fetchJobs();
+                  }}
+                  style={{ marginLeft: 'auto', padding: '4px 10px', borderRadius: 8, border: '1px solid var(--color-border, #d0d3d8)', background: 'transparent', cursor: 'pointer', fontSize: 12 }}
+                >
+                  ← Show All Jobs
+                </button>
+              </div>
+            )}
             <JobMatrix
               jobs={jobs}
               totalJobs={totalJobs}

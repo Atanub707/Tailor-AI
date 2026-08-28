@@ -5,6 +5,7 @@ import { getRoleSuggestions, getKeywordSuggestions } from '../constants/suggesti
 import { getSourceFlag, getSourceCountry, getSourceMeta } from '../constants/sourceMeta';
 import { searchLocations } from '../lib/locations';
 import { SourceIcon } from './SourceIcon';
+import { DEFAULT_JOB_TYPE } from '../constants/sources';
 
 interface ScraperBarProps {
   onScrape: (params: {
@@ -39,7 +40,7 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
   const [location, setLocation] = useState('');
   const [locationOptions, setLocationOptions] = useState<string[]>([]);
   const [datePostedFilter, setDatePostedFilter] = useState<'all' | '24h' | '7d' | '30d'>('24h');
-  const [jobType, setJobType] = useState<'all' | 'remote' | 'onsite' | 'hybrid'>('remote');
+  const [jobType, setJobType] = useState<'all' | 'remote' | 'onsite' | 'hybrid'>(DEFAULT_JOB_TYPE);
   const [jobTypeInfoOpen, setJobTypeInfoOpen] = useState(false);
   const [experienceLevel, setExperienceLevel] = useState('');
   const [contractType, setContractType] = useState('');
