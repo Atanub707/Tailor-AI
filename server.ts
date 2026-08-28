@@ -2388,7 +2388,119 @@ Return valid JSON only, no markdown:
     }
   });
 
-  // ── Application Package V1 — immutable preparation snapshot ───────────
+function computePlanStatus(plan: { manualFields: unknown[]; consentFields: unknown[]; unresolvedDetails: Array<{ required: boolean }> }): string {
+  if (plan.manualFields.length > 0 || plan.consentFields.length > 0) return 'NEEDS_REVIEW';
+  if (plan.unresolvedDetails.some((u) => u.required)) return 'NEEDS_INPUT';
+  return 'READY_TO_SUBMIT';
+}
+
+  // ── Application Engine V1 (Phase 1) — provider-neutral plans ──────────
+  // Prepare-only: inspection + dry-run. NO submission endpoints.
+  const engineContext = async (userId: string, packageId: string) => {
+    const { getPackageById } = await import('./server/applicationPackage/packageStore.js');
+    const { readPdfArtifact } = await import('./server/applicationPackage/artifactStore.js');
+    const { FixtureInspectionAdapter } = await import('./server/applicationEngine/fixtureAdapter.js');
+    const pkg = getPackageById(userId, packageId);
+    if (!pkg) return { pkg: undefined as undefined | import('./server/applicationPackage/packageModel.js').ApplicationPackage, artifactOk: false, adapter: new FixtureInspectionAdapter() };
+    let artifactOk = false;
+    if (pkg.resumeSnapshot?.pdfHash) {
+      try {
+        const bytes = readPdfArtifact(pkg.resumeSnapshot.pdfHash);
+        artifactOk = bytes.length > 0;
+      } catch { artifactOk = false; }
+    }
+    return { pkg, artifactOk, adapter: new FixtureInspectionAdapter() };
+  };
+
+  // Read-only plan preparation: package gate + live GET inspection (Lever)
+  // + deterministic mapping + dry-run preview. NEVER a submission path.
+  app.post('/api/application-packages/:packageId/plan', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const ctx = await engineContext(userId, req.params.packageId);
+      if (!ctx.pkg) return res.status(404).json({ error: 'Package not found.' });
+      const job = getJobById(ctx.pkg.jobId);
+      if (!job) return res.status(404).json({ error: 'Job not found.' });
+      const { createPlan } = await import('./server/applicationEngine/engine.js');
+      const { plan, reused, gate } = await createPlan({ userId, pkg: ctx.pkg, job, adapter: ctx.adapter, artifactOk: ctx.artifactOk });
+      res.json({ plan, reused, gate });
+    } catch (err: any) {
+      if (err?.name === 'EngineGateError') {
+        res.status(409).json({ error: err.message, code: err.code });
+        return;
+      }
+      res.status(500).json({ error: String(err?.message || 'Plan creation failed.').slice(0, 300) });
+    }
+  });
+
+  app.get('/api/submission-plans/:planId', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { getPlanById } = await import('./server/applicationEngine/engine.js');
+      const plan = getPlanById(userId, req.params.planId);
+      if (!plan) return res.status(404).json({ error: 'Plan not found.' });
+      res.json({ plan });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'failed' });
+    }
+  });
+
+  app.get('/api/submission-plans/:planId/preview', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { getPlanById, buildPreview } = await import('./server/applicationEngine/engine.js');
+      const { getPackageById } = await import('./server/applicationPackage/packageStore.js');
+      const plan = getPlanById(userId, req.params.planId);
+      if (!plan) return res.status(404).json({ error: 'Plan not found.' });
+      const pkg = getPackageById(userId, plan.packageId);
+      if (!pkg) return res.status(404).json({ error: 'Package not found.' });
+      res.json({ preview: buildPreview(plan, pkg) });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'failed' });
+    }
+  });
+
+  // Ordinary unresolved answers (source=USER). Consent/EEO/UNKNOWN remain
+  // review-only; READY_TO_SUBMIT plans are frozen (409).
+  app.patch('/api/submission-plans/:planId/answers', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { getPlanById } = await import('./server/applicationEngine/engine.js');
+      const { getPackageById } = await import('./server/applicationPackage/packageStore.js');
+      const { storePlan } = await import('./server/applicationEngine/planStore.js');
+      const plan = getPlanById(userId, req.params.planId);
+      if (!plan) return res.status(404).json({ error: 'Plan not found.' });
+      if (plan.status === 'READY_TO_SUBMIT') return res.status(409).json({ error: 'Plan is frozen — create a new plan after package changes.' });
+      const { providerFieldId, value } = req.body || {};
+      const detail = plan.unresolvedDetails.find((d) => d.providerFieldId === providerFieldId);
+      if (!detail) return res.status(400).json({ error: `Unknown unresolved field: ${providerFieldId}` });
+      const pkg = getPackageById(userId, plan.packageId);
+      if (!pkg) return res.status(404).json({ error: 'Package not found.' });
+      // Re-run mapping with a USER-supplied value for this field.
+      const { mapRequirements } = await import('./server/applicationEngine/mapper.js');
+      const { FixtureInspectionAdapter, LEVER_FIXTURES } = await import('./server/applicationEngine/fixtureAdapter.js');
+      const reqs = await new FixtureInspectionAdapter().inspect(plan.target);
+      const mapping = mapRequirements(pkg, reqs.fields);
+      const idx = plan.mappedFields.findIndex((m) => m.providerFieldId === providerFieldId);
+      if (idx !== -1) {
+        plan.mappedFields[idx] = { ...plan.mappedFields[idx], value: value ?? null, source: 'USER', mappingMethod: 'USER', mappingConfidence: 'high' };
+      }
+      plan.unresolvedFields = plan.unresolvedFields.filter((id) => id !== providerFieldId);
+      plan.unresolvedDetails = plan.unresolvedDetails.filter((d) => d.providerFieldId !== providerFieldId);
+      plan.status = computePlanStatus(plan) as any;
+      plan.updatedAt = new Date().toISOString();
+      storePlan(plan);
+      res.json({ plan });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'failed' });
+    }
+  });
+
+
   // PREPARE ONLY. No submission endpoints exist.
   const loadPackageDeps = async () => {
     const { preparePackage, resumePdfHash } = await import('./server/applicationPackage/packageEngine.js');
