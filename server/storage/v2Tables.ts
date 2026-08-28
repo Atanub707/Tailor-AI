@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { getDb } from './fileStorage.js';
+import { getDb, withDbRecovery } from './fileStorage.js';
 
 export interface CompanyCareerSite {
   id: string;
@@ -234,6 +234,18 @@ export function getOrCreateSearch(
   postedWindow: string | undefined,
   filterKey?: string
 ): string {
+  // Search-context creation is idempotent (reuses an existing row by
+  // fingerprint) — safe to re-execute completely after a connection reset.
+  return withDbRecovery(() => getOrCreateSearchInner(userId, query, location, postedWindow, filterKey));
+}
+
+function getOrCreateSearchInner(
+  userId: string,
+  query: string,
+  location: string | undefined,
+  postedWindow: string | undefined,
+  filterKey?: string
+): string {
   ensureV2Tables();
   const db = getDb();
   const fp = canonicalQueryFp(query, location, postedWindow, filterKey);
@@ -248,6 +260,11 @@ export function getOrCreateSearch(
 
 /** Link persisted jobs to a search context (idempotent). */
 export function linkJobsToSearch(searchId: string, jobIds: string[]): void {
+  // INSERT OR IGNORE — idempotent, safe to re-execute fully after reset.
+  withDbRecovery(() => linkJobsToSearchInner(searchId, jobIds));
+}
+
+function linkJobsToSearchInner(searchId: string, jobIds: string[]): void {
   ensureV2Tables();
   const db = getDb();
   const now = new Date().toISOString();
@@ -262,6 +279,14 @@ export function linkJobsToSearch(searchId: string, jobIds: string[]): void {
 
 /** Replace one search run's result set instead of accumulating stale jobs. */
 export function replaceJobsForSearch(searchId: string, jobIds: string[]): void {
+  // This was the exact failing boundary in the stale-connection incident.
+  // The retry re-executes the ENTIRE transaction on the fresh connection —
+  // the old transaction is never continued after a reset, so the
+  // DELETE + re-INSERT set stays atomic and idempotent.
+  withDbRecovery(() => replaceJobsForSearchInner(searchId, jobIds));
+}
+
+function replaceJobsForSearchInner(searchId: string, jobIds: string[]): void {
   ensureV2Tables();
   const db = getDb();
   const now = new Date().toISOString();
@@ -277,6 +302,11 @@ export function replaceJobsForSearch(searchId: string, jobIds: string[]): void {
 
 /** Job ids linked to a search context, newest link first. */
 export function getJobIdsForSearch(userId: string, searchId: string): string[] {
+  // Read-only — a stale connection should never wedge search views either.
+  return withDbRecovery(() => getJobIdsForSearchInner(userId, searchId));
+}
+
+function getJobIdsForSearchInner(userId: string, searchId: string): string[] {
   ensureV2Tables();
   const db = getDb();
   const rows = db.prepare(
@@ -296,6 +326,11 @@ export function isJobFresh(scrapedAt?: string, ttlHours = JOB_CACHE_TTL_HOURS): 
 
 export function markSeen(userId: string, queryFp: string, fingerprints: string[]): void {
   if (!userId || !queryFp || fingerprints.length === 0) return;
+  // INSERT OR IGNORE — idempotent, safe to re-execute fully after reset.
+  withDbRecovery(() => markSeenInner(userId, queryFp, fingerprints));
+}
+
+function markSeenInner(userId: string, queryFp: string, fingerprints: string[]): void {
   const db = getDb();
   const now = new Date().toISOString();
   const stmt = db.prepare(
@@ -309,6 +344,10 @@ export function markSeen(userId: string, queryFp: string, fingerprints: string[]
 
 export function getSeenFingerprints(userId: string, queryFp: string): Set<string> {
   if (!userId || !queryFp) return new Set();
+  return withDbRecovery(() => getSeenFingerprintsInner(userId, queryFp));
+}
+
+function getSeenFingerprintsInner(userId: string, queryFp: string): Set<string> {
   const db = getDb();
   const rows = db.prepare('SELECT fingerprint FROM search_seen WHERE user_id = ? AND query_fp = ?').all(userId, queryFp) as { fingerprint: string }[];
   return new Set(rows.map((r) => r.fingerprint));
