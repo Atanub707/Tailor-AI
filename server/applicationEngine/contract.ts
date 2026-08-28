@@ -15,6 +15,9 @@ export interface ApplicationTarget {
   title: string;
   hostname: string;
   redirectKind: RedirectKind;
+  detectionConfidence?: DetectionResult['confidence'];
+  detectionReason?: string;
+  targetClassification?: RedirectKind;
 }
 
 export interface DetectionResult {
@@ -67,6 +70,7 @@ export type PlanStatus = 'INSPECTING' | 'NEEDS_INPUT' | 'NEEDS_REVIEW' | 'READY_
 
 export interface SubmissionPlan {
   id: string;
+  userId: string;
   packageId: string;
   packageSnapshotHash: string;
   provider: Provider;
@@ -75,10 +79,20 @@ export interface SubmissionPlan {
   mappedFields: MappedField[];
   files: Array<{ kind: 'RESUME' | 'COVER_LETTER' | 'OTHER'; artifactSha?: string }>;
   unresolvedFields: string[];
-  consentFields: string[];
-  manualFields: string[];
+  unresolvedDetails: Array<{ providerFieldId: string; label: string; required: boolean; reason: string }>;
+  consentFields: Array<{ providerFieldId: string; label: string; required: boolean; status: 'REQUIRES_REVIEW' }>;
+  manualFields: Array<{ providerFieldId: string; label: string; required: boolean; reason: string }>;
   status: PlanStatus;
+  planFingerprint: string;
   createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlanValidation {
+  status: PlanStatus;
+  reviewReasons: string[];
+  unresolvedRequired: string[];
+  errors: string[];
 }
 
 export type ConsentKind = 'INFORMATIONAL' | 'REQUIRED_ACKNOWLEDGEMENT' | 'LEGAL_CONSENT' | 'UNKNOWN';
@@ -119,9 +133,12 @@ export function detectProvider(platform: string | undefined, applyUrl: string | 
 /** Redirect classification: does the apply target belong to a supported provider? */
 export function classifyTarget(applyUrl: string | undefined, platformProvider: Provider | undefined): RedirectKind {
   const host = String(applyUrl || '').replace(/^https?:\/\//, '').split('/')[0].toLowerCase();
-  const known = HOST_PROVIDERS.some((x) => host === x.host || host.endsWith('.' + x.host));
+  const hostProvider = HOST_PROVIDERS.find((x) => host === x.host || host.endsWith('.' + x.host))?.provider;
   if (!applyUrl) return 'MANUAL_ONLY';
-  if (known) return 'SUPPORTED_TARGET';
+  // Known target host belonging to a DIFFERENT provider than the index
+  // platform → redirected to another supported family (never forced).
+  if (hostProvider && platformProvider && hostProvider !== platformProvider) return 'REDIRECTED_SUPPORTED_TARGET';
+  if (hostProvider) return 'SUPPORTED_TARGET';
   // no platform signal at all → nothing to redirect FROM
   if (platformProvider === undefined || platformProvider === 'unknown') return 'UNSUPPORTED_TARGET';
   // an ATS-indexed job whose applyUrl leaves the ATS family
@@ -131,6 +148,7 @@ export function classifyTarget(applyUrl: string | undefined, platformProvider: P
 // ── Field normalization ladder (exact → alias → deterministic) ──────────
 
 const FIELD_ALIASES: Array<{ aliases: string[]; canonical: string }> = [
+  { aliases: ['name'], canonical: 'fullName' },
   { aliases: ['first name', 'given name', 'firstname'], canonical: 'firstName' },
   { aliases: ['last name', 'family name', 'surname', 'lastname'], canonical: 'lastName' },
   { aliases: ['email', 'email address', 'e-mail', 'email address *'], canonical: 'email' },

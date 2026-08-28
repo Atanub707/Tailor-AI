@@ -317,6 +317,94 @@ function JobApplyPackage({ jobId }: { jobId: string }) {
   );
 }
 
+
+// ── Application Engine V1 — Prepare for Application (dry-run, no submission) ──
+function JobPrepareApplication({ jobId, packageId, packageStatus }: { jobId: string; packageId?: string; packageStatus?: string }) {
+  const [state, setState] = React.useState<'idle' | 'preparing' | 'done' | 'error'>('idle');
+  const [plan, setPlan] = React.useState<any>(null);
+  const [preview, setPreview] = React.useState<any>(null);
+  const [error, setError] = React.useState('');
+
+  const prepare = async () => {
+    setState('preparing');
+    setError('');
+    try {
+      let pid = packageId;
+      if (!pid) {
+        const pkgRes = await fetch(`/api/jobs/${jobId}/application-package`);
+        if (!pkgRes.ok) throw new Error('Create an Application Package first.');
+        const pkgData = await pkgRes.json();
+        pid = pkgData.package?.id;
+        if (!pid) throw new Error('Create an Application Package first.');
+      }
+      const res = await fetch(`/api/application-packages/${pid}/plan`, { method: 'POST' });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Preparation failed.'); }
+      const d = await res.json();
+      setPlan(d.plan);
+      const pv = await fetch(`/api/submission-plans/${d.plan.id}/preview`).then((r) => r.json());
+      setPreview(pv.preview);
+      setState('done');
+    } catch (e: any) {
+      setState('error');
+      setError(String(e?.message || 'Preparation failed.'));
+    }
+  };
+
+  const statusLabel: Record<string, string> = { NEEDS_INPUT: 'Needs Input', NEEDS_REVIEW: 'Needs Review', READY_TO_SUBMIT: 'Ready for Submission', UNSUPPORTED: 'Unsupported' };
+  const statusColor: Record<string, string> = { NEEDS_INPUT: 'text-amber-600', NEEDS_REVIEW: 'text-orange-600', READY_TO_SUBMIT: 'text-emerald-600', UNSUPPORTED: 'text-slate-500' };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={prepare}
+        disabled={state === 'preparing' || packageStatus !== 'READY'}
+        className="px-2.5 py-1.5 rounded-md text-xs font-medium bg-white hover:bg-[var(--color-brand-soft)] border-[1.5px] border-[var(--color-brand-line)] text-[var(--color-muted)] disabled:opacity-50"
+        title="Prepare for Application — read-only inspection + dry-run (no submission)"
+      >
+        {state === 'preparing' ? 'Preparing application…' : 'Prepare for Application'}
+      </button>
+      {error && <span className="text-[10px] text-red-600 block">{error}</span>}
+      {preview && (
+        <div className="absolute right-0 top-10 z-50 w-96 rounded-xl border border-[var(--color-border)] bg-white shadow-lg p-4 text-left max-h-[30rem] overflow-y-auto">
+          <div className="flex items-baseline justify-between">
+            <span className="text-sm font-bold text-[var(--color-ink)]">Application Preview</span>
+            <span className={`text-xs font-black ${statusColor[preview.status] || ''}`}>{statusLabel[preview.status] || preview.status}</span>
+          </div>
+          <div className="text-xs text-[var(--color-faint)]">{preview.company} · {preview.role} · Provider: {preview.provider}</div>
+          {preview.resume && <div className="mt-1 text-xs text-emerald-700">Resume artifact: {preview.resume.artifactHash?.slice(0, 12)}…</div>}
+          <div className="mt-2 text-[10px] font-bold uppercase tracking-widest text-[var(--color-faint)]">Mapped ({preview.mappedFields.length})</div>
+          <div className="text-xs text-[var(--color-ink)]">
+            {preview.mappedFields.slice(0, 6).map((m: any, i: number) => (
+              <div key={i} className="truncate">• {m.label} → {String(m.value ?? '').slice(0, 40)} <span className="text-[var(--color-faint)]">({m.mappingMethod})</span></div>
+            ))}
+          </div>
+          {preview.unresolved.length > 0 && (
+            <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 p-2">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-amber-700">Needs Input ({preview.unresolved.length})</div>
+              {preview.unresolved.slice(0, 4).map((u: any, i: number) => <div key={i} className="text-xs text-amber-800">• {u.label}</div>)}
+            </div>
+          )}
+          {preview.consent.length > 0 && (
+            <div className="mt-2 rounded-lg bg-orange-50 border border-orange-200 p-2">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-orange-700">Consent — Requires Review</div>
+              {preview.consent.slice(0, 3).map((c: any, i: number) => <div key={i} className="text-xs text-orange-800">• {c.label}</div>)}
+            </div>
+          )}
+          {preview.eeoManual.length > 0 && (
+            <div className="mt-2 rounded-lg bg-orange-50 border border-orange-200 p-2">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-orange-700">Manual / EEO — Requires Review</div>
+              {preview.eeoManual.slice(0, 3).map((m: any, i: number) => <div key={i} className="text-xs text-orange-800">• {m.label}</div>)}
+            </div>
+          )}
+          {preview.status === 'READY_TO_SUBMIT' && (
+            <div className="mt-2 text-[10px] text-[var(--color-faint)]">Submission will be enabled after provider adapter validation.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const JobCard = React.memo(function JobCard({
   job,
   scoreMsg,
@@ -557,6 +645,7 @@ const JobCard = React.memo(function JobCard({
           <JobFit jobId={job.id} />
           <JobTailorV2 jobId={job.id} />
           <JobApplyPackage jobId={job.id} />
+          <JobPrepareApplication jobId={job.id} />
 
           {/* Tailor CV */}
           <div className="relative group">
