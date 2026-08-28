@@ -41,10 +41,12 @@ export interface ApplicationQuestion {
 export interface PackageValidation {
   ready: boolean;
   status: PackageStatus;
-  missingFields: string[];
+  missingPrerequisites: string[];
   needsInput: string[];
   blockers: string[];
   warnings: string[];
+  // kept for compatibility with the UI/API layer
+  missingFields: string[];
 }
 
 export interface ApplicationPackage {
@@ -104,6 +106,8 @@ export interface ApplicationPackage {
     structuredResume?: TailorDraft;
     verification?: TailorVerification;
     pdfHash?: string;
+    pdfSize?: number;
+    pdfArtifact?: string;
     pdfOk?: boolean;
   } | null;
   answers: ResolvedAnswer[];
@@ -114,10 +118,13 @@ export interface ApplicationPackage {
   };
   validation: PackageValidation;
   inputFingerprint: string;
+  /** Immutable hash of frozen submission-preparation content only — excludes
+   *  lifecycle metadata (status, updatedAt). Stable across staleness. */
+  snapshotHash: string;
   createdAt: string;
   updatedAt: string;
 }
 
 export function defaultValidation(): PackageValidation {
-  return { ready: false, status: 'DRAFT', missingFields: [], needsInput: [], blockers: [], warnings: [] };
+  return { ready: false, status: 'DRAFT', missingPrerequisites: [], missingFields: [], needsInput: [], blockers: [], warnings: [] };
 }

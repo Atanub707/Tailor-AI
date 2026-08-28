@@ -244,7 +244,7 @@ function JobApplyPackage({ jobId }: { jobId: string }) {
   };
 
   const statusColor: Record<string, string> = { READY: 'text-emerald-600', NEEDS_INPUT: 'text-amber-600', STALE: 'text-orange-600', DRAFT: 'text-slate-500' };
-  const statusLabel: Record<string, string> = { READY: 'Ready to Apply', NEEDS_INPUT: 'Needs Input', STALE: 'Stale', DRAFT: 'Draft' };
+  const statusLabel: Record<string, string> = { READY: 'Ready to Apply', NEEDS_INPUT: 'Needs your input', STALE: 'Application package is out of date', DRAFT: 'Application preparation incomplete' };
 
   return (
     <div className="relative">
@@ -271,6 +271,14 @@ function JobApplyPackage({ jobId }: { jobId: string }) {
           <div className="mt-2 text-xs text-[var(--color-ink)]">
             Answers: {pkg.answers.filter((a: any) => a.status === 'RESOLVED').length} resolved · {pkg.answers.filter((a: any) => a.status !== 'RESOLVED').length} missing
           </div>
+          {pkg.validation.missingPrerequisites.length > 0 && (
+            <div className="mt-2 rounded-lg bg-slate-50 border border-slate-200 p-2">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Preparation</div>
+              {pkg.validation.missingPrerequisites.slice(0, 4).map((p2: string, i: number) => (
+                <div key={i} className="text-xs text-slate-600">• {p2}</div>
+              ))}
+            </div>
+          )}
           {pkg.validation.needsInput.length > 0 && (
             <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 p-2">
               <div className="text-[10px] font-bold uppercase tracking-widest text-amber-700">Needs your input</div>

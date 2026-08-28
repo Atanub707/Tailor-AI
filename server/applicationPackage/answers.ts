@@ -58,9 +58,12 @@ export function resolveDeterministicAnswers(cv: MasterCv, profile: ApplicantProf
   return out;
 }
 
-/** Required application facts — a package cannot be READY without these
- *  being RESOLVED (never guessed). */
-const REQUIRED_KEYS = ['fullName', 'email', 'phone', 'currentCity', 'currentCountry', 'authorizedToWork', 'requiresSponsorship'];
+/** UNIVERSAL identity prerequisites — every application needs these. Nothing
+ *  else is universally mandatory in V1: authorization/sponsorship/salary/
+ *  location become required only when a known question marks them required
+ *  (future ATS question discovery) — we do not pretend every job asks the
+ *  same questions. */
+const UNIVERSAL_KEYS = ['fullName', 'email'];
 
 export function answerByKey(answers: ResolvedAnswer[], key: string): ResolvedAnswer | undefined {
   return answers.find((a) => a.key === key);
@@ -78,45 +81,41 @@ export function validatePackage(
   profile: ApplicantProfile,
   opts: { requireGeneratedAnswers?: boolean } = {}
 ): PackageValidation {
-  const missingFields: string[] = [];
+  const missingPrerequisites: string[] = [];
   const needsInput: string[] = [];
   const blockers: string[] = [];
   const warnings: string[] = [];
 
-  // JOB
-  if (!pkg.jobSnapshot.jobId || !pkg.jobSnapshot.jdHash) blockers.push('Job/JD snapshot incomplete.');
+  // JOB / JD — system prerequisite
+  if (!pkg.jobSnapshot.jobId || !pkg.jobSnapshot.jdHash) missingPrerequisites.push('Job/JD snapshot');
 
-  // APPLICANT
-  for (const key of REQUIRED_KEYS) {
+  // UNIVERSAL identity — system/user prerequisite (never guessed)
+  for (const key of UNIVERSAL_KEYS) {
     const a = answerByKey(answers, key);
-    if (!a || a.status !== 'RESOLVED') {
-      const label = a?.label ?? key;
-      if (key === 'authorizedToWork' || key === 'requiresSponsorship') needsInput.push(`${label} — cannot be guessed`);
-      else missingFields.push(label);
-    }
+    if (!a || a.status !== 'RESOLVED') missingPrerequisites.push(a?.label ?? key);
   }
 
-  // FIT
-  if (!fit) warnings.push('Fit snapshot absent — package prepared without fit context.');
+  // FIT — REQUIRED system prerequisite for READY (deterministic, local).
+  if (!fit) missingPrerequisites.push('Fit snapshot');
   else if (fit.blockers?.length) warnings.push('Fit blockers present — review before applying.');
 
-  // RESUME
+  // RESUME + immutable PDF artifact — REQUIRED system prerequisites
   const rs = pkg.resumeSnapshot;
   if (!rs) {
-    blockers.push('No verified tailored resume — run Tailor V2 first.');
+    missingPrerequisites.push('Verified Tailor V2 resume');
   } else {
-    if (!rs.tailoredResumeVersionId) blockers.push('Resume version not associated.');
+    if (!rs.tailoredResumeVersionId) missingPrerequisites.push('Resume version association');
     if (rs.resumeJobId && rs.resumeJobId !== pkg.jobId) blockers.push('Resume belongs to a different job.');
     if (rs.resumeUserId && rs.resumeUserId !== pkg.userId) blockers.push('Resume belongs to a different user.');
-    if (!rs.verification?.passed) blockers.push('Tailor V2 factual verification not passed.');
-    if (!rs.pdfOk || !rs.pdfHash) blockers.push('Resume PDF not verified.');
+    if (!rs.verification?.passed) missingPrerequisites.push('Tailor V2 factual verification');
+    if (!rs.pdfOk || !rs.pdfHash || !rs.pdfArtifact) missingPrerequisites.push('Immutable verified PDF artifact');
   }
 
-  // ANSWERS
+  // ANSWERS — only REQUIRED questions block (never optional unresolved).
   for (const q of pkg.questions || []) {
     if (!q.required) continue;
     if (q.status === 'NEEDS_INPUT') needsInput.push(q.question);
-    else if (!q.answer && q.answer !== false) missingFields.push(q.question);
+    else if (!q.answer && q.answer !== false) needsInput.push(q.question);
   }
   for (const g of pkg.generatedContent?.generatedAnswers || []) {
     if (!g.verified) blockers.push('An unsafe generated answer is present.');
@@ -124,11 +123,13 @@ export function validatePackage(
   if (pkg.generatedContent?.coverLetter && !pkg.generatedContent.coverLetter.verified) {
     warnings.push('Cover letter failed verification and was omitted.');
   }
-  if (opts.requireGeneratedAnswers && pkg.questions.some((q) => q.required && !q.answer)) {
-    needsInput.push('Required generated answers missing.');
-  }
 
-  const ready = blockers.length === 0 && needsInput.length === 0 && missingFields.length === 0;
-  const status: PackageValidation['status'] = ready ? 'READY' : needsInput.length > 0 ? 'NEEDS_INPUT' : blockers.length > 0 ? 'DRAFT' : 'DRAFT';
-  return { ready, status, missingFields, needsInput, blockers, warnings };
+  // Precedence: prerequisites → needsInput → blockers → READY.
+  const ready = missingPrerequisites.length === 0 && needsInput.length === 0 && blockers.length === 0;
+  let status: PackageValidation['status'];
+  if (missingPrerequisites.length > 0) status = 'DRAFT';
+  else if (needsInput.length > 0) status = 'NEEDS_INPUT';
+  else if (blockers.length > 0) status = 'DRAFT';
+  else status = 'READY';
+  return { ready, status, missingPrerequisites, needsInput, blockers, warnings, missingFields: missingPrerequisites };
 }

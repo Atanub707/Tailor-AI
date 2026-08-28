@@ -8,6 +8,7 @@ import { getLatestTailorVersion, type TailoredResumeVersionRow } from '../tailor
 import { toTailoredCv } from '../tailorV2/tailorV2Engine.js';
 import { generatePdfBuffer } from '../builder/docxGenerator.js';
 import { freshPackage, getLatestPackage, nextPackageVersion, packageInputFingerprint, snapshotHash, storePackage } from './packageStore.js';
+import { persistPdfArtifact, readPdfArtifact, sha256Bytes } from './artifactStore.js';
 import type { ApplicationPackage, PackageStatus, ResolvedAnswer } from './packageModel.js';
 import {
   answerStateKey,
@@ -44,8 +45,8 @@ export function computePackageKeys(input: BuildPackageInput): {
     jdHash: jdHash(input.jd),
     profileUpdatedAt: input.profile.updatedAt,
     masterCvUpdatedAt: undefined, // supplied by caller
-    fitEngineVersion: input.fit.version,
-    fitScore: input.fit.score,
+    fitEngineVersion: input.fit?.version,
+    fitScore: input.fit?.score ?? 0,
     tailoredResumeVersionId: input.tailoredVersion?.id,
     tailorEngineVersion: input.tailoredVersion?.tailorEngineVersion,
     answersState: answerStateKey(input.answers ?? resolveDeterministicAnswers(input.masterCv, input.profile, input.job)),
@@ -53,7 +54,7 @@ export function computePackageKeys(input: BuildPackageInput): {
 }
 
 /** Build a fresh package object from current inputs (no persistence). */
-export function buildPackage(input: BuildPackageInput, masterCvUpdatedAt: string | undefined): ApplicationPackage {
+export async function buildPackage(input: BuildPackageInput, masterCvUpdatedAt: string | undefined): Promise<ApplicationPackage> {
   const version = nextPackageVersion(input.userId, input.job.id);
   const pkg = freshPackage(input.userId, input.job.id, version);
   const answers = input.answers ?? resolveDeterministicAnswers(input.masterCv, input.profile, input.job);
@@ -90,7 +91,7 @@ export function buildPackage(input: BuildPackageInput, masterCvUpdatedAt: string
     masterCvHash: snapshotHash(input.masterCv),
   };
 
-  pkg.fitSnapshot = {
+  pkg.fitSnapshot = input.fit ? {
     score: input.fit.score,
     grade: input.fit.grade,
     categories: input.fit.categories,
@@ -101,21 +102,42 @@ export function buildPackage(input: BuildPackageInput, masterCvUpdatedAt: string
     assessmentCoverage: input.fit.assessmentCoverage,
     engineVersion: input.fit.version,
     calculatedAt: input.fit.calculatedAt,
-  };
+  } : { score: 0, grade: '', strengths: [], gaps: [], blockers: [], unknowns: [] };
 
   if (input.tailoredVersion) {
-    const pdfHash = resumePdfHash(input.tailoredVersion, input.masterCv);
-    pkg.resumeSnapshot = {
-      tailoredResumeVersionId: input.tailoredVersion.id,
-      resumeUserId: input.tailoredVersion.userId,
-      resumeJobId: input.tailoredVersion.jobId,
-      version: input.tailoredVersion.version,
-      tailorEngineVersion: input.tailoredVersion.tailorEngineVersion,
-      structuredResume: input.tailoredVersion.content,
-      verification: input.tailoredVersion.verification,
-      pdfHash,
-      pdfOk: true,
-    };
+    // IMMUTABLE PDF ARTIFACT: generate the exact document from the frozen
+    // structured resume, persist the byte-exact artifact (content-addressed),
+    // and verify the persisted bytes hash back to the same value.
+    if (input.tailoredVersion.verification?.passed) {
+      const buf = await generatePdfBuffer(toTailoredCv(input.tailoredVersion.content, input.masterCv.fullName || ''));
+      const art = persistPdfArtifact(buf);
+      const reRead = readPdfArtifact(art.sha256);
+      const pdfOk = sha256Bytes(reRead) === art.sha256;
+      pkg.resumeSnapshot = {
+        tailoredResumeVersionId: input.tailoredVersion.id,
+        resumeUserId: input.tailoredVersion.userId,
+        resumeJobId: input.tailoredVersion.jobId,
+        version: input.tailoredVersion.version,
+        tailorEngineVersion: input.tailoredVersion.tailorEngineVersion,
+        structuredResume: input.tailoredVersion.content,
+        verification: input.tailoredVersion.verification,
+        pdfHash: art.sha256,
+        pdfSize: art.size,
+        pdfArtifact: art.path,
+        pdfOk,
+      };
+    } else {
+      pkg.resumeSnapshot = {
+        tailoredResumeVersionId: input.tailoredVersion.id,
+        resumeUserId: input.tailoredVersion.userId,
+        resumeJobId: input.tailoredVersion.jobId,
+        version: input.tailoredVersion.version,
+        tailorEngineVersion: input.tailoredVersion.tailorEngineVersion,
+        structuredResume: input.tailoredVersion.content,
+        verification: input.tailoredVersion.verification,
+        pdfOk: false,
+      };
+    }
   } else {
     pkg.resumeSnapshot = null;
   }
@@ -130,8 +152,24 @@ export function buildPackage(input: BuildPackageInput, masterCvUpdatedAt: string
 
   pkg.validation = validatePackage(pkg, answers, input.fit, input.profile);
   pkg.status = pkg.validation.status;
+  pkg.snapshotHash = computeSnapshotHash(pkg);
   pkg.updatedAt = new Date().toISOString();
   return pkg;
+}
+
+/** Immutable snapshot hash over frozen submission-preparation content only —
+ *  never lifecycle metadata (status, updatedAt). */
+export function computeSnapshotHash(pkg: ApplicationPackage): string {
+  return snapshotHash({
+    job: pkg.jobSnapshot,
+    applicant: pkg.applicantSnapshot,
+    cvProvenance: pkg.masterCvProvenance,
+    fit: pkg.fitSnapshot,
+    resume: pkg.resumeSnapshot,
+    answers: pkg.answers,
+    questions: pkg.questions,
+    generated: pkg.generatedContent,
+  });
 }
 
 /** Deterministic PDF hash for a tailored resume version — regenerates the
@@ -143,7 +181,7 @@ export function resumePdfHash(version: TailoredResumeVersionRow, masterCv: Maste
 
 /** Rebuild (or create) the current package. If the latest non-stale package
  *  has an identical fingerprint AND identical answers, reuse it. */
-export function preparePackage(input: BuildPackageInput, masterCvUpdatedAt: string | undefined): ApplicationPackage {
+export async function preparePackage(input: BuildPackageInput, masterCvUpdatedAt: string | undefined): Promise<ApplicationPackage> {
   const latest = getLatestPackage(input.userId, input.job.id);
   const keys = computePackageKeys(input);
   keys.masterCvUpdatedAt = masterCvUpdatedAt;
@@ -152,7 +190,7 @@ export function preparePackage(input: BuildPackageInput, masterCvUpdatedAt: stri
   if (latest && latest.status !== 'STALE' && latest.inputFingerprint === fp) {
     return latest; // idempotent reuse — identical inputs, no new answers
   }
-  const pkg = buildPackage(input, masterCvUpdatedAt);
+  const pkg = await buildPackage(input, masterCvUpdatedAt);
   return storePackage(pkg);
 }
 

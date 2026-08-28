@@ -2435,7 +2435,7 @@ Return valid JSON only, no markdown:
         res.json({ package: latest, reused: true });
         return;
       }
-      const pkg = buildPackage({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredVersion: ctx.tailored }, ctx.deps.getMasterCvUpdatedAt(userId));
+      const pkg = await buildPackage({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredVersion: ctx.tailored }, ctx.deps.getMasterCvUpdatedAt(userId));
       storePackage(pkg);
       res.json({ package: pkg, reused: false });
     } catch (err: any) {
@@ -2497,6 +2497,30 @@ Return valid JSON only, no markdown:
     }
   });
 
+  // Immutable PDF artifact retrieval — exact stored bytes, NEVER regenerated.
+  app.get('/api/application-packages/:packageId/resume.pdf', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { getPackageById } = await import('./server/applicationPackage/packageStore.js');
+      const pkg = getPackageById(userId, req.params.packageId); // ownership enforced
+      if (!pkg) return res.status(404).json({ error: 'Package not found.' });
+      if (!pkg.resumeSnapshot?.pdfHash) return res.status(404).json({ error: 'No PDF artifact for this package.' });
+      const { readPdfArtifact } = await import('./server/applicationPackage/artifactStore.js');
+      let buf: Buffer;
+      try {
+        buf = readPdfArtifact(pkg.resumeSnapshot.pdfHash);
+      } catch (err: any) {
+        return res.status(410).json({ error: err?.message || 'PDF artifact unavailable.' });
+      }
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="package-v${pkg.version}-resume.pdf"`);
+      res.send(buf);
+    } catch (err: any) {
+      res.status(500).json({ error: String(err?.message || 'failed').slice(0, 200) });
+    }
+  });
+
   // Rebuild a new package version from current inputs (old versions preserved).
   app.post('/api/application-packages/:packageId/rebuild', async (req, res) => {
     try {
@@ -2510,7 +2534,7 @@ Return valid JSON only, no markdown:
       const ctx = await packageContext(userId, job);
       const { buildPackage } = await import('./server/applicationPackage/packageEngine.js');
       const { storePackage } = await import('./server/applicationPackage/packageStore.js');
-      const pkg = buildPackage({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredVersion: ctx.tailored, answers: old.answers, questions: old.questions }, ctx.deps.getMasterCvUpdatedAt(userId));
+      const pkg = await buildPackage({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredVersion: ctx.tailored, answers: old.answers, questions: old.questions }, ctx.deps.getMasterCvUpdatedAt(userId));
       storePackage(pkg);
       res.json({ package: pkg, oldStatus: old.status });
     } catch (err: any) {

@@ -87,15 +87,13 @@ export function getPackageById(userId: string, packageId: string): ApplicationPa
   return row ? (JSON.parse(row.data) as ApplicationPackage) : undefined;
 }
 
-/** Mark a package STALE (externally) WITHOUT touching its historical content. */
+/** Mark a package STALE — lifecycle METADATA only (status column). The
+ *  frozen snapshot content in `data` is NEVER rewritten. */
 export function markPackageStale(userId: string, packageId: string): void {
   ensurePackageSchema();
-  const pkg = getPackageById(userId, packageId);
-  if (!pkg || pkg.status === 'STALE') return;
-  const staleCopy: ApplicationPackage = { ...pkg, status: 'STALE', updatedAt: new Date().toISOString() };
   getDb()
-    .prepare('UPDATE application_packages SET status = ?, data = ?, updated_at = ? WHERE id = ? AND user_id = ?')
-    .run(staleCopy.status, JSON.stringify(staleCopy), staleCopy.updatedAt, packageId, userId);
+    .prepare("UPDATE application_packages SET status = 'STALE', updated_at = ? WHERE id = ? AND user_id = ? AND status != 'STALE'")
+    .run(new Date().toISOString(), packageId, userId);
 }
 
 export function snapshotHash(obj: unknown): string {
@@ -122,8 +120,9 @@ export function freshPackage(userId: string, jobId: string, version: number): Ap
     answers: [],
     questions: [],
     generatedContent: { generatedAnswers: [] },
-    validation: { ready: false, status: 'DRAFT', missingFields: [], needsInput: [], blockers: [], warnings: [] },
+    validation: { ready: false, status: 'DRAFT', missingPrerequisites: [], missingFields: [], needsInput: [], blockers: [], warnings: [] },
     inputFingerprint: '',
+    snapshotHash: '',
     createdAt: now,
     updatedAt: now,
   };
