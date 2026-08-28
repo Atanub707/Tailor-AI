@@ -90,5 +90,16 @@ export function createAtsScheduler(platform: string, opts: SchedulerOptions = {}
     const v = Number(process.env[key]);
     return Number.isFinite(v) && v > 0 ? v : fallback;
   };
-  return new AtsScheduler(platform, cfg, opts.tickMs ?? num('ATS_INDEX_TICK_MS', 60e3), opts.batchSize ?? num('ATS_INDEX_BATCH', 50));
+  // Provider-specific overrides (suffix per platform) — a platform with
+  // different safe concurrency/cadence never inherits another's numbers.
+  const numP = (key: string, fallback: number): number => {
+    const v = Number(process.env[`${key}_${platform.toUpperCase()}`]);
+    return Number.isFinite(v) && v > 0 ? v : num(key, fallback);
+  };
+  const cfgP: AtsIndexConfig = {
+    ...cfg,
+    concurrency: Math.min(Math.max(numP('ATS_INDEX_CONCURRENCY', cfg.concurrency), 1), 20),
+    timeoutMs: numP('ATS_INDEX_TIMEOUT_MS', cfg.timeoutMs),
+  };
+  return new AtsScheduler(platform, cfgP, opts.tickMs ?? numP('ATS_INDEX_TICK_MS', 60e3), opts.batchSize ?? numP('ATS_INDEX_BATCH', 50));
 }

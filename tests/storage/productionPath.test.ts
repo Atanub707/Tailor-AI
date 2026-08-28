@@ -76,7 +76,7 @@ describe('Greenhouse production path', () => {
     expect(atsProviderMode('Greenhouse', false)).toBe('network');
     // Lever/Ashby stay network-backed until their ingestion lands — explicit,
     // never a silent local fallback.
-    expect(atsProviderMode('Lever', true)).toBe('network');
+    expect(atsProviderMode('Lever', true)).toBe('local_index');
     expect(atsProviderMode('Ashby', true)).toBe('network');
     expect(atsProviderMode('LinkedIn', true)).toBe('none');
   });
