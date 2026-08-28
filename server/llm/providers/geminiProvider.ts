@@ -4,11 +4,14 @@ export async function askGemini(
   apiKey: string,
   model: string,
   prompt: string,
-  temperature: number
+  temperature: number,
+  timeoutMs = 60_000
 ): Promise<string> {
   const ai = new GoogleGenAI({
     apiKey,
-    httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+    // The SDK supports a native HTTP timeout — the underlying request is
+    // aborted after timeoutMs (no orphaned in-flight request).
+    httpOptions: { headers: { 'User-Agent': 'aistudio-build' }, timeout: timeoutMs },
   });
 
   const response = await ai.models.generateContent({
