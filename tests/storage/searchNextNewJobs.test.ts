@@ -122,7 +122,7 @@ describe('Search next-new-jobs', () => {
     expect(new Set(seen).size).toBe(120); // all unique, no overlap
   });
 
-  it('B. pre-existing user jobs never count toward LIMIT', async () => {
+  it('B. pre-existing user jobs never count toward LIMIT: 20 existing + 100 NEW → 50/50/0', async () => {
     upsertAtsJobs(Array.from({ length: 120 }, (_, i) => atsRow(i + 1)));
     persistIntoJobs(Array.from({ length: 20 }, (_, i) => atsRow(i + 1))); // 20 already in workflow
     const r1 = await search(50);
