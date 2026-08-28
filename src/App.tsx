@@ -49,6 +49,7 @@ export default function App() {
   // search context (searchId → search_jobs → jobs). null = the full library.
   const [activeSearchId, setActiveSearchId] = useState<string | null>(null);
   const [searchResultCount, setSearchResultCount] = useState<number | null>(null);
+  const [searchHistory, setSearchHistory] = useState<{ id: string; query: string; location: string | null; postedWindow: string | null; source: string | null; lastSearchedAt: string; resultCount: number }[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [selectedJobTab, setSelectedJobTab] = useState<'details' | 'gap' | 'tailored'>('details');
 
@@ -168,6 +169,18 @@ export default function App() {
     }
   }, [navigate, currentUser, page, fetchJobs]);
 
+  // Search history — persisted backend activity, newest first. Refetched on
+  // mount and after every successful search (DB is the source of truth).
+  const refreshSearchHistory = useCallback(async () => {
+    try {
+      const res = await fetch('/api/searches');
+      if (res.ok) {
+        const data = await res.json();
+        setSearchHistory(data.searches || []);
+      }
+    } catch { /* non-fatal */ }
+  }, []);
+
   // Initial Fetch (session + config + first page)
   const fetchAllData = async () => {
     try {
@@ -248,7 +261,10 @@ export default function App() {
 
   // Refetch whenever filters/pagination change
   useEffect(() => {
-    if (currentUser) fetchJobs();
+    if (currentUser) {
+      fetchJobs();
+      refreshSearchHistory();
+    }
   }, [fetchJobs, currentUser]);
 
   // Reset to page 1 when a filter changes
@@ -290,6 +306,7 @@ export default function App() {
         setActiveSearchId(data.searchId || null);
         setSearchResultCount(data.scrapedTotal ?? null);
         await fetchJobs();
+        refreshSearchHistory();
         // Notification badge: new recruiters found in this scrape's
         // descriptions (accumulates until the Recruiters screen is opened).
         if (data.newContacts?.length > 0) {
@@ -303,6 +320,7 @@ export default function App() {
           setActiveStateTab('all');
           setPage(1);
           await fetchJobs();
+          refreshSearchHistory();
           return {
             scrapedTotal: data.returnedCount || 0,
             addedCount: data.returnedCount || 0,
@@ -606,6 +624,33 @@ export default function App() {
 
           {/* Main Jobs Matrix View */}
           <main>
+            {searchHistory.length > 0 && (
+              <div style={{ marginBottom: 8, padding: '8px 12px', background: 'var(--color-surface, #f6f7f8)', border: '1px solid var(--color-border, #e2e4e8)', borderRadius: 10, fontSize: 12.5 }}>
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>Search History ({searchHistory.length})</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {searchHistory.map((h) => (
+                    <button
+                      key={h.id}
+                      onClick={() => {
+                        setActiveSearchId(h.id);
+                        setSearchResultCount(h.resultCount);
+                        setActiveStateTab('all');
+                        setPage(1);
+                        fetchJobs();
+                      }}
+                      style={{
+                        textAlign: 'left', padding: '5px 8px', borderRadius: 8, cursor: 'pointer', fontSize: 12.5,
+                        border: activeSearchId === h.id ? '1px solid var(--color-accent, #3b82f6)' : '1px solid var(--color-border, #e2e4e8)',
+                        background: activeSearchId === h.id ? 'rgba(59,130,246,0.08)' : 'transparent',
+                      }}
+                    >
+                      {h.query}
+                      <span style={{ opacity: 0.65 }}> · {h.location || 'Worldwide'} · {h.postedWindow || 'any'} · {h.source || '—'} · {h.resultCount} results</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {activeSearchId && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', marginBottom: 8, background: 'var(--color-surface, #f6f7f8)', border: '1px solid var(--color-border, #e2e4e8)', borderRadius: 10, fontSize: 13 }}>
                 <span style={{ fontWeight: 600 }}>Search results: {searchResultCount ?? jobs.length}</span>

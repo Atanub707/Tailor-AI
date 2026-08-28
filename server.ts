@@ -1441,6 +1441,19 @@ Return valid JSON only — NO markdown, NO code fences:
     }
   });
 
+// Search history — the user's search ACTIVITY, newest first (last-searched
+  // activity time, then creation time, then deterministic id).
+  app.get('/api/searches', async (req, res) => {
+    try {
+      const { getSearchHistory } = await import('./server/storage/v2Tables.js');
+      const limit = req.query.limit ? Math.min(Number(req.query.limit), 100) : 50;
+      const history = getSearchHistory(getCurrentUserId(), limit);
+      res.json({ searches: history });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'history failed' });
+    }
+  });
+
   app.post('/api/jobs/scrape', async (req, res) => {
     try {
       const { keywords, location, sources, datePostedFilter, jobType, minSalary, maxJobsPerSource, jobTitle, contractType, experienceLevel, under10Applicants } = req.body;
@@ -1602,7 +1615,8 @@ Return valid JSON only — NO markdown, NO code fences:
         keywords.trim(),
         location,
         datePostedFilter || 'all',
-        filterKey
+        filterKey,
+        Array.isArray(sources) && sources.length === 1 ? sources[0] : undefined
       );
       const relevantIds = [...new Set(scrapedJobs.map((j) => j.id).filter(Boolean))];
       replaceJobsForSearch(searchId, relevantIds);
