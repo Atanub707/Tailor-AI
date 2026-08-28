@@ -1,34 +1,61 @@
-// Fit Engine skill canonicalization — explicit, directional alias map.
-// No vector DB, no embeddings. Aliases are directional where the semantics
-// demand it: GKE/ EKS imply Kubernetes, but Kubernetes does NOT imply GKE.
+// Fit Engine skill matching — TRUE ALIASES vs DIRECTIONAL HIERARCHIES.
+//
+// TRUE ALIASES: interchangeable synonyms (k8s ↔ kubernetes). Canonicalized
+// to one term; satisfying either satisfies the other.
+//
+// HIERARCHIES: specific technology IMPLIES the general concept, never the
+// reverse. GKE → Kubernetes, but Kubernetes -/→ GKE. Terraform → IaC, but
+// IaC -/→ Terraform. Lambda → AWS, but AWS -/→ Lambda. PyTorch → ML, but
+// ML -/→ PyTorch.
+//
+// Matching rule: candidate skill S covers required skill R iff
+//   canonical(S) == canonical(R)          (true alias)
+//   OR S is a known SPECIFIC of R         (hierarchy: S → R)
 
+/** True synonyms only — NEVER hierarchy entries. */
 export const SKILL_ALIASES: Record<string, string[]> = {
   kubernetes: ['k8s', 'kube'],
   'amazon web services': ['aws'],
   'google cloud platform': ['gcp'],
   'microsoft azure': ['azure'],
-  'continuous integration': ['ci', 'cicd', 'ci/cd', 'continuous delivery'],
+  'continuous integration': ['ci', 'cicd', 'ci/cd'],
   'continuous delivery': ['cd', 'cicd', 'ci/cd'],
-  'infrastructure as code': ['iac', 'terraform'],
+  'infrastructure as code': ['iac'],
   'java script': ['javascript', 'js'],
   typescript: ['ts'],
   'machine learning': ['ml'],
   'artificial intelligence': ['ai'],
   'site reliability': ['sre'],
-  'security operations': ['secops'],
+  'security operations': ['secops', 'soc'],
+  containers: ['containerization', 'container'],
 };
 
-// Directional implications: skill A (value) implies skill B (key), but NOT
-// vice versa. GKE → Kubernetes, but Kubernetes !→ GKE.
+/**
+ * Directional hierarchy: the KEY is the general concept; the VALUE list is
+ * the SPECIFIC technologies that imply it. Never the reverse.
+ *   GKE/EKS/AKS/OpenShift → Kubernetes
+ *   Terraform/Pulumi/CloudFormation → Infrastructure as Code
+ *   Lambda/S3/EC2/... → AWS
+ *   PyTorch/TensorFlow → Machine Learning
+ *   GitLab CI/GitHub Actions/Jenkins → CI/CD
+ *   Prometheus/Grafana/Datadog → Monitoring
+ *   PostgreSQL/MySQL → SQL/Database
+ */
 export const SKILL_IMPLIES: Record<string, string[]> = {
   kubernetes: ['gke', 'eks', 'aks', 'openshift'],
-  'amazon web services': ['ec2', 's3', 'lambda', 'eks', 'rds', 'cloudformation', 'iam'],
+  'amazon web services': ['ec2', 's3', 'lambda', 'eks', 'rds', 'cloudformation', 'iam', 'cloudwatch'],
   'google cloud platform': ['gke', 'bigquery', 'cloud run'],
   'microsoft azure': ['azure devops', 'aks'],
-  terraform: ['iac', 'hcl'],
-  'machine learning': ['tensorflow', 'pytorch', 'scikit-learn'],
-  'artificial intelligence': ['llm', 'openai', 'gpt'],
-  docker: ['docker compose', 'docker swarm'],
+  'infrastructure as code': ['terraform', 'pulumi', 'cloudformation', 'ansible'],
+  'machine learning': ['pytorch', 'tensorflow', 'scikit-learn', 'keras', 'xgboost'],
+  'artificial intelligence': ['llm', 'rag', 'openai', 'gpt', 'langchain'],
+  'continuous integration': ['gitlab ci', 'github actions', 'jenkins', 'circleci', 'travis'],
+  'continuous delivery': ['gitlab ci', 'github actions', 'jenkins', 'argo', 'spinnaker'],
+  monitoring: ['prometheus', 'grafana', 'datadog', 'new relic', 'cloudwatch', 'splunk'],
+  sql: ['postgresql', 'postgres', 'mysql', 'sqlite', 'mariadb'],
+  containers: ['docker', 'containerd', 'podman'],
+  'model serving': ['triton', 'sagemaker', 'mlflow', 'torchserve'],
+  'llm engineering': ['rag', 'langchain', 'llamaindex', 'openai api', 'vector database', 'embeddings'],
 };
 
 export function canonicalizeSkill(raw: string): string {
@@ -41,15 +68,23 @@ export function canonicalizeSkill(raw: string): string {
   return s;
 }
 
+function tokenPresent(haystack: string, term: string): boolean {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\b${escaped}\\b`).test(haystack);
+}
+
 /** Does candidate evidence (as skills list) cover this required skill? */
 export function skillCovered(requiredSkill: string, candidateSkills: string[]): { covered: boolean; by?: string } {
   const req = canonicalizeSkill(requiredSkill);
   if (!req) return { covered: false };
-  const cand = candidateSkills.map(canonicalizeSkill).filter(Boolean);
-  if (cand.includes(req)) return { covered: true, by: req };
-  const implies = SKILL_IMPLIES[req] || [];
-  for (const impl of implies) {
-    if (cand.includes(impl)) return { covered: true, by: impl };
+  const cand = candidateSkills.map((c) => canonicalizeSkill(c)).filter(Boolean);
+  // 1. True alias: the same canonical term present (exact or word-boundary
+  //    token — "kubernetes clusters" still evidences kubernetes).
+  if (cand.some((c) => c === req || tokenPresent(c, req))) return { covered: true, by: req };
+  // 2. Hierarchy: candidate holds a SPECIFIC that implies the requirement.
+  const specifics = SKILL_IMPLIES[req] || [];
+  for (const spec of specifics) {
+    if (cand.some((c) => c === spec || tokenPresent(c, spec))) return { covered: true, by: spec };
   }
   return { covered: false };
 }

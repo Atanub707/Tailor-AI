@@ -63,6 +63,7 @@ interface FitView {
   gaps: string[];
   blockers: string[];
   unknowns: string[];
+  coverage?: string;
   fromCache?: boolean;
 }
 
@@ -91,7 +92,7 @@ function JobFit({ jobId }: { jobId: string }) {
         throw new Error(data.error || 'Fit failed.');
       }
       const data = await res.json();
-      setFit({ score: data.score, grade: data.grade, strengths: data.strengths || [], gaps: data.gaps || [], blockers: data.blockers || [], unknowns: data.unknowns || [], fromCache: data.fromCache });
+      setFit({ score: data.score, grade: data.grade, strengths: data.strengths || [], gaps: data.gaps || [], blockers: data.blockers || [], unknowns: data.unknowns || [], coverage: data.assessmentCoverage?.confidence, fromCache: data.fromCache });
       setOpen(true);
     } catch (e: any) {
       setError(String(e?.message || 'Fit failed.'));
@@ -117,6 +118,9 @@ function JobFit({ jobId }: { jobId: string }) {
             <span className="text-lg font-black text-[var(--color-ink)]">{fit.score}<span className="text-xs font-bold text-slate-400">/100</span></span>
             <span className={`text-xs font-black ${FIT_GRADE_COLOR[fit.grade] || 'text-slate-500'}`}>{fit.grade} Fit</span>
           </div>
+          {fit.coverage && (
+            <div className="mt-1 text-[10px] font-semibold uppercase tracking-widest text-slate-400">Assessment coverage: {fit.coverage}</div>
+          )}
           {fit.blockers.length > 0 && (
             <div className="mt-2">
               <div className="text-[10px] font-bold uppercase tracking-widest text-red-600">Potential blocker</div>

@@ -18,8 +18,8 @@ export interface JobRequirements {
 const REQUIRED_MARKERS = /\b(must|required|mandatory|need to|needs to|minimum|at least|eligible|shall|essential|require)\b/i;
 const PREFERRED_MARKERS = /\b(preferred|nice to have|bonus|plus|desirable|advantage|good to have|would be great)\b/i;
 
-const REQUIRED_SKILL_RE = /(?:must|required|mandatory|essential|need|needs|minimum|at least|proficiency in|experience with|knowledge of|expertise in|skills? in)\s*[:,\-]?\s*([^.;\n]{2,120})/gi;
-const PREFERRED_SKILL_RE = /(?:preferred|nice to have|bonus|plus|desirable|advantage|good to have)\b[^.;\n]{0,30}?[:,\-]?\s*([^.;\n]{2,120})/gi;
+const REQUIRED_SKILL_RE = /(?:must|required|mandatory|essential|need|needs|minimum|at least|proficiency in|experience with|knowledge of|expertise in|skills? in)\s*[:,\-]?\s*([^;\n]{2,120})/gi;
+const PREFERRED_SKILL_RE = /(?:preferred|nice to have|bonus|plus|desirable|advantage|good to have)\b[^;\n]{0,30}?[:,\-]?\s*([^;\n]{2,120})/gi;
 
 const SKILL_TERMS = new Set([
   'kubernetes', 'k8s', 'docker', 'terraform', 'aws', 'azure', 'gcp', 'gke', 'eks', 'aks', 'ci/cd', 'cicd', 'gitlab',
@@ -28,6 +28,11 @@ const SKILL_TERMS = new Set([
   'pulumi', 'ansible', 'bash', 'powershell', 'cloudformation', 'serverless', 'lambda', 's3', 'istio', 'vault',
   'spark', 'airflow', 'dbt', 'pytorch', 'tensorflow', 'ml', 'llm', 'terraform', 'iac', 'networking', 'tcp/ip',
   'oauth', 'saml', 'ldap', 'okta', 'snowflake', 'bigquery', 'elasticsearch', 'nginx', 'rest', 'grpc', 'graphql',
+  'model training', 'model serving', 'model integration', 'api integration', 'mlops', 'rag', 'langchain',
+  'vector database', 'embeddings', 'evaluation', 'accessibility', 'next.js', 'node.js', 'html/css', 'html', 'css',
+  'rest apis', 'testing', 'react', 'nursing', 'patient care', 'rn license', 'nursing license', 'licensed',
+  'accounting', 'gaap', 'bookkeeping', 'tax', 'cpa', 'figma', 'photoshop', 'illustrator', 'graphic design',
+  'sales', 'crm', 'outbound', 'cold calling', 'data entry', 'typing', 'excel',
 ]);
 
 function extractSkillPhrases(text: string, re: RegExp): string[] {
@@ -107,7 +112,7 @@ export function parseJobRequirements(description: string, metadata: { location?:
   reqs.requiredSkills = extractSkillPhrases(text, REQUIRED_SKILL_RE);
   reqs.preferredSkills = extractSkillPhrases(text, PREFERRED_SKILL_RE);
   // Bare skill mentions with no strength marker → unknown strength.
-  const mentioned = extractSkillPhrases(text, /([^.;\n]{2,120})/gi);
+  const mentioned = extractSkillPhrases(text, /([^;\n]{2,120})/gi);
   reqs.unknownStrengthSkills = mentioned.filter((s) => !reqs.requiredSkills.includes(s) && !reqs.preferredSkills.includes(s));
 
   reqs.minYears = extractYears(text);

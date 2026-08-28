@@ -41,6 +41,14 @@ export interface FitResult {
   unknowns: string[];
   evidence: FitEvidence[];
   calculatedAt: string;
+  /** How much of the job the engine could meaningfully assess — NOT AI
+   *  confidence. Low coverage with a high score is honest. */
+  assessmentCoverage: {
+    applicableCategories: number;
+    totalCategories: number;
+    extractedRequirements: number;
+    confidence: 'high' | 'medium' | 'low';
+  };
 }
 
 export interface FitWeights {
@@ -75,19 +83,77 @@ export function gradeFor(score: number): string {
   return 'Weak';
 }
 
-const ROLE_FAMILY: Array<{ family: string; terms: string[] }> = [
-  { family: 'devops', terms: ['devops', 'platform engineer', 'sre', 'site reliability'] },
-  { family: 'platform', terms: ['platform'] },
-  { family: 'sre', terms: ['sre', 'site reliability'] },
-  { family: 'cloud', terms: ['cloud'] },
-  { family: 'security', terms: ['security', 'secops', 'appsec', 'infosec'] },
-  { family: 'software', terms: ['software', 'developer', 'backend', 'frontend', 'full stack'] },
-  { family: 'data', terms: ['data', 'machine learning', 'ml engineer', 'analytics'] },
+// Deterministic role taxonomy — top-level family + subfamily. This is a
+// ROLE-ALIGNMENT signal only; it carries NO skill templates (the JD's
+// actual requirements stay authoritative).
+const ROLE_TAXONOMY: Array<{ top: string; sub: string; terms: string[] }> = [
+  { top: 'software', sub: 'backend', terms: ['backend', 'back end', 'server-side'] },
+  { top: 'software', sub: 'frontend', terms: ['frontend', 'front end', 'ui engineer', 'web ui'] },
+  { top: 'software', sub: 'fullstack', terms: ['full stack', 'fullstack'] },
+  { top: 'software', sub: 'mobile', terms: ['mobile', 'ios', 'android', 'react native'] },
+  { top: 'software', sub: 'systems', terms: ['systems software', 'systems engineer', 'embedded'] },
+  { top: 'software', sub: 'general', terms: ['software', 'developer', 'engineer'] },
+  { top: 'infrastructure', sub: 'devops', terms: ['devops', 'dev ops'] },
+  { top: 'infrastructure', sub: 'platform', terms: ['platform engineer', 'platform'] },
+  { top: 'infrastructure', sub: 'sre', terms: ['sre', 'site reliability'] },
+  { top: 'infrastructure', sub: 'cloud', terms: ['cloud engineer', 'cloud infrastructure', 'cloud architect'] },
+  { top: 'infrastructure', sub: 'infrastructure', terms: ['infrastructure', 'systems administration'] },
+  { top: 'ai_ml', sub: 'ai-engineering', terms: ['ai engineer', 'ai research', 'applied ai'] },
+  { top: 'ai_ml', sub: 'ml-engineering', terms: ['ml engineer', 'machine learning engineer'] },
+  { top: 'ai_ml', sub: 'ml-infrastructure', terms: ['ml infrastructure', 'ml platform', 'mlops', 'm lo ps'] },
+  { top: 'ai_ml', sub: 'data-science', terms: ['data scientist', 'research scientist'] },
+  { top: 'data', sub: 'data-engineering', terms: ['data engineer'] },
+  { top: 'data', sub: 'analytics', terms: ['analyst', 'analytics', 'business intelligence', 'bi '] },
+  { top: 'data', sub: 'database', terms: ['database', 'dba', 'data platform'] },
+  { top: 'security', sub: 'application-security', terms: ['application security', 'appsec'] },
+  { top: 'security', sub: 'cloud-security', terms: ['cloud security'] },
+  { top: 'security', sub: 'security-engineering', terms: ['security engineer', 'security'] },
+  { top: 'security', sub: 'detection', terms: ['detection', 'soc', 'security operations', 'incident response'] },
+  { top: 'quality', sub: 'qa', terms: ['qa', 'quality assurance'] },
+  { top: 'quality', sub: 'test-automation', terms: ['test automation', 'sdets', 'test engineer'] },
 ];
 
-function jobFamily(title: string): string | undefined {
+// Adjacency between subfamilies: full (same sub) → adjacent (0.7) → same
+// top (0.5) → different top (0.3) → unknown (not applicable).
+const ADJACENT_SUBS: Array<[string, string[]]> = [
+  ['devops', ['platform', 'sre', 'cloud', 'infrastructure']],
+  ['platform', ['devops', 'sre', 'cloud', 'ml-infrastructure']],
+  ['sre', ['devops', 'platform', 'cloud']],
+  ['cloud', ['devops', 'platform', 'infrastructure']],
+  ['backend', ['fullstack', 'general']],
+  ['frontend', ['fullstack', 'general']],
+  ['fullstack', ['backend', 'frontend', 'general']],
+  ['general', ['backend', 'frontend', 'fullstack', 'systems']],
+  ['ml-engineering', ['ai-engineering', 'ml-infrastructure', 'data-science', 'data-engineering']],
+  ['ai-engineering', ['ml-engineering', 'data-science']],
+  ['ml-infrastructure', ['ml-engineering', 'platform', 'data-engineering']],
+  ['data-engineering', ['ml-infrastructure', 'analytics', 'database']],
+  ['analytics', ['data-engineering', 'data-science']],
+  ['security-engineering', ['application-security', 'cloud-security', 'detection']],
+  ['application-security', ['security-engineering', 'cloud-security']],
+  ['cloud-security', ['security-engineering', 'application-security']],
+  ['qa', ['test-automation']],
+  ['test-automation', ['qa']],
+];
+
+export interface RoleIdentity { top: string; sub: string }
+
+export function identifyRole(title: string): RoleIdentity | undefined {
   const t = String(title || '').toLowerCase();
-  return ROLE_FAMILY.find((f) => f.terms.some((x) => t.includes(x)))?.family;
+  // Longest-term match first for precision ("cloud security engineer" must
+  // not collapse into "security engineer" + cloud).
+  const matches = ROLE_TAXONOMY.filter((f) => f.terms.some((x) => t.includes(x)))
+    .sort((a, b) => Math.max(...b.terms.map((x) => x.length)) - Math.max(...a.terms.map((x) => x.length)));
+  return matches[0] ? { top: matches[0].top, sub: matches[0].sub } : undefined;
+}
+
+export function roleAlignmentWeight(candidate: RoleIdentity | undefined, job: RoleIdentity | undefined): number | undefined {
+  if (!job) return undefined; // unknown job family → not applicable
+  if (!candidate) return 0.3; // unknown candidate background → weak
+  if (candidate.sub === job.sub) return 1;
+  if (ADJACENT_SUBS.some(([s, list]) => s === candidate.sub && list.includes(job.sub))) return 0.7;
+  if (candidate.top === job.top) return 0.5;
+  return 0.3;
 }
 
 function candidateSkills(profile: ApplicantProfile, cv: MasterCv): string[] {
@@ -131,7 +197,7 @@ export function computeFit(
 ): FitResult {
   const reqs = parseJobRequirements(description, { location: job.location, workMode: (job as any).workMode });
   const skills = candidateSkills(profile, cv);
-  const family = jobFamily(job.title);
+  const jobRole = identifyRole(job.title);
   const cats: Record<string, FitCategory> = {};
 
   const makeCat = (key: string, max: number): FitCategory => ({
@@ -166,7 +232,7 @@ export function computeFit(
   // ── Experience (20) ──────────────────────────────────────────────────
   const ex = makeCat('experience', weights.experience);
   cats.experience = ex;
-  const expRaw = relevantExperienceMonths(profile.experience, family);
+  const expRaw = relevantExperienceMonths(profile.experience, jobRole?.top);
   const exp = { known: expRaw.known, years: expRaw.known ? Math.round((expRaw.months || 0) / 12 * 10) / 10 : undefined };
   const reqYears = reqs.minYears;
   if (!reqYears) {
@@ -183,18 +249,27 @@ export function computeFit(
     ex.missing.push(`${exp.years}y experience vs ${reqYears}+y required`);
   }
 
-  // ── Role alignment (15) ──────────────────────────────────────────────
+  // ── Role alignment (15) — taxonomy signal only; JD requirements decide ──
   const ra = makeCat('roleAlignment', weights.roleAlignment);
   cats.roleAlignment = ra;
   const expTitles = [
     ...(cv.experiences || []).map((e) => e.title),
     ...(profile.experience || []).map((e) => e.title),
   ];
-  const familyTerms = family ? ROLE_FAMILY.find((f) => f.family === family)?.terms : undefined;
-  const aligned = familyTerms ? expTitles.some((t) => familyTerms.some((term) => String(t).toLowerCase().includes(term))) : true;
-  ra.score = aligned ? ra.max : Math.round(ra.max * 0.5 * 10) / 10;
-  ra.matched = aligned ? [`Background aligns with ${family || 'role family'}`] : [];
-  ra.missing = aligned ? [] : ['No experience titles in the target role family'];
+  const candRole = expTitles.map(identifyRole).find(Boolean);
+  const alignment = roleAlignmentWeight(candRole, jobRole);
+  if (alignment === undefined) {
+    // Unknown job family → category NOT applicable (never auto-full).
+    ra.score = 0;
+    ra.max = 0;
+    ra.unknowns.push('Role family not recognized — role alignment not applicable');
+  } else {
+    ra.score = Math.round(ra.max * alignment * 10) / 10;
+    if (alignment >= 1) ra.matched.push(`Background aligns with ${jobRole?.sub || 'role'} (${jobRole?.top || '?'})`);
+    else if (alignment >= 0.7) ra.matched.push(`Background adjacent to ${jobRole?.sub || 'role'} (${jobRole?.top || '?'})`);
+    else if (alignment >= 0.5) ra.matched.push(`Background partially related to ${jobRole?.sub || 'role'}`);
+    else ra.missing.push(`Background not aligned with ${jobRole?.sub || 'role'} (${jobRole?.top || '?'})`);
+  }
 
   // ── Education (5) ────────────────────────────────────────────────────
   const ed = makeCat('education', weights.education);
@@ -277,16 +352,21 @@ export function computeFit(
   const authReqs = reqs.authorization;
   const auth = profile.workAuthorization;
   if (!authReqs) {
-    wa.score = wa.max; // not applicable
+    wa.score = wa.max; // not applicable — sponsorship need alone is not a conflict
   } else {
     const authorized = auth?.authorizedToWork;
     const sponsorship = auth?.requiresSponsorship;
-    if (authReqs.sponsorship && sponsorship === 'yes') {
-      wa.score = Math.round(wa.max * 0.5 * 10) / 10;
-      wa.missing.push('Role requires sponsorship and applicant needs sponsorship');
-    } else if (authorized === 'no') {
+        const jdSponsorship = /(?:\b(?:we|employer|company)?\s*cannot\s+(?:provide|offer)\s+(?:visa\s+)?sponsorship\b|\bno\s+(?:visa\s+)?sponsorship\b|\bunable\s+to\s+sponsor\b)/i.test(description);
+    const jdSponsorshipAvailable = /sponsorship\s*(?:is\s+)?available|visa\s+sponsorship\s+available|will\s+(?:we\s+)?sponsor|sponsorship\s+offered/i.test(description);
+    if (authorized === 'no') {
       wa.score = 0;
       wa.blockers.push('Explicit work-authorization conflict');
+    } else if (jdSponsorship && sponsorship === 'yes') {
+      wa.score = 0;
+      wa.blockers.push('Role cannot provide sponsorship and applicant requires it');
+    } else if (jdSponsorshipAvailable && sponsorship === 'yes') {
+      wa.score = wa.max;
+      wa.matched.push('Sponsorship available and applicant requires it');
     } else if (authorized === 'unknown' || authorized === undefined) {
       wa.score = Math.round(wa.max * 0.5 * 10) / 10;
       wa.unknowns.push('Work authorization unknown (never inferred)');
@@ -344,6 +424,22 @@ export function computeFit(
   const unknowns = Object.values(cats).flatMap((c) => c.unknowns);
   const evidence = Object.values(cats).flatMap((c) => c.evidence);
 
+  // ── Assessment coverage — how much of the job we could actually assess.
+  //    Never alters the score; a sparse JD honestly shows LOW coverage. ──
+  const explicitSignals = [
+    reqs.requiredSkills.length > 0,
+    reqs.preferredSkills.length > 0,
+    reqs.minYears !== undefined,
+    reqs.education !== undefined,
+    reqs.authorization !== undefined,
+    reqs.compensation?.explicit === true,
+    reqs.workMode !== undefined,
+    !!reqs.location,
+  ].filter(Boolean).length;
+  const applicableCount = Object.values(cats).filter((c) => c.max > 0).length;
+  const confidence: FitResult['assessmentCoverage']['confidence'] =
+    explicitSignals >= 5 ? 'high' : explicitSignals >= 3 ? 'medium' : 'low';
+
   return {
     version: FIT_ENGINE_VERSION,
     jobId: job.id,
@@ -356,5 +452,11 @@ export function computeFit(
     unknowns,
     evidence,
     calculatedAt: new Date().toISOString(),
+    assessmentCoverage: {
+      applicableCategories: applicableCount,
+      totalCategories: Object.keys(cats).length,
+      extractedRequirements: explicitSignals,
+      confidence,
+    },
   };
 }
