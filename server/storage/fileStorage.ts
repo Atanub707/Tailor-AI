@@ -922,6 +922,18 @@ export function getAllJobs(): Job[] {
   }));
 }
 
+/** Durable user-job ids for a user — for ATS-originated jobs these ARE
+ *  provider fingerprints (toDurableJob sets id = fingerprint), which makes
+ *  them the durable "already discovered" identity for search exclusion. */
+export function getUserJobFingerprints(userId: string): Set<string> {
+  try {
+    const rows = getDb().prepare('SELECT id FROM jobs WHERE user_id = ?').all(userId) as { id: string }[];
+    return new Set(rows.map((r) => r.id));
+  } catch {
+    return new Set();
+  }
+}
+
 export function saveNewJobs(newJobs: Job[]): { added: Job[]; skipped: number; newContacts: HrContact[] } {
   const userId = getCurrentUserId();
   if (!userId) return { added: [], skipped: 0, newContacts: [] };

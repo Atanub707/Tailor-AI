@@ -8,7 +8,7 @@
 //   top-up for shortage → return LIMIT → store short-TTL candidates.
 //   User-interacted candidates are promoted to durable jobs by the caller.
 
-import { getDb, runWithUser, getCurrentUserId } from '../storage/fileStorage.js';
+import { getDb, runWithUser, getCurrentUserId, getUserJobFingerprints } from '../storage/fileStorage.js';
 import { canonicalQueryFp, getOrCreateSearch, linkJobsToSearch } from '../storage/v2Tables.js';
 import { evaluateRelevance, type MatchTier } from './relevance.js';
 import { rankRelevant } from './rank.js';
@@ -33,6 +33,8 @@ export interface OrchestratorResult {
   returnedCount: number;
   jobs: NormalizedJob[];
   providers: ProviderCall[];
+  /** True when fewer NEW (unpersisted) relevant jobs remained than LIMIT. */
+  exhausted: boolean;
 }
 
 const TIER_ORDER: Record<MatchTier, number> = {
@@ -65,11 +67,17 @@ export async function runV2Search(
   const searchId = getOrCreateSearch(userId, params.keywords, params.location, params.postedWindow || 'all', params.source, params.source);
   const providerCalls: ProviderCall[] = [];
 
-  // ── Step 1: cache ──
-  let cached = getCachedCandidates(userId, queryFp);
+  // Durable "already discovered" identity: everything already persisted into
+  // the user's jobs workflow. These are EXCLUDED from the requested LIMIT —
+  // LIMIT means "up to N NEW relevant jobs", so the pipeline keeps scanning
+  // past already-added jobs until the pool is genuinely exhausted.
+  const existing = getUserJobFingerprints(userId);
+
+  // ── Step 1: cache (only unpersisted entries count as a usable hit) ──
+  let cached = getCachedCandidates(userId, queryFp).filter((c) => !existing.has(c.fingerprint));
   let cacheHit = cached.length >= params.limit;
 
-  // ── Step 2: top-up from providers until we have >= LIMIT (or exhausted) ──
+  // ── Step 2: top-up from providers until we have >= LIMIT NEW (or pool done) ──
   let candidates: CachedCandidate[] = [...cached];
   const seen = new Set(candidates.map((c) => c.fingerprint));
 
@@ -106,8 +114,9 @@ export async function runV2Search(
     }
   }
 
-  // ── Step 3: rank (relevance DESC → tier → freshness → tie-breaker) ──
-  const ranked = [...candidates].sort((a, b) => {
+  // ── Step 3: rank the FULL pool, then exclude already-persisted jobs and
+  // keep filling until LIMIT NEW jobs are collected or the pool is done. ──
+  const rankedFull = [...candidates].sort((a, b) => {
     const sa = b.relevanceScore - a.relevanceScore;
     if (sa !== 0) return sa;
     const ta = TIER_ORDER[(a.matchType as MatchTier) || 'related'];
@@ -117,7 +126,10 @@ export async function runV2Search(
     const db = b.job.postedDate ? new Date(b.job.postedDate).getTime() : 0;
     if (db !== da) return db - da;
     return `${a.job.company}|${a.job.title}`.localeCompare(`${b.job.company}|${b.job.title}`);
-  }).slice(0, params.limit);
+  });
+  const rankedNew = rankedFull.filter((c) => !existing.has(c.fingerprint));
+  const ranked = rankedNew.slice(0, params.limit);
+  const exhausted = rankedNew.length < params.limit;
 
   // ── Step 4: store candidates (short TTL) + link to search context ──
   storeCandidates(userId, queryFp, ranked);
@@ -131,6 +143,7 @@ export async function runV2Search(
     returnedCount: ranked.length,
     jobs: ranked.map((c) => c.job),
     providers: providerCalls,
+    exhausted,
   };
 }
 

@@ -304,7 +304,7 @@ export default function App() {
             cacheHit: data.cacheHit === true,
           };
         }
-        return { scrapedTotal: data.scrapedTotal || 0, addedCount: data.addedCount || 0, skippedDuplicates: data.skippedDuplicates || 0, filteredOutCount: data.filteredOutCount || 0, skippedSources: data.skippedSources || [], newContacts: data.newContacts || [] };
+        return { scrapedTotal: data.scrapedTotal || 0, addedCount: data.addedCount || 0, skippedDuplicates: data.skippedDuplicates || 0, filteredOutCount: data.filteredOutCount || 0, skippedSources: data.skippedSources || [], newContacts: data.newContacts || [], exhausted: data.exhausted === true };
       } else {
         const err = await res.json();
         alert(`Scrape error: ${err.error}`);
