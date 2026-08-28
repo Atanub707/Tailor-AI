@@ -82,6 +82,7 @@ describe('LinkedInPostsScraper', () => {
 
   it('does NOT call the Apify actor when the free engine is selected (default)', async () => {
     mockConfig();
+    setScraperPause(0); // mirrors every other free-engine test: no polite-pause waits in mocks
     vi.mocked(globalThis.fetch).mockResolvedValue({
       ok: true,
       status: 200,

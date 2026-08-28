@@ -315,3 +315,28 @@ export async function scrapeDirectAts(
   void keywords;
   return results.flat();
 }
+
+/**
+ * Fetch ONE board fully (all currently-open jobs) for the background indexer.
+ * Unlike scrapeDirectAts (capped, request-driven, failure-tolerant), this
+ * THROWS on failure so the indexer can record board-refresh state honestly —
+ * a failed fetch must never be treated as "board has no jobs".
+ */
+export async function fetchAtsBoard(
+  source: string,
+  platform: string,
+  slug: string,
+  companyName: string,
+  timeoutMs = 15000
+): Promise<Job[]> {
+  const fns = { greenhouse: ghJob, lever: leverJob, ashby: ashbyJob, smartrecruiters: srJob };
+  const fn = fns[platform as keyof typeof fns];
+  if (!fn) return [];
+  const url = boardUrl(platform, slug);
+  const data = await fetchJson(url, timeoutMs);
+  const raw = platform === 'smartrecruiters' ? data.content : platform === 'ashby' ? data.jobs : data.jobs || data;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((j: any) => fn(j, companyName, platform))
+    .filter((j: Job | null): j is Job => !!j);
+}

@@ -435,6 +435,25 @@ async function startServer() {
   ensureV2Tables();
   seedCompanyCareerSites();
 
+  // Local ATS index (flag-gated): schema + in-process background ingestion.
+  // The scheduler tick is async and never blocks startup or HTTP requests;
+  // the index lives on the persistent ./data volume and survives restarts.
+  {
+    const { ATS_FLAGS } = await import('./server/providers/providerRegistry.js');
+    if (ATS_FLAGS.ENABLE_LOCAL_ATS_INDEX) {
+      const { ensureAtsIndexSchema } = await import('./server/ats-index/atsRepository.js');
+      const { createAtsScheduler } = await import('./server/ats-index/atsScheduler.js');
+      ensureAtsIndexSchema();
+      const platforms = (process.env.ATS_INDEX_PLATFORMS ?? 'greenhouse')
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter((s) => s === 'greenhouse' || s === 'lever' || s === 'ashby');
+      const schedulers = platforms.map((p) => createAtsScheduler(p));
+      for (const s of schedulers) s.start();
+      console.log(`[ATS Index] local ATS index enabled (platforms: ${platforms.join(', ')})`);
+    }
+  }
+
   const seedUser = (getDb().prepare('SELECT id FROM users ORDER BY is_guest ASC, created_at ASC LIMIT 1').get() as any)?.id as string | undefined;
   if (seedUser) {
     runWithUser(seedUser, () => {
@@ -1399,6 +1418,29 @@ Return valid JSON only — NO markdown, NO code fences:
   });
 
   // Scrape Jobs
+  // ATS index status — lets the UI honestly say "building index" instead of
+  // "no jobs found" during bootstrapping.
+  app.get('/api/ats-index/status', async (_req, res) => {
+    try {
+      const { ATS_FLAGS } = await import('./server/providers/providerRegistry.js');
+      if (!ATS_FLAGS.ENABLE_LOCAL_ATS_INDEX) {
+        res.json({ enabled: false, platforms: {} });
+        return;
+      }
+      const { boardRefreshStats } = await import('./server/ats-index/atsRepository.js');
+      const platforms = ((process.env.ATS_INDEX_PLATFORMS ?? 'greenhouse') as string)
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter((s) => s === 'greenhouse' || s === 'lever' || s === 'ashby');
+      const { isAtsCycleRunning } = await import('./server/ats-index/atsScheduler.js');
+      const out: Record<string, unknown> = {};
+      for (const p of platforms) out[p] = { ...boardRefreshStats(p), refreshInProgress: isAtsCycleRunning() };
+      res.json({ enabled: true, platforms: out });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'status failed' });
+    }
+  });
+
   app.post('/api/jobs/scrape', async (req, res) => {
     try {
       const { keywords, location, sources, datePostedFilter, jobType, minSalary, maxJobsPerSource, jobTitle, contractType, experienceLevel, under10Applicants } = req.body;
@@ -1422,8 +1464,9 @@ Return valid JSON only — NO markdown, NO code fences:
       const wantUnder10 = under10Applicants === true;
 
       // Local ATS index path (flag-gated): route the search through the
-      // neutral V2 pipeline — the selected ATS provider fetches + normalizes
-      // (no profession logic), the orchestrator applies date/location/
+      // neutral V2 pipeline. With the index enabled, Greenhouse searches
+      // read the LOCAL index (zero network — the indexer has already
+      // collected market data); the orchestrator applies date/location/
       // relevance constraints, ranks, dedupes, and caps at LIMIT. Only
       // survivors (relevance > 0) are persisted. Single-source is mandatory:
       // exactly the selected ATS is queried — never a silent fallback to
@@ -1433,10 +1476,16 @@ Return valid JSON only — NO markdown, NO code fences:
       const { greenhouseProvider } = await import('./server/providers/greenhouseProvider.js');
       const { leverProvider } = await import('./server/providers/leverProvider.js');
       const { ashbyProvider } = await import('./server/providers/ashbyProvider.js');
+      const { greenhouseIndexProvider } = await import('./server/providers/greenhouseIndexProvider.js');
       const { toDurableJob } = await import('./server/providers/atsProviderShared.js');
-      const atsProviders = { Greenhouse: greenhouseProvider, Lever: leverProvider, Ashby: ashbyProvider } as const;
+      // Index-backed providers (searched from ats_jobs); the others stay
+      // network-backed until their ingestion phases land.
+      const indexProviders: Partial<Record<string, import('./server/providers/types.js').JobSearchProvider>> = {
+        Greenhouse: greenhouseIndexProvider,
+      };
+      const networkProviders = { Greenhouse: greenhouseProvider, Lever: leverProvider, Ashby: ashbyProvider } as const;
       if (ATS_FLAGS.ENABLE_LOCAL_ATS_INDEX && sources.length === 1) {
-        const selectedProvider = atsProviders[sources[0] as keyof typeof atsProviders];
+        const selectedProvider = indexProviders[sources[0]] ?? networkProviders[sources[0] as keyof typeof networkProviders];
         if (selectedProvider) {
           const { runV2Search } = await import('./server/search/searchOrchestrator.js');
           const userLimit = Math.min(maxJobsPerSource ? Number(maxJobsPerSource) : 15, 50);
@@ -1460,6 +1509,27 @@ Return valid JSON only — NO markdown, NO code fences:
           // guard (score 0 candidates never reach this point). saveNewJobs
           // dedupes by fingerprint, so repeated searches never duplicate.
           const { added, skipped } = persistJobsWithUpgrade(result.jobs.map(toDurableJob));
+          // Index-state honesty for the UI: an empty/incomplete index is
+          // "building", never "no jobs exist".
+          let indexState = {};
+          if (sources[0] === 'Greenhouse') {
+            const { boardRefreshStats } = await import('./server/ats-index/atsRepository.js');
+            const st = boardRefreshStats('greenhouse');
+            const { isAtsCycleRunning } = await import('./server/ats-index/atsScheduler.js');
+            // Honest coverage semantics: `indexReady` = search can return
+            // data; `indexState`/`coveragePercent` say HOW complete the
+            // ingestion is (4,000 jobs != 6,032 boards).
+            indexState = {
+              indexReady: st.boardsSynced > 0 && st.activeJobs > 0,
+              indexState: st.indexState,
+              coveragePercent: st.coveragePercent,
+              indexedJobs: st.activeJobs,
+              boardsSynced: st.boardsSynced,
+              boardsTotal: st.boardsTotal,
+              lastRefresh: st.lastRefreshAt,
+              refreshInProgress: isAtsCycleRunning(),
+            };
+          }
           res.json({
             success: true,
             searchId: result.searchId,
@@ -1472,6 +1542,7 @@ Return valid JSON only — NO markdown, NO code fences:
             newContacts: [],
             isAtsIndex: true,
             cacheHit: result.cacheHit,
+            ...indexState,
           });
           return;
         }
