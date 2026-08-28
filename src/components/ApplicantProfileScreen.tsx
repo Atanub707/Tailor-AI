@@ -259,6 +259,8 @@ export const ApplicantProfileScreen: React.FC<ApplicantProfileScreenProps> = ({ 
             <Field label="Target salary" type="number" value={p.preferences.targetSalary !== undefined ? String(p.preferences.targetSalary) : ''} onChange={(v) => update((x) => ({ ...x, preferences: { ...x.preferences, targetSalary: v === '' ? undefined : Number(v) } }))} />
             <Field label="Salary currency" value={p.preferences.salaryCurrency} onChange={(v) => update((x) => ({ ...x, preferences: { ...x.preferences, salaryCurrency: v } }))} />
             <Field label="Notice period" value={p.preferences.noticePeriod} onChange={(v) => update((x) => ({ ...x, preferences: { ...x.preferences, noticePeriod: v } }))} />
+            <Field label="Current salary" type="number" value={p.preferences.currentSalary !== undefined ? String(p.preferences.currentSalary) : ''} onChange={(v) => update((x) => ({ ...x, preferences: { ...x.preferences, currentSalary: v === '' ? undefined : Number(v) } }))} />
+            <Field label="Earliest start date (YYYY-MM-DD)" value={p.preferences.earliestStartDate} onChange={(v) => update((x) => ({ ...x, preferences: { ...x.preferences, earliestStartDate: v } }))} />
           </div>
         </Section>
 
@@ -325,13 +327,10 @@ export const ApplicantProfileScreen: React.FC<ApplicantProfileScreenProps> = ({ 
           <button type="button" className="text-xs font-bold px-3 py-2 rounded-lg border border-[var(--color-border)] text-[var(--color-ink)] hover:bg-white" onClick={() => update((x) => ({ ...x, certifications: [...x.certifications, { name: '' }] }))}>+ Add certification</button>
         </Section>
 
-        <Section title="Application Defaults">
+        <Section title="Application Defaults" hint="Reusable answers only — structured facts live in their canonical section.">
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Expected salary" type="number" value={p.applicationDefaults.expectedSalary !== undefined ? String(p.applicationDefaults.expectedSalary) : ''} onChange={(v) => update((x) => ({ ...x, applicationDefaults: { ...x.applicationDefaults, expectedSalary: v === '' ? undefined : Number(v) } }))} />
-            <Field label="Current salary (optional)" type="number" value={p.applicationDefaults.currentSalary !== undefined ? String(p.applicationDefaults.currentSalary) : ''} onChange={(v) => update((x) => ({ ...x, applicationDefaults: { ...x.applicationDefaults, currentSalary: v === '' ? undefined : Number(v) } }))} />
-            <Field label="Salary currency" value={p.applicationDefaults.salaryCurrency} onChange={(v) => update((x) => ({ ...x, applicationDefaults: { ...x.applicationDefaults, salaryCurrency: v } }))} />
-            <Field label="Years of experience" type="number" value={p.applicationDefaults.yearsOfExperience !== undefined ? String(p.applicationDefaults.yearsOfExperience) : ''} onChange={(v) => update((x) => ({ ...x, applicationDefaults: { ...x.applicationDefaults, yearsOfExperience: v === '' ? undefined : Number(v) } }))} />
             <Field label="Reason for change" value={p.applicationDefaults.reasonForChange} onChange={(v) => update((x) => ({ ...x, applicationDefaults: { ...x.applicationDefaults, reasonForChange: v } }))} />
+            <Field label="Generic why interested" value={p.applicationDefaults.whyInterestedDefault} onChange={(v) => update((x) => ({ ...x, applicationDefaults: { ...x.applicationDefaults, whyInterestedDefault: v } }))} />
             <Field label="Preferred contact method" value={p.applicationDefaults.preferredContactMethod} onChange={(v) => update((x) => ({ ...x, applicationDefaults: { ...x.applicationDefaults, preferredContactMethod: v } }))} />
           </div>
         </Section>

@@ -252,6 +252,7 @@ export interface ApplicantProfile {
     preferredEmploymentTypes?: string[];
     minimumSalary?: number;
     targetSalary?: number;
+    currentSalary?: number;
     salaryCurrency?: string;
     salaryPeriod?: 'year' | 'month' | 'hour' | 'unknown';
     noticePeriod?: string;
@@ -266,18 +267,12 @@ export interface ApplicantProfile {
   education: ProfileEducation[];
   skills: ProfileSkill[];
   certifications: ProfileCertification[];
+  // APPLICATION DEFAULTS: reusable free-text answers ONLY. Structured
+  // facts live in exactly one canonical field elsewhere (preferences /
+  // locationPrefs / workAuthorization) — never duplicated here.
   applicationDefaults: {
-    noticePeriod?: string;
-    expectedSalary?: number;
-    currentSalary?: number;
-    salaryCurrency?: string;
-    willingToRelocate?: TriState;
-    workAuthorization?: string;
-    sponsorship?: string;
-    yearsOfExperience?: number;
     reasonForChange?: string;
     whyInterestedDefault?: string;
-    availableStartDate?: string;
     preferredContactMethod?: string;
   };
   optionalSensitive: {

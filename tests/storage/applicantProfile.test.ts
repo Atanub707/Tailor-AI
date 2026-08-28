@@ -18,6 +18,7 @@ const {
   validateApplicantProfile,
   parseCvDate,
   isCvDateCurrent,
+  ensureApplicantProfileSchema,
   PROFILE_VERSION,
 } = await import('../../server/storage/applicantProfile.js');
 const { importMasterCvIntoProfile } = await import('../../server/profile/cvImporter.js');
@@ -125,7 +126,7 @@ describe('Applicant Profile v1', () => {
   it('full profile persists: experience, education, skills, certifications, preferences, work auth, sensitive', () => {
     const p = defaultApplicantProfile();
     p.workAuthorization = { country: 'India', authorizedToWork: 'yes', requiresSponsorship: 'no' };
-    p.preferences = { desiredTitles: ['DevSecOps Engineer'], minimumSalary: 3000000, salaryCurrency: 'INR' };
+    p.preferences = { desiredTitles: ['DevSecOps Engineer'], minimumSalary: 3000000, targetSalary: 3500000, currentSalary: 2800000, salaryCurrency: 'INR', salaryPeriod: 'year', noticePeriod: '30 days', earliestStartDate: '2026-10' };
     p.experience = [{ company: 'Acme', title: 'Platform Engineer', startDate: '2020-01', endDate: '2023-06', source: 'manual' }];
     p.education = [{ institution: 'IIT', degree: 'B.Tech' }];
     p.skills = [{ name: 'Kubernetes', source: 'manual' }];
@@ -241,6 +242,98 @@ describe('Applicant Profile v1', () => {
     expect(parseCvDate('unknown')).toBeUndefined();
     expect(isCvDateCurrent('Jan 2020 – Present')).toBe(true);
     expect(isCvDateCurrent('2016 – 2019')).toBe(false);
+  });
+
+  it('canonical shape: structured facts live in exactly ONE field', () => {
+    const p = defaultApplicantProfile();
+    p.preferences = { noticePeriod: '30 days', currentSalary: 200000, minimumSalary: 150000, targetSalary: 250000, salaryCurrency: 'INR', salaryPeriod: 'year', earliestStartDate: '2026-11' };
+    p.locationPrefs = { willingToRelocate: 'yes', remotePreference: 'hybrid' };
+    p.workAuthorization = { authorizedToWork: 'yes', requiresSponsorship: 'no', visaType: 'H1B', validUntil: '2027-01' };
+    expect(validateApplicantProfile(p).ok).toBe(true);
+    inUser(() => saveApplicantProfile(p));
+    const loaded = inUser(() => getApplicantProfile());
+    expect(loaded.preferences.noticePeriod).toBe('30 days');
+    expect(loaded.preferences.currentSalary).toBe(200000);
+    expect(loaded.preferences.minimumSalary).toBe(150000);
+    expect(loaded.preferences.targetSalary).toBe(250000);
+    expect(loaded.preferences.salaryCurrency).toBe('INR');
+    expect(loaded.preferences.salaryPeriod).toBe('year');
+    expect(loaded.preferences.earliestStartDate).toBe('2026-11');
+    expect(loaded.locationPrefs.willingToRelocate).toBe('yes');
+    expect(loaded.locationPrefs.remotePreference).toBe('hybrid');
+    expect(loaded.workAuthorization.authorizedToWork).toBe('yes');
+    expect(loaded.workAuthorization.requiresSponsorship).toBe('no');
+    expect(loaded.workAuthorization.visaType).toBe('H1B');
+    // applicationDefaults contains NO structured duplicates
+    expect(loaded.applicationDefaults).toEqual({ reasonForChange: undefined, whyInterestedDefault: undefined, preferredContactMethod: undefined });
+  });
+
+  it('legacy normalization: legacy duplicates migrate only into empty canonical slots', () => {
+    ensureApplicantProfileSchema();
+    const db = getDb();
+    const legacy = {
+      ...defaultApplicantProfile(),
+      preferences: { noticePeriod: '60 days' }, // canonical populated
+      applicationDefaults: {
+        noticePeriod: '15 days',                 // conflicts with canonical -> canonical wins
+        expectedSalary: 300000,                  // -> preferences.minimumSalary (canonical empty)
+        currentSalary: 250000,                   // -> preferences.currentSalary
+        salaryCurrency: 'USD',
+        willingToRelocate: 'depends',            // -> locationPrefs
+        workAuthorization: 'no',                 // -> workAuthorization.authorizedToWork
+        sponsorship: 'yes',                      // -> workAuthorization.requiresSponsorship
+        availableStartDate: '2027-03',           // -> preferences.earliestStartDate
+        yearsOfExperience: 7,                    // intentionally DROPPED (STEP 5)
+        reasonForChange: 'grow',
+        whyInterestedDefault: 'mission',
+        preferredContactMethod: 'email',
+      },
+    };
+    db.prepare('INSERT OR REPLACE INTO applicant_profile (user_id, data, version, updated_at) VALUES (?, ?, ?, ?)').run(USER, JSON.stringify(legacy), 1, new Date().toISOString());
+    const loaded = inUser(() => getApplicantProfile());
+    expect(loaded.preferences.noticePeriod).toBe('60 days'); // canonical wins
+    expect(loaded.preferences.minimumSalary).toBe(300000);   // legacy -> canonical
+    expect(loaded.preferences.currentSalary).toBe(250000);
+    expect(loaded.preferences.salaryCurrency).toBe('USD');
+    expect(loaded.preferences.earliestStartDate).toBe('2027-03');
+    expect(loaded.locationPrefs.willingToRelocate).toBe('depends');
+    expect(loaded.workAuthorization.authorizedToWork).toBe('no');
+    expect(loaded.workAuthorization.requiresSponsorship).toBe('yes');
+    expect((loaded as any).applicationDefaults.yearsOfExperience).toBeUndefined();
+    expect(loaded.applicationDefaults.reasonForChange).toBe('grow');
+    expect(loaded.applicationDefaults.whyInterestedDefault).toBe('mission');
+    expect(loaded.applicationDefaults.preferredContactMethod).toBe('email');
+    // no legacy keys survive
+    const raw = JSON.stringify(loaded);
+    for (const key of ['yearsOfExperience', 'expectedSalary', 'availableStartDate']) {
+      expect(raw).not.toContain(key);
+    }
+    // saving the canonical profile strips legacy remnants permanently
+    inUser(() => saveApplicantProfile(loaded));
+    const again = inUser(() => getApplicantProfile());
+    expect(again.preferences.noticePeriod).toBe('60 days');
+  });
+
+  it('PUT/GET/export return canonical shape only', () => {
+    const p = inUser(() => getApplicantProfile());
+    const keys = Object.keys(p.applicationDefaults);
+    expect(keys).toEqual(expect.arrayContaining(['reasonForChange', 'whyInterestedDefault', 'preferredContactMethod']));
+    expect(keys).not.toContain('noticePeriod');
+    expect(keys).not.toContain('expectedSalary');
+    expect(keys).not.toContain('yearsOfExperience');
+    expect(keys).not.toContain('availableStartDate');
+  });
+
+  it('master CV import never creates duplicate semantic fields', () => {
+    const cv = { fullName: 'Zoe', email: 'z@y.com', experiences: [], education: [], skills: [], certifications: [] } as any;
+    let p = defaultApplicantProfile();
+    p.preferences.noticePeriod = '30 days';
+    const merged = importMasterCvIntoProfile(p, cv);
+    expect((merged.applicationDefaults as any).noticePeriod).toBeUndefined();
+    expect(merged.preferences.noticePeriod).toBe('30 days');
+    // second import idempotent
+    const again = importMasterCvIntoProfile(merged, cv);
+    expect(JSON.stringify(again)).toBe(JSON.stringify(merged));
   });
 
   it('existing ATS data untouched by profile operations', () => {
