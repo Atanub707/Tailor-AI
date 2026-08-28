@@ -151,6 +151,59 @@ function JobFit({ jobId }: { jobId: string }) {
   );
 }
 
+
+// ── Tailor V2 — grounded tailoring with fact verification (self-contained) ──
+function JobTailorV2({ jobId }: { jobId: string }) {
+  const [state, setState] = React.useState<'idle' | 'tailoring' | 'verifying' | 'ready' | 'error'>('idle');
+  const [summary, setSummary] = React.useState('');
+  const [error, setError] = React.useState('');
+
+  const run = async () => {
+    setState('tailoring');
+    setError('');
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/tailor-v2`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Tailor V2 failed.');
+      }
+      const data = await res.json();
+      setState('verifying');
+      await new Promise((r) => setTimeout(r, 50));
+      if (!data.verification?.passed) throw new Error('Tailoring failed factual verification.');
+      setState('ready');
+      const v = data.verification;
+      setSummary(`Verification Passed · Supported JD coverage ${v.supportedJdTermsAfter}/${v.supportedJdTermsAfter + v.unsupportedInserted || 0} · Unsupported claims: ${v.unsupportedInserted} · v${data.version}`);
+    } catch (e: any) {
+      setState('error');
+      setError(String(e?.message || 'Tailor V2 failed.'));
+    }
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={run}
+        disabled={state === 'tailoring' || state === 'verifying'}
+        className="px-2.5 py-1.5 rounded-md text-xs font-medium bg-[var(--color-brand-soft)] hover:bg-white hover:border-[var(--color-brand-line)] text-[var(--color-ink)] border-[1.5px] border-[var(--color-brand-line)] transition-colors disabled:opacity-50"
+        title="Tailor V2 — grounded resume tailoring with factual verification"
+      >
+        {state === 'tailoring' ? 'Tailoring…' : state === 'verifying' ? 'Verifying…' : state === 'ready' ? 'Re-Tailor V2' : 'Tailor V2'}
+      </button>
+      {state === 'ready' && (
+        <div className="absolute right-0 top-10 z-30 w-72 rounded-xl border border-[var(--color-border)] bg-white shadow-lg p-4 text-left">
+          <div className="text-xs font-bold text-emerald-600">Tailored Resume · Verification Passed</div>
+          <div className="text-[10px] text-[var(--color-faint)] mt-1">{summary}</div>
+          <a href={`/api/jobs/${jobId}/tailor-v2/pdf`} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-bold px-3 py-1.5 rounded-lg bg-[var(--color-accent)] text-white hover:opacity-90">
+            Download PDF
+          </a>
+        </div>
+      )}
+      {state === 'error' && <span className="text-[10px] text-red-600 block">{error}</span>}
+    </div>
+  );
+}
+
 const JobCard = React.memo(function JobCard({
   job,
   scoreMsg,
@@ -389,6 +442,7 @@ const JobCard = React.memo(function JobCard({
 
           {/* Fit Engine — deterministic fit score */}
           <JobFit jobId={job.id} />
+          <JobTailorV2 jobId={job.id} />
 
           {/* Tailor CV */}
           <div className="relative group">

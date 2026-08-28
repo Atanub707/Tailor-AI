@@ -21,7 +21,7 @@ const PREFERRED_MARKERS = /\b(preferred|nice to have|bonus|plus|desirable|advant
 const REQUIRED_SKILL_RE = /(?:must|required|mandatory|essential|need|needs|minimum|at least|proficiency in|experience with|knowledge of|expertise in|skills? in)\s*[:,\-]?\s*([^;\n]{2,120})/gi;
 const PREFERRED_SKILL_RE = /(?:preferred|nice to have|bonus|plus|desirable|advantage|good to have)\b[^;\n]{0,30}?[:,\-]?\s*([^;\n]{2,120})/gi;
 
-const SKILL_TERMS = new Set([
+export const SKILL_TERMS = new Set([
   'kubernetes', 'k8s', 'docker', 'terraform', 'aws', 'azure', 'gcp', 'gke', 'eks', 'aks', 'ci/cd', 'cicd', 'gitlab',
   'github actions', 'jenkins', 'argo', 'helm', 'prometheus', 'grafana', 'datadog', 'linux', 'python', 'go', 'golang',
   'java', 'typescript', 'javascript', 'node', 'react', 'sql', 'postgres', 'mysql', 'mongodb', 'redis', 'kafka',
