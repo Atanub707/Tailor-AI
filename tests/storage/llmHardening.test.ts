@@ -38,10 +38,10 @@ describe('LLM hardening', () => {
   afterEach(() => { vi.restoreAllMocks(); });
   afterAll(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
 
-  it('centralized timeout is bounded and env-configurable (default 90s, measured against the live provider)', () => {
+  it('centralized timeout is bounded and env-configurable (default 120s, measured against the live provider)', () => {
     expect(llmRequestTimeoutMs()).toBe(5000);
     delete process.env.LLM_REQUEST_TIMEOUT_MS;
-    expect(llmRequestTimeoutMs()).toBe(90_000);
+    expect(llmRequestTimeoutMs()).toBe(120_000);
     process.env.LLM_REQUEST_TIMEOUT_MS = '5000';
     expect(Number.isFinite(llmRequestTimeoutMs())).toBe(true);
   });

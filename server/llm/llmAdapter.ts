@@ -6,13 +6,15 @@ import { PROVIDER_BASE_URLS } from '../../src/constants/llmPresets.js';
 import { normalizeLlmError, type LLMError } from './llmErrors.js';
 
 // ONE centralized bounded timeout for every outbound LLM request.
-// Env-configurable; default 90s — MEASURED against the live BYOK provider:
-// tiny probes complete instantly, but a realistic Tailor-scale prompt
-// (synthetic 3.5KB) exceeded 60s and even 90s on opencode.ai's router.
-// Still finite — an unreachable provider must never hang forever.
+// Env-configurable; default 120s — MEASURED against the live BYOK
+// provider, whose Tailor-scale latency is high-variance: one live
+// Re-Tailor completed at ~85s, a second hit the 90s budget (504), and a
+// synthetic 3.5KB prompt twice exceeded 90s — while tiny probes return in
+// 1-2s. 120s covers the observed variance with margin. Still finite — an
+// unreachable provider must never hang forever.
 export function llmRequestTimeoutMs(): number {
   const v = Number(process.env.LLM_REQUEST_TIMEOUT_MS);
-  return Number.isFinite(v) && v >= 1000 ? v : 90_000;
+  return Number.isFinite(v) && v >= 1000 ? v : 120_000;
 }
 
 function resolveApiKey(configuredKey: string): string | undefined {
