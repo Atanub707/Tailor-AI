@@ -351,6 +351,16 @@ function JobPrepareApplication({ jobId, packageId, packageStatus }: { jobId: str
   };
 
   const statusLabel: Record<string, string> = { NEEDS_INPUT: 'Needs Input', NEEDS_REVIEW: 'Needs Review', READY_TO_SUBMIT: 'Ready for Submission', UNSUPPORTED: 'Unsupported' };
+  const jobApplyUrlHref = preview?.inspection?.url || undefined;
+  const inspectionErrorText = (msg: string) => {
+    const k = msg.toLowerCase();
+    if (k.includes('challenge')) return 'Lever temporarily blocked form inspection. Try again later or open the application manually.';
+    if (k.includes('rate')) return 'Lever is limiting requests. Try again later.';
+    if (k.includes('not implemented')) return 'Provider inspection is not implemented yet. Open the application manually.';
+    if (k.includes('timeout') || k.includes('did not respond')) return 'Lever did not respond in time. Try again later.';
+    if (k.includes('form') || k.includes('understood') || k.includes('parse')) return 'This Lever application form could not be understood safely.';
+    return String(msg).slice(0, 160);
+  };
   const statusColor: Record<string, string> = { NEEDS_INPUT: 'text-amber-600', NEEDS_REVIEW: 'text-orange-600', READY_TO_SUBMIT: 'text-emerald-600', UNSUPPORTED: 'text-slate-500' };
 
   return (
@@ -363,7 +373,14 @@ function JobPrepareApplication({ jobId, packageId, packageStatus }: { jobId: str
       >
         {state === 'preparing' ? 'Preparing application…' : 'Prepare for Application'}
       </button>
-      {error && <span className="text-[10px] text-red-600 block">{error}</span>}
+      {error && (
+        <div className="mt-1 w-64 rounded-lg bg-red-50 border border-red-200 p-2 text-[10px] text-red-700">
+          <div>{inspectionErrorText(error)}</div>
+          <a href={jobApplyUrlHref ?? undefined} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-[10px] font-bold text-red-800 underline">
+            Open application on Lever
+          </a>
+        </div>
+      )}
       {preview && (
         <div className="absolute right-0 top-10 z-50 w-96 rounded-xl border border-[var(--color-border)] bg-white shadow-lg p-4 text-left max-h-[30rem] overflow-y-auto">
           <div className="flex items-baseline justify-between">
@@ -375,7 +392,8 @@ function JobPrepareApplication({ jobId, packageId, packageStatus }: { jobId: str
             <span>Fields: {preview.fieldCount}</span>
             <span>Required: {preview.requiredCount}</span>
             <span>Mapped: {preview.mappedFields.length}</span>
-            <span>Needs input: {preview.unresolved.length}</span>
+            <span>Needs input: {preview.requiredUnresolvedCount}</span>
+            <span>Optional: {preview.optionalUnresolvedCount}</span>
             <span>Needs review: {preview.consent.length + preview.eeoManual.length}</span>
             <span>Resume: {preview.resumeRequired ? 'Required' : 'Optional'}</span>
             <span>EEO: {preview.eeoPresent ? 'Present' : 'Not detected'}</span>

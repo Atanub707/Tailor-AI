@@ -158,6 +158,8 @@ export interface DryRunPreview {
   inspection: { adapter: string; version: string; inspectedAt: string; url: string } | null;
   fieldCount: number;
   requiredCount: number;
+  requiredUnresolvedCount: number;
+  optionalUnresolvedCount: number;
   resumeRequired: boolean;
   eeoPresent: boolean;
   consentPresent: boolean;
@@ -190,6 +192,8 @@ export function buildPreview(plan: SubmissionPlan, pkg: ApplicationPackage): Dry
       ? { adapter: plan.inspection.adapter, version: plan.inspection.version, inspectedAt: plan.inspection.inspectedAt, url: plan.inspection.url }
       : null,
     fieldCount: plan.mappedFields.length + plan.unresolvedDetails.length + plan.consentFields.length + plan.manualFields.length + plan.files.length,
+    requiredUnresolvedCount: plan.unresolvedDetails.filter((u) => u.required).length,
+    optionalUnresolvedCount: plan.unresolvedDetails.filter((u) => !u.required).length,
     requiredCount: plan.mappedFields.filter((m) => m.required).length + plan.unresolvedDetails.filter((u) => u.required).length + plan.consentFields.filter((c) => c.required).length + plan.manualFields.filter((m) => m.required).length,
     resumeRequired: plan.files.some((f) => f.kind === 'RESUME'),
     eeoPresent: plan.manualFields.some((m) => /EEO|manual|review/i.test(m.reason || '')),

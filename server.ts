@@ -2412,6 +2412,8 @@ function computePlanStatus(plan: { manualFields: unknown[]; consentFields: unkno
     return { pkg, artifactOk, adapter: new FixtureInspectionAdapter() };
   };
 
+  // Read-only plan preparation: package gate + live GET inspection (Lever)
+  // + deterministic mapping + dry-run preview. NEVER a submission path.
   app.post('/api/application-packages/:packageId/plan', async (req, res) => {
     try {
       const userId = getCurrentUserId();

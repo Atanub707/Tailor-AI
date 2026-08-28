@@ -65,11 +65,28 @@ async function assertSafeHost(url: string): Promise<string> {
   return u.toString();
 }
 
-const MAX_RESPONSE_BYTES = 2 * 1024 * 1024; // conservative upper bound
+const MAX_RESPONSE_BYTES = 2 * 1024 * 1024; // conservative upper bound (decompressed HTML)
 const INSPECTION_TIMEOUT_MS = 12_000;
 const MAX_REDIRECTS = 3;
+const MAX_TEMPLATE_BYTES = 200 * 1024;
+const MAX_LABEL_CHARS = 300;
+const MAX_OPTION_CHARS = 200;
+const CHALLENGE_MARKERS = [
+  'just a moment', 'checking your browser', 'verify you are human', 'attention required',
+  'cf-challenge', 'captcha', 'access denied', 'anti-automation', 'unusual traffic',
+];
 
-/** GET-only client — structurally rejects any mutating method. */
+/** Conservative challenge detection — only fires on explicit markers.
+ *  A generic malformed page without markers stays FORM_CHANGED. */
+export function isChallengePage(html: string): boolean {
+  const head = html.slice(0, 200_000).toLowerCase();
+  return CHALLENGE_MARKERS.some((m) => head.includes(m));
+}
+
+/** GET-only client — structurally rejects any mutating method. Bounded
+ *  streaming: bytes are counted while reading and the read aborts past the
+ *  cap (limit applies to the DECOMPRESSED HTML, since fetch auto-decodes
+ *  gzip/br/deflate). */
 export async function httpGetOnly(url: string, opts: { timeoutMs?: number; maxBytes?: number } = {}): Promise<{ finalUrl: string; contentType: string; html: string }> {
   let current = await assertSafeHost(url);
   const timeoutMs = opts.timeoutMs ?? INSPECTION_TIMEOUT_MS;
@@ -103,11 +120,23 @@ export async function httpGetOnly(url: string, opts: { timeoutMs?: number; maxBy
     if (!res.ok) throw new InspectionFailure('FORM_CHANGED', `Unexpected status ${res.status}.`);
     const contentType = String(res.headers.get('content-type') || '').toLowerCase();
     if (!contentType.includes('text/html')) throw new InspectionFailure('FORM_CHANGED', `Unexpected content type: ${contentType}`);
-    const contentLength = Number(res.headers.get('content-length') || 0);
-    if (contentLength > maxBytes) throw new InspectionFailure('FORM_CHANGED', 'Response exceeds size limit.');
-    const buf = await res.arrayBuffer();
-    if (buf.byteLength > maxBytes) throw new InspectionFailure('FORM_CHANGED', 'Response exceeds size limit.');
-    return { finalUrl: current, contentType, html: Buffer.from(buf).toString('utf8') };
+    // Bounded streaming read — aborts past maxBytes instead of buffering unbounded.
+    if (!res.body) throw new InspectionFailure('FORM_CHANGED', 'No response body.');
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw new InspectionFailure('FORM_CHANGED', 'Response exceeds size limit.');
+      }
+      chunks.push(value);
+    }
+    const buf = Buffer.concat(chunks, total);
+    return { finalUrl: current, contentType, html: buf.toString('utf8') };
   }
   throw new InspectionFailure('FORM_CHANGED', 'Too many redirects.');
 }
@@ -194,14 +223,21 @@ export function parseLeverForm(html: string): { fields: ApplicationField[]; prov
 
   // Custom questions: authoritative JSON template on the hidden baseTemplate
   const templateJson = form.find('input[name$="[baseTemplate]"]').first().attr('value');
+  let templateParsed = false;
   if (templateJson) {
+    if (templateJson.length > MAX_TEMPLATE_BYTES) throw new InspectionFailure('FORM_CHANGED', 'Embedded question template exceeds size limit.');
     // Real Lever pages entity-encode the embedded JSON (&quot; etc.)
     const decoded = templateJson.replace(/&quot;/g, '"').replace(/&#34;/g, '"').replace(/&#123;/g, '{').replace(/&#125;/g, '}').replace(/&amp;/g, '&');
     const jsonText = decoded;
     try {
-      const template = JSON.parse(jsonText);
-      const cardId = template.id || 'card';
-      for (const q of template.fields || []) {
+      const template = JSON.parse(jsonText); // JSON.parse only — no eval/Function ever
+      if (template === null || typeof template !== 'object' || Array.isArray(template)) throw new Error('invalid template shape');
+      templateParsed = true;
+      // Explicit field extraction only — provider JSON is untrusted; never
+      // merge objects (blocks __proto__/constructor/prototype pollution).
+      const cardId = typeof template.id === 'string' && template.id ? template.id : 'card';
+      for (const q of (Array.isArray(template.fields) ? template.fields : [])) {
+        if (q === null || typeof q !== 'object' || Array.isArray(q)) continue;
         const type = String(q.type || '').toLowerCase();
         const fType: FieldType =
           type === 'textarea' ? 'TEXTAREA' :
@@ -211,7 +247,7 @@ export function parseLeverForm(html: string): { fields: ApplicationField[]; prov
           type === 'number' ? 'NUMBER' :
           type === 'date' ? 'DATE' :
           type === 'boolean' ? 'SINGLE_SELECT' : 'TEXT';
-        const label = cleanLabel(q.text || 'Unknown question');
+        const label = cleanLabel(String(q.text || 'Unknown question')).slice(0, MAX_LABEL_CHARS);
         const fieldId = `cards[${cardId}][field${template.fields.indexOf(q)}]`;
         const category = classifyCategory(label);
         if (category === 'CONSENT') {
@@ -224,20 +260,21 @@ export function parseLeverForm(html: string): { fields: ApplicationField[]; prov
           label,
           type: fType,
           required: !!q.required,
-          options: (q.options || []).map((o: any) => String(o.text || o.optionId || '')),
+          options: (Array.isArray(q.options) ? q.options : []).map((o: any) => (o && typeof o === 'object' ? String(o.text || o.optionId || '') : String(o)).slice(0, MAX_OPTION_CHARS)),
           category,
         });
       }
     } catch {
-      // template JSON malformed — fall back to rendered field markup
+      // template JSON malformed — fall back to rendered field markup below
     }
-  } else {
+  }
+  if (!templateParsed) {
     // fallback: rendered card inputs
     form.find('input[name^="cards["], select[name^="cards["], textarea[name^="cards["]').each((_, el) => {
       const $el = $(el);
       const name = $el.attr('name') || '';
       if (name.endsWith('baseTemplate]')) return;
-      const label = cleanLabel($el.closest('.card-field, .application-form-field').find('label').first().text() || name);
+      const label = cleanLabel($el.closest('.card-field, .application-form-field').find('label').first().text() || name).slice(0, MAX_LABEL_CHARS);
       const required = $el.attr('required') !== undefined || $el.attr('aria-required') === 'true';
       const type = fieldTypeFrom($el.attr('type'), name);
       const category = classifyCategory(label);
@@ -271,9 +308,23 @@ export function parseLeverForm(html: string): { fields: ApplicationField[]; prov
 
 // ── Adapter ──────────────────────────────────────────────────────────────
 
+/** Anti-burst state (in-process only): single-flight map + short success
+ *  reuse. Keyed by exact normalized target; normalized requirements only;
+ *  no applicant data; no raw HTML; never persisted; failures never cached. */
+const inspectInFlight = new Map<string, Promise<ApplicationRequirements>>();
+const inspectRecent = new Map<string, { reqs: ApplicationRequirements; at: number }>();
+export const LEVER_COOLDOWN_MS = 4000;
+
+/** Test/dev hook: clears anti-burst state. Never used in production paths. */
+export function resetInspectionState(): void {
+  inspectInFlight.clear();
+  inspectRecent.clear();
+}
+
 export class LeverInspectionAdapter implements ApplicationInspectionAdapter {
   readonly provider: Provider = 'lever';
   readonly version = LEVER_INSPECTOR_VERSION;
+  constructor(public readonly cooldownMs: number = LEVER_COOLDOWN_MS) {}
 
   detect(target: ApplicationTarget): DetectionResult {
     const d = detectProvider(undefined, target.applyUrl, target.jobUrl);
@@ -283,15 +334,49 @@ export class LeverInspectionAdapter implements ApplicationInspectionAdapter {
   async inspect(target: ApplicationTarget): Promise<ApplicationRequirements> {
     const url = target.applyUrl;
     if (!url) throw new InspectionFailure('INVALID_TARGET', 'No apply URL for Lever inspection.');
+    return this.inspectWithBoundary(url, target);
+  }
+
+  async inspectWithBoundary(url: string, identity: ApplicationTarget | undefined): Promise<ApplicationRequirements> {
+    // Anti-burst: single-flight + short reuse, keyed by exact normalized target.
+    const key = String(url).replace(/\/+$/, '').toLowerCase();
+    const inFlight = inspectInFlight.get(key);
+    if (inFlight) return inFlight;
+    const recent = inspectRecent.get(key);
+    if (recent && Date.now() - recent.at < this.cooldownMs) return recent.reqs;
+    const promise = this.doTargetInspect(url, identity);
+    inspectInFlight.set(key, promise);
+    try {
+      const reqs = await promise;
+      inspectRecent.set(key, { reqs, at: Date.now() });
+      inspectInFlight.delete(key);
+      return reqs;
+    } catch (err) {
+      inspectInFlight.delete(key); // failed request never poisons the map
+      throw err;
+    }
+  }
+
+  private async doTargetInspect(url: string, identity?: ApplicationTarget): Promise<ApplicationRequirements> {
     // Ensure the URL is the apply form (not the job page)
     const targetUrl = url.includes('/apply') ? url : `${url.replace(/\/+$/, '')}/apply`;
     const { html, finalUrl } = await httpGetOnly(targetUrl);
+    if (isChallengePage(html)) {
+      // No form + explicit challenge markers → provider challenge, NOT a form change.
+      throw new InspectionFailure('PROVIDER_CHALLENGE', 'LEVER_CHALLENGE_PAGE: Lever served an anti-automation challenge page.');
+    }
     const parsed = parseLeverForm(html);
     const hostname = new URL(finalUrl).hostname.toLowerCase();
     const fp = requirementsFingerprint(this.provider, hostname, parsed.fields);
     return {
       provider: this.provider,
-      target: { ...target, hostname, redirectKind: classifyTarget(finalUrl, 'lever') },
+      target: {
+        ...(identity ?? {}),
+        provider: 'lever', applyUrl: url, jobUrl: url, hostname,
+        redirectKind: classifyTarget(finalUrl, 'lever'),
+        externalJobId: identity?.externalJobId ?? url.split('/').filter(Boolean).pop() ?? '',
+        company: identity?.company ?? '', title: identity?.title ?? '',
+      },
       fields: parsed.fields,
       discoveredAt: new Date().toISOString(),
       fingerprint: fp,

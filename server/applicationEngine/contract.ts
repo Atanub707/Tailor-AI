@@ -113,6 +113,13 @@ const HOST_PROVIDERS: Array<{ host: string; provider: Provider }> = [
   { host: 'jobs.ashbyhq.com', provider: 'ashby' },
 ];
 
+/** Explicit provider capability matrix. NO provider is submission-capable. */
+export const INSPECTION_SUPPORT: Record<string, string> = {
+  lever: 'READ_ONLY_INSPECTION_SUPPORTED',
+  greenhouse: 'INSPECTION_NOT_IMPLEMENTED',
+  ashby: 'INSPECTION_NOT_IMPLEMENTED',
+};
+
 /** Provider detection from hostname + platform signal (confidence-aware). */
 export function detectProvider(platform: string | undefined, applyUrl: string | undefined, jobUrl: string | undefined): DetectionResult {
   const hosts = [applyUrl, jobUrl].filter(Boolean).map((u) => String(u).replace(/^https?:\/\//, '').split('/')[0].toLowerCase());
