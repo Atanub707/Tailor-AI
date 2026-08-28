@@ -19,7 +19,7 @@ interface ScraperBarProps {
     contractType?: string;
     experienceLevel?: string;
     under10Applicants?: boolean;
-  }) => Promise<{ scrapedTotal: number; addedCount: number; skippedDuplicates: number; filteredOutCount?: number; skippedSources?: { source: string; reason: string }[]; newContacts?: { name: string | null; email: string | null; phone: string | null; whatsapp: boolean; recruiterUrl: string | null; company: string }[] } | void>;
+  }) => Promise<{ scrapedTotal: number; addedCount: number; skippedDuplicates: number; filteredOutCount?: number; skippedSources?: { source: string; reason: string }[]; newContacts?: { name: string | null; email: string | null; phone: string | null; whatsapp: boolean; recruiterUrl: string | null; company: string }[]; exhausted?: boolean } | void>;
   isLoading: boolean;
   apifyAvailable?: boolean; // Apify enabled + token saved — lights up Apify-only sources
 }
@@ -86,7 +86,9 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
       under10Applicants,
     });
 
-    if (result && result.scrapedTotal > 0) {
+    if (result && result.exhausted && result.scrapedTotal === 0) {
+      setScrapeSuccessMsg("No new matching jobs found. You've already added all currently matching jobs.");
+    } else if (result && result.scrapedTotal > 0) {
       const filterNote = result.filteredOutCount && result.filteredOutCount > 0
         ? ` (${result.filteredOutCount} filtered out — over 10 applicants)`
         : '';

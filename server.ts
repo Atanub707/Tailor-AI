@@ -1615,6 +1615,7 @@ Return valid JSON only — NO markdown, NO code fences:
             newContacts: [],
             isAtsIndex: true,
             cacheHit: result.cacheHit,
+            exhausted: result.exhausted,
             ...indexState,
           });
           return;
