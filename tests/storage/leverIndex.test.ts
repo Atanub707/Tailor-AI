@@ -131,7 +131,7 @@ describe('Lever local index', () => {
   it('provider registry routes Lever to local_index', () => {
     expect(atsProviderMode('Lever', true)).toBe('local_index');
     expect(atsProviderMode('Greenhouse', true)).toBe('local_index');
-    expect(atsProviderMode('Ashby', true)).toBe('network');
+    expect(atsProviderMode('Ashby', true)).toBe('local_index');
   });
 
   it('failed lever fetch never deactivates jobs (grace model)', () => {
