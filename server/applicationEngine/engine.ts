@@ -5,7 +5,8 @@
 
 import type { ApplicationPackage } from '../applicationPackage/packageModel.js';
 import type { ApplicationInspectionAdapter } from './fixtureAdapter.js';
-import { targetFromJob } from './fixtureAdapter.js';
+import { targetFromJob, FixtureInspectionAdapter } from './fixtureAdapter.js';
+import { LeverInspectionAdapter, InspectionFailure } from './leverInspector.js';
 import { mapRequirements } from './mapper.js';
 import {
   createPlanId, getLatestPlanForPackage, getPlanById, nextPlanRevision, planFingerprint, storePlan,
@@ -37,8 +38,23 @@ export interface PlanCreateInput {
   userId: string;
   pkg: ApplicationPackage;
   job: { atsPlatform?: string; applyUrl?: string; jobUrl?: string; url?: string; company?: string; title?: string; externalId?: string };
-  adapter: ApplicationInspectionAdapter;
+  adapter?: ApplicationInspectionAdapter;   // explicit injection (tests/dev fixtures)
+  mode?: 'production' | 'fixture';          // fixture REQUIRES explicit adapter
   artifactOk: boolean;
+}
+
+/**
+ * Adapter selection uses the RESOLVED TARGET PROVIDER — never the original
+ * index source. Production: Lever target → real Lever inspector; anything
+ * else → INSPECTION_NOT_IMPLEMENTED (fixtures are test/dev injection only).
+ */
+export function resolveAdapter(targetProvider: string, mode: 'production' | 'fixture', injected?: ApplicationInspectionAdapter): ApplicationInspectionAdapter {
+  if (mode === 'fixture') {
+    if (!injected) throw new InspectionFailure('CONFIGURATION', 'Fixture mode requires an explicit adapter injection.');
+    return injected;
+  }
+  if (targetProvider === 'lever') return new LeverInspectionAdapter();
+  throw new InspectionFailure('INSPECTION_NOT_IMPLEMENTED', `Live inspection not implemented for provider: ${targetProvider}`);
 }
 
 /** Resolve target + inspect requirements + map + persist plan (or reuse). */
@@ -49,7 +65,9 @@ export async function createPlan(input: PlanCreateInput): Promise<{ plan: Submis
   }
 
   const target = targetFromJob(input.job);
-  const reqs = await adapterInspect(input.adapter, target);
+  const adapter = resolveAdapter(target.provider, input.mode ?? 'production', input.adapter);
+  // INVARIANT: plan.provider == adapter.provider == resolved target provider.
+  const reqs = await adapterInspect(adapter, target);
   const mapping = mapRequirements(input.pkg, reqs.fields);
 
   // Deterministic plan fingerprint over frozen submission-relevant content.
@@ -79,6 +97,12 @@ export async function createPlan(input: PlanCreateInput): Promise<{ plan: Submis
     packageId: input.pkg.id,
     packageSnapshotHash: input.pkg.snapshotHash,
     provider: reqs.provider,
+    inspection: {
+      adapter: adapter.constructor.name,
+      version: (adapter as any).version ?? 'unknown',
+      inspectedAt: now,
+      url: target.applyUrl,
+    },
     target,
     requirementsFingerprint: reqs.fingerprint,
     mappedFields: mapping.mapped,
@@ -131,6 +155,12 @@ export interface DryRunPreview {
   eeoManual: Array<{ providerFieldId: string; label: string }>;
   status: PlanStatus;
   planId: string;
+  inspection: { adapter: string; version: string; inspectedAt: string; url: string } | null;
+  fieldCount: number;
+  requiredCount: number;
+  resumeRequired: boolean;
+  eeoPresent: boolean;
+  consentPresent: boolean;
 }
 
 /** PURE preview — renders the persisted plan only. No network, no LLM,
@@ -156,6 +186,14 @@ export function buildPreview(plan: SubmissionPlan, pkg: ApplicationPackage): Dry
     eeoManual: plan.manualFields.map((m) => ({ providerFieldId: m.providerFieldId, label: m.label })),
     status: plan.status,
     planId: plan.id,
+    inspection: plan.inspection
+      ? { adapter: plan.inspection.adapter, version: plan.inspection.version, inspectedAt: plan.inspection.inspectedAt, url: plan.inspection.url }
+      : null,
+    fieldCount: plan.mappedFields.length + plan.unresolvedDetails.length + plan.consentFields.length + plan.manualFields.length + plan.files.length,
+    requiredCount: plan.mappedFields.filter((m) => m.required).length + plan.unresolvedDetails.filter((u) => u.required).length + plan.consentFields.filter((c) => c.required).length + plan.manualFields.filter((m) => m.required).length,
+    resumeRequired: plan.files.some((f) => f.kind === 'RESUME'),
+    eeoPresent: plan.manualFields.some((m) => /EEO|manual|review/i.test(m.reason || '')),
+    consentPresent: plan.consentFields.length > 0,
   };
 }
 

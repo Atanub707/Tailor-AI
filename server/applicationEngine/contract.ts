@@ -84,6 +84,7 @@ export interface SubmissionPlan {
   manualFields: Array<{ providerFieldId: string; label: string; required: boolean; reason: string }>;
   status: PlanStatus;
   planFingerprint: string;
+  inspection?: { adapter: string; version: string; inspectedAt: string; url: string };
   createdAt: string;
   updatedAt: string;
 }
@@ -159,7 +160,7 @@ const FIELD_ALIASES: Array<{ aliases: string[]; canonical: string }> = [
   { aliases: ['github url', 'github'], canonical: 'githubUrl' },
   { aliases: ['portfolio url', 'portfolio'], canonical: 'portfolioUrl' },
   { aliases: ['website', 'personal website', 'website url'], canonical: 'websiteUrl' },
-  { aliases: ['are you legally authorized to work in', 'work authorization', 'authorized to work', 'work eligibility'], canonical: 'authorizedToWork' },
+  { aliases: ['are you legally authorized to work in', 'work authorization', 'authorized to work', 'work eligibility', 'work permit'], canonical: 'authorizedToWork' },
   { aliases: ['will you now or in the future require sponsorship', 'requires sponsorship', 'visa sponsorship', 'do you require sponsorship'], canonical: 'requiresSponsorship' },
   { aliases: ['notice period'], canonical: 'noticePeriod' },
   { aliases: ['expected salary', 'salary expectation', 'salary requirements', 'desired salary'], canonical: 'expectedSalary' },
@@ -170,7 +171,7 @@ const FIELD_ALIASES: Array<{ aliases: string[]; canonical: string }> = [
 export function normalizeFieldLabel(label: string): string | undefined {
   const l = String(label || '').toLowerCase().trim().replace(/\s+/g, ' ');
   for (const entry of FIELD_ALIASES) {
-    if (entry.aliases.some((a) => l === a || l.startsWith(a))) return entry.canonical;
+    if (entry.aliases.some((a) => l === a || l.startsWith(a) || (a.length > 8 && l.includes(a)))) return entry.canonical;
   }
   if (/\bresume\b/.test(l)) return 'resume';
   if (/\bcover letter\b/.test(l)) return 'coverLetter';

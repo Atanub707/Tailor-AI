@@ -371,6 +371,21 @@ function JobPrepareApplication({ jobId, packageId, packageStatus }: { jobId: str
             <span className={`text-xs font-black ${statusColor[preview.status] || ''}`}>{statusLabel[preview.status] || preview.status}</span>
           </div>
           <div className="text-xs text-[var(--color-faint)]">{preview.company} · {preview.role} · Provider: {preview.provider}</div>
+          <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-[var(--color-muted)]">
+            <span>Fields: {preview.fieldCount}</span>
+            <span>Required: {preview.requiredCount}</span>
+            <span>Mapped: {preview.mappedFields.length}</span>
+            <span>Needs input: {preview.unresolved.length}</span>
+            <span>Needs review: {preview.consent.length + preview.eeoManual.length}</span>
+            <span>Resume: {preview.resumeRequired ? 'Required' : 'Optional'}</span>
+            <span>EEO: {preview.eeoPresent ? 'Present' : 'Not detected'}</span>
+            <span>Consent: {preview.consentPresent ? 'Present' : 'Not detected'}</span>
+          </div>
+          {preview.inspection && (
+            <div className="mt-1 text-[10px] text-[var(--color-faint)]">
+              Inspection: {preview.inspection.adapter.includes('Lever') ? 'Live / Read-only' : 'Fixture'} · {preview.inspection.version} · {new Date(preview.inspection.inspectedAt).toLocaleString()}
+            </div>
+          )}
           {preview.resume && <div className="mt-1 text-xs text-emerald-700">Resume artifact: {preview.resume.artifactHash?.slice(0, 12)}…</div>}
           <div className="mt-2 text-[10px] font-bold uppercase tracking-widest text-[var(--color-faint)]">Mapped ({preview.mappedFields.length})</div>
           <div className="text-xs text-[var(--color-ink)]">

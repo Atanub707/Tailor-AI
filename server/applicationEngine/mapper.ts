@@ -30,7 +30,7 @@ const ALIAS_TO_CANONICAL: Array<{ aliases: string[]; canonical: string }> = [
   { aliases: ['github'], canonical: 'githubUrl' },
   { aliases: ['portfolio'], canonical: 'portfolioUrl' },
   { aliases: ['personal website'], canonical: 'websiteUrl' },
-  { aliases: ['are you legally authorized to work in', 'work authorization', 'authorized to work', 'work eligibility'], canonical: 'authorizedToWork' },
+  { aliases: ['are you legally authorized to work in', 'work authorization', 'authorized to work', 'work eligibility', 'work permit'], canonical: 'authorizedToWork' },
   { aliases: ['will you now or in the future require sponsorship', 'requires sponsorship', 'visa sponsorship', 'do you require sponsorship'], canonical: 'requiresSponsorship' },
   { aliases: ['notice period'], canonical: 'noticePeriod' },
   { aliases: ['expected salary', 'salary expectation', 'desired salary'], canonical: 'targetSalary' },

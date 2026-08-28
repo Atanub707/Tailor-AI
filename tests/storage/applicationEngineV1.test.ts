@@ -113,7 +113,7 @@ describe('Application Engine V1 — Phase 1', () => {
   it('plan: READY package + fixture-B → NEEDS_REVIEW (consent/EEO) or mapped correctly', async () => {
     const pkg = await makePackage();
     const jobRow = job();
-    const { plan, reused, gate } = await createPlan({ userId: USER, pkg: pkg as unknown as any, job: jobRow, adapter: new FixtureInspectionAdapter('fixture-b-custom'), artifactOk: true });
+    const { plan, reused, gate } = await createPlan({ userId: USER, mode: 'fixture' as const, pkg: pkg as unknown as any, job: jobRow, adapter: new FixtureInspectionAdapter('fixture-b-custom'), artifactOk: true });
     expect(gate.ok).toBe(true);
     expect(plan.packageSnapshotHash).toBe(pkg.snapshotHash);
     expect(plan.provider).toBe('lever');
@@ -131,7 +131,7 @@ describe('Application Engine V1 — Phase 1', () => {
 
   it('plan: fixture-C complex → NEEDS_REVIEW (consent + EEO), never auto-mapped', async () => {
     const pkg = await makePackage();
-    const { plan } = await createPlan({ userId: USER, pkg, job: job(), adapter: new FixtureInspectionAdapter('fixture-c-complex'), artifactOk: true });
+    const { plan } = await createPlan({ userId: USER, mode: 'fixture' as const, pkg, job: job(), adapter: new FixtureInspectionAdapter('fixture-c-complex'), artifactOk: true });
     expect(plan.status).toBe('NEEDS_REVIEW');
     expect(plan.consentFields.length).toBe(1);
     expect(plan.consentFields[0].label).toContain('privacy');
@@ -143,7 +143,7 @@ describe('Application Engine V1 — Phase 1', () => {
 
   it('plan: idempotent — identical inputs reuse the latest plan', async () => {
     const pkg = await makePackage();
-    const input = { userId: USER, pkg, job: job(), adapter: new FixtureInspectionAdapter('fixture-b-custom'), artifactOk: true };
+    const input = { userId: USER, mode: 'fixture' as const, pkg, job: job(), adapter: new FixtureInspectionAdapter('fixture-b-custom'), artifactOk: true };
     const first = await createPlan(input);
     const second = await createPlan(input);
     expect(second.reused).toBe(true);
@@ -152,8 +152,8 @@ describe('Application Engine V1 — Phase 1', () => {
 
   it('plan: requirements change → different fingerprint + new plan (FORM_CHANGED model)', async () => {
     const pkg = await makePackage();
-    const a = await createPlan({ userId: USER, pkg, job: job(), adapter: new FixtureInspectionAdapter('fixture-b-custom'), artifactOk: true });
-    const b = await createPlan({ userId: USER, pkg, job: job(), adapter: new FixtureInspectionAdapter('fixture-d-changed'), artifactOk: true });
+    const a = await createPlan({ userId: USER, mode: 'fixture' as const, pkg, job: job(), adapter: new FixtureInspectionAdapter('fixture-b-custom'), artifactOk: true });
+    const b = await createPlan({ userId: USER, mode: 'fixture' as const, pkg, job: job(), adapter: new FixtureInspectionAdapter('fixture-d-changed'), artifactOk: true });
     expect(b.plan.requirementsFingerprint).not.toBe(a.plan.requirementsFingerprint);
     expect(b.plan.planFingerprint).not.toBe(a.plan.planFingerprint);
     expect(b.reused).toBe(false);
@@ -161,7 +161,7 @@ describe('Application Engine V1 — Phase 1', () => {
 
   it('plan: package stale after plan creation → engine reports execution ineligible without mutating plan', async () => {
     const pkg = await makePackage();
-    const { plan } = await createPlan({ userId: USER, pkg, job: job(), adapter: new FixtureInspectionAdapter('fixture-b-custom'), artifactOk: true });
+    const { plan } = await createPlan({ userId: USER, mode: 'fixture' as const, pkg, job: job(), adapter: new FixtureInspectionAdapter('fixture-b-custom'), artifactOk: true });
     const stalePkg = { ...pkg, status: 'STALE' } as unknown as any;
     const gate = gatePackage(stalePkg, true);
     expect(gate.ok).toBe(false);
@@ -172,7 +172,7 @@ describe('Application Engine V1 — Phase 1', () => {
 
   it('plan: plan fingerprint deterministic 10x', async () => {
     const pkg = await makePackage();
-    const { plan } = await createPlan({ userId: USER, pkg, job: job(), adapter: new FixtureInspectionAdapter('fixture-a-simple'), artifactOk: true });
+    const { plan } = await createPlan({ userId: USER, mode: 'fixture' as const, pkg, job: job(), adapter: new FixtureInspectionAdapter('fixture-a-simple'), artifactOk: true });
     const { planFingerprint } = await import('../../server/applicationEngine/planStore.js');
     const target = targetFromJob(job());
     const fp = planFingerprint(pkg.snapshotHash, 'lever', `${target.provider}|${target.externalJobId}|${target.applyUrl}`, plan.requirementsFingerprint, 'm', 'f', 'c', 'm');
@@ -183,7 +183,7 @@ describe('Application Engine V1 — Phase 1', () => {
 
   it('ownership: User B cannot see User A plans', async () => {
     const pkg = await makePackage();
-    const { plan } = await createPlan({ userId: USER, pkg, job: job(), adapter: new FixtureInspectionAdapter('fixture-a-simple'), artifactOk: true });
+    const { plan } = await createPlan({ userId: USER, mode: 'fixture' as const, pkg, job: job(), adapter: new FixtureInspectionAdapter('fixture-a-simple'), artifactOk: true });
     expect(getPlanById('other-user', plan.id)).toBeUndefined();
     expect(getLatestPlanForPackage('other-user', pkg.id)).toBeUndefined();
   });
@@ -241,7 +241,7 @@ describe('Application Engine V1 — Phase 1', () => {
   // ── Dry-run preview ────────────────────────────────────────────────────
   it('preview: faithful + minimized (no CV/JD/keys)', async () => {
     const pkg = await makePackage();
-    const { plan } = await createPlan({ userId: USER, pkg, job: job(), adapter: new FixtureInspectionAdapter('fixture-b-custom'), artifactOk: true });
+    const { plan } = await createPlan({ userId: USER, mode: 'fixture' as const, pkg, job: job(), adapter: new FixtureInspectionAdapter('fixture-b-custom'), artifactOk: true });
     const preview = buildPreview(plan, pkg);
     expect(preview.provider).toBe('lever');
     expect(preview.packageSnapshotHash).toBe(pkg.snapshotHash);
@@ -261,7 +261,7 @@ describe('Application Engine V1 — Phase 1', () => {
     const orig = globalThis.fetch;
     (globalThis as any).fetch = async (...a: unknown[]) => { fetches++; return (orig as any)(...a); };
     try {
-      const { plan } = await createPlan({ userId: USER, pkg, job: job(), adapter: new FixtureInspectionAdapter('fixture-c-complex'), artifactOk: true });
+      const { plan } = await createPlan({ userId: USER, mode: 'fixture' as const, pkg, job: job(), adapter: new FixtureInspectionAdapter('fixture-c-complex'), artifactOk: true });
       expect(plan.id).toBeTruthy();
     } finally {
       (globalThis as any).fetch = orig;
