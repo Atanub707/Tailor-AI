@@ -636,6 +636,69 @@ async function startServer() {
     }
   });
 
+  // ── Applicant Profile v1 (scoped to logged-in user, local-only) ──────────
+  app.get('/api/applicant-profile', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { getApplicantProfile } = await import('./server/storage/applicantProfile.js');
+      res.json(getApplicantProfile(userId));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to load profile.' });
+    }
+  });
+
+  app.put('/api/applicant-profile', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { validateApplicantProfile, saveApplicantProfile, getApplicantProfile } = await import('./server/storage/applicantProfile.js');
+      const profile = req.body;
+      const v = validateApplicantProfile(profile);
+      if (!v.ok) {
+        res.status(422).json({ error: v.errors[0], details: v.errors });
+        return;
+      }
+      saveApplicantProfile(profile, userId);
+      res.json({ success: true, profile: getApplicantProfile(userId) });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to save profile.' });
+    }
+  });
+
+  // Deterministic import from the structured Master CV — only fills EMPTY
+  // fields; a populated profile is never silently overwritten.
+  app.post('/api/applicant-profile/import-master-cv', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { getApplicantProfile, saveApplicantProfile } = await import('./server/storage/applicantProfile.js');
+      const { importMasterCvIntoProfile } = await import('./server/profile/cvImporter.js');
+      const current = getApplicantProfile(userId);
+      const merged = importMasterCvIntoProfile(current, getMasterCv(userId));
+      saveApplicantProfile(merged, userId);
+      res.json({ success: true, profile: merged, filledFromCv: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Import failed.' });
+    }
+  });
+
+  // Local JSON export — profile only; NEVER includes provider secrets.
+  app.get('/api/applicant-profile/export', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { getApplicantProfile } = await import('./server/storage/applicantProfile.js');
+      const profile = getApplicantProfile(userId);
+      const safe = JSON.parse(JSON.stringify(profile));
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', 'attachment; filename="applicant-profile.json"');
+      res.json(safe);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Export failed.' });
+    }
+  });
+
   // Master CV routes (scoped to logged-in user)
   app.get('/api/cv/master', (req, res) => {
     const userId = getCurrentUserId();

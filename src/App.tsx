@@ -5,6 +5,7 @@ import { ScraperBar } from './components/ScraperBar';
 import { JobMatrix } from './components/JobMatrix';
 import { JobDetailModal } from './components/JobDetailModal';
 import { MasterCvScreen } from './components/MasterCvScreen';
+import { ApplicantProfileScreen } from './components/ApplicantProfileScreen';
 import { SettingsModal } from './components/SettingsModal';
 import { ManualJdScreen } from './components/ManualJdScreen';
 import { JobPortalsScreen } from './components/JobPortalsScreen';
@@ -27,6 +28,7 @@ export default function App() {
   const isSettingsOpen = pathname === '/settings';
   const isRecruitersOpen = pathname === '/recruiters';
   const isMasterCvOpen = pathname === '/master-cv';
+  const isApplicantProfileOpen = pathname === '/applicant-profile';
   const isManualJdOpen = pathname === '/manual-jd';
   const isJobPortalsOpen = pathname === '/job-portals';
   const isAiSystemOpen = pathname === '/ai-interview';
@@ -34,7 +36,7 @@ export default function App() {
 
   // Unknown paths (stale bookmarks, typos) land on the dashboard instead of
   // a blank screen. Done BEFORE any screen renders.
-  const knownPaths = ['/', '/settings', '/recruiters', '/master-cv', '/manual-jd', '/job-portals', '/ai-interview', '/linkedin-posts'];
+  const knownPaths = ['/', '/settings', '/recruiters', '/master-cv', '/applicant-profile', '/manual-jd', '/job-portals', '/ai-interview', '/linkedin-posts'];
   if (!knownPaths.includes(pathname)) return <Navigate to="/" replace />;
 
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -550,6 +552,7 @@ export default function App() {
             user={currentUser}
             onLogout={handleLogout}
             onOpenMasterCv={() => navigate('/master-cv')}
+            onOpenApplicantProfile={() => navigate('/applicant-profile')}
             onOpenSettings={() => navigate('/settings')}
             onOpenManualJd={() => navigate('/manual-jd')}
             onOpenJobPortals={() => navigate('/job-portals')}
@@ -639,6 +642,9 @@ export default function App() {
             masterCv={masterCv}
           />
 
+          {/* Applicant Profile — full screen (always mounted, URL-driven) */}
+          <ApplicantProfileScreen isOpen={isApplicantProfileOpen} onClose={goHome} />
+
           {/* Master Candidate CV — full screen (always mounted, URL-driven) */}
           {masterCv && (
             <MasterCvScreen
@@ -658,6 +664,7 @@ export default function App() {
               onSaveConfig={handleSaveConfig}
               user={currentUser}
               onOpenMasterCv={() => navigate('/master-cv')}
+            onOpenApplicantProfile={() => navigate('/applicant-profile')}
             />
           )}
 
