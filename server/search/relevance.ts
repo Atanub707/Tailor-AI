@@ -150,7 +150,11 @@ export function expandAbbreviations(text: string): string {
   const words = text.split(' ');
   const out: string[] = [];
   for (const w of words) {
-    const exp = ABBREVIATIONS[w];
+    // Own-property guard: a plain-object map answers prototype-chain keys
+    // ('constructor', 'toString', '__proto__', …) with inherited values —
+    // a job title/company token like "Constructor" used to crash the
+    // search with "exp.split is not a function".
+    const exp = Object.prototype.hasOwnProperty.call(ABBREVIATIONS, w) ? ABBREVIATIONS[w] : undefined;
     if (exp) out.push(...exp.split(' '));
     else out.push(w);
   }
@@ -239,7 +243,7 @@ function parseQueryUncached(query: string): QueryProfile {
   const specialization = [...specSet];
 
   const key = relationshipKey(specialization);
-  const rel = key ? ROLE_RELATIONSHIPS[key] : undefined;
+  const rel = key && Object.prototype.hasOwnProperty.call(ROLE_RELATIONSHIPS, key) ? ROLE_RELATIONSHIPS[key] : undefined;
 
   return {
     originalQuery: String(query || '').trim(),

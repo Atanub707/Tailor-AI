@@ -215,6 +215,21 @@ describe('Ashby local index', () => {
     expect(withDesc.postedDateSemantics).toBe('published');
   });
 
+  it('prototype-chain token in company name must not crash relevance (Constructor bug)', async () => {
+    const db = getDb();
+    upsertAtsJobs([ashbyRow({ fingerprint: 'ashby-constructor-1', external_id: 'constructor-1', title: 'Backend Engineer', company: 'Constructor' })]);
+    let networkCalls = 0;
+    const orig = globalThis.fetch;
+    (globalThis as any).fetch = async (...a: unknown[]) => { networkCalls++; return (orig as any)(...a); };
+    try {
+      const res = await runV2Search(USER, { keywords: 'Backend Engineer', location: undefined, postedWindow: 'any', jobType: 'all', workMode: 'all', level: 'any', limit: 10, source: 'Ashby' }, [ashbyIndexProvider]);
+      expect(networkCalls).toBe(0);
+      expect(res.jobs.some((j: any) => j.company === 'Constructor')).toBe(true);
+    } finally {
+      (globalThis as any).fetch = orig;
+    }
+  });
+
   it('clearAtsIndex(platform) isolates per platform', () => {
     clearAtsIndex('ashby');
     const db = getDb();
