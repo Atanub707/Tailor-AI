@@ -2388,6 +2388,47 @@ Return valid JSON only, no markdown:
     }
   });
 
+  // ── Fit Engine V1 — deterministic applicant ↔ job matching ───────────
+  app.post('/api/jobs/:id/fit', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const job = getJobById(req.params.id);
+      if (!job) {
+        res.status(404).json({ error: 'Job not found.' });
+        return;
+      }
+      const { ensureJobDescription } = await import('./server/tailor/jdResolver.js');
+      let fullJob: Job;
+      try {
+        fullJob = await ensureJobDescription(job);
+      } catch (jdErr: any) {
+        if (jdErr?.name === 'JDResolutionError') {
+          res.status(502).json({ error: jdErr.message });
+          return;
+        }
+        throw jdErr;
+      }
+      const { computeFit } = await import('./server/fit/fitEngine.js');
+      const { getApplicantProfile } = await import('./server/storage/applicantProfile.js');
+      const { getMasterCv, getMasterCvUpdatedAt } = await import('./server/storage/fileStorage.js');
+      const { fitCacheKeyFor, getCachedFit, storeCachedFit } = await import('./server/fit/fitCache.js');
+      const profile = getApplicantProfile(userId);
+      const masterCv = getMasterCv(userId);
+      const key = fitCacheKeyFor(profile.updatedAt, getMasterCvUpdatedAt(userId), fullJob.description || '');
+      const cached = getCachedFit(userId, job.id, key);
+      if (cached) {
+        res.json({ ...cached, fromCache: true });
+        return;
+      }
+      const result = computeFit(profile, masterCv, fullJob, fullJob.description || '');
+      storeCachedFit(userId, job.id, key, result);
+      res.json({ ...result, fromCache: false });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Fit calculation failed.' });
+    }
+  });
+
   // Tailor CV for Single Job
   app.post('/api/jobs/:id/tailor', async (req, res) => {
     if (!hasApiKeyConfigured()) {

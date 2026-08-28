@@ -54,6 +54,99 @@ interface JobMatrixProps {
   tailorMessages: Record<string, string[]>;
 }
 
+
+// ── Fit Engine V1 — deterministic applicant ↔ job fit (self-contained) ──
+interface FitView {
+  score: number;
+  grade: string;
+  strengths: string[];
+  gaps: string[];
+  blockers: string[];
+  unknowns: string[];
+  fromCache?: boolean;
+}
+
+const FIT_GRADE_COLOR: Record<string, string> = {
+  Excellent: 'text-emerald-600',
+  Strong: 'text-emerald-600',
+  Good: 'text-amber-600',
+  Partial: 'text-orange-600',
+  Weak: 'text-red-600',
+};
+
+function JobFit({ jobId }: { jobId: string }) {
+  const [fit, setFit] = React.useState<FitView | null>(null);
+  const [loading, setLoading] = React.useState(false);
+  const [open, setOpen] = React.useState(false);
+  const [error, setError] = React.useState('');
+
+  const run = async () => {
+    if (fit && !loading) { setOpen(!open); return; }
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/fit`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Fit failed.');
+      }
+      const data = await res.json();
+      setFit({ score: data.score, grade: data.grade, strengths: data.strengths || [], gaps: data.gaps || [], blockers: data.blockers || [], unknowns: data.unknowns || [], fromCache: data.fromCache });
+      setOpen(true);
+    } catch (e: any) {
+      setError(String(e?.message || 'Fit failed.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={run}
+        disabled={loading}
+        className="px-2.5 py-1.5 rounded-md text-xs font-medium bg-white hover:bg-[var(--color-brand-soft)] hover:border-[var(--color-brand-line)] text-[var(--color-muted)] border-[1.5px] border-[var(--color-hairline)] transition-colors disabled:opacity-50"
+        title="Deterministic candidate–job fit score"
+      >
+        {loading ? 'Fit…' : fit ? `Fit ${fit.score}%` : 'Fit'}
+      </button>
+      {error && <span className="text-[10px] text-red-600 block">{error}</span>}
+      {fit && open && (
+        <div className="absolute right-0 top-10 z-30 w-72 rounded-xl border border-[var(--color-border)] bg-white shadow-lg p-4 text-left">
+          <div className="flex items-baseline justify-between">
+            <span className="text-lg font-black text-[var(--color-ink)]">{fit.score}<span className="text-xs font-bold text-slate-400">/100</span></span>
+            <span className={`text-xs font-black ${FIT_GRADE_COLOR[fit.grade] || 'text-slate-500'}`}>{fit.grade} Fit</span>
+          </div>
+          {fit.blockers.length > 0 && (
+            <div className="mt-2">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-red-600">Potential blocker</div>
+              {fit.blockers.slice(0, 3).map((b, i) => <div key={i} className="text-xs text-red-700">• {b}</div>)}
+            </div>
+          )}
+          {fit.strengths.length > 0 && (
+            <div className="mt-2">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">Strengths</div>
+              {fit.strengths.slice(0, 5).map((s2, i) => <div key={i} className="text-xs text-[var(--color-ink)] truncate" title={s2}>• {s2}</div>)}
+            </div>
+          )}
+          {fit.gaps.length > 0 && (
+            <div className="mt-2">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-orange-600">Gaps</div>
+              {fit.gaps.slice(0, 5).map((g, i) => <div key={i} className="text-xs text-[var(--color-ink)] truncate" title={g}>• {g}</div>)}
+            </div>
+          )}
+          {fit.unknowns.length > 0 && (
+            <div className="mt-2">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Unknown</div>
+              {fit.unknowns.slice(0, 3).map((u, i) => <div key={i} className="text-xs text-slate-500 truncate" title={u}>• {u}</div>)}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const JobCard = React.memo(function JobCard({
   job,
   scoreMsg,
@@ -289,6 +382,9 @@ const JobCard = React.memo(function JobCard({
               </div>
             )}
           </div>
+
+          {/* Fit Engine — deterministic fit score */}
+          <JobFit jobId={job.id} />
 
           {/* Tailor CV */}
           <div className="relative group">

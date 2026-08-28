@@ -925,6 +925,17 @@ export function getAllJobs(): Job[] {
 /** Durable user-job ids for a user — for ATS-originated jobs these ARE
  *  provider fingerprints (toDurableJob sets id = fingerprint), which makes
  *  them the durable "already discovered" identity for search exclusion. */
+/** Master CV updated_at — cache-invalidation key for Fit results. */
+export function getMasterCvUpdatedAt(userId?: string): string | undefined {
+  const targetId = userId || getCurrentUserId();
+  try {
+    const row = getDb().prepare('SELECT updated_at FROM master_cv WHERE user_id = ?').get(targetId) as { updated_at: string } | undefined;
+    return row?.updated_at;
+  } catch {
+    return undefined;
+  }
+}
+
 export function getUserJobFingerprints(userId: string): Set<string> {
   try {
     const rows = getDb().prepare('SELECT id FROM jobs WHERE user_id = ?').all(userId) as { id: string }[];
