@@ -2213,11 +2213,22 @@ Return valid JSON only, no markdown:
       const config = loadConfig();
       const matcher = new LlmMatcher();
 
-      const result = await matcher.matchJob(
-        scoredJob,
-        masterCv,
-        config.thresholds.earlyBlockThreshold
-      );
+      const { LLMError } = await import('./server/llm/llmErrors.js');
+      let result: Awaited<ReturnType<typeof matcher.matchJob>>;
+      try {
+        result = await matcher.matchJob(
+          scoredJob,
+          masterCv,
+          config.thresholds.earlyBlockThreshold
+        );
+      } catch (llmErr: any) {
+        if (llmErr instanceof LLMError) {
+          const status = llmErr.code === 'timeout' ? 504 : llmErr.code === 'invalid_key' ? 401 : llmErr.code === 'rate_limit' ? 429 : 502;
+          res.status(status).json({ error: llmErr.message, code: llmErr.code });
+          return;
+        }
+        throw llmErr;
+      }
 
       const updatedJob = updateJobInStorage({
         ...scoredJob,
@@ -2333,7 +2344,18 @@ Return valid JSON only, no markdown:
       if (!jobToTailor.gapAnalysis) {
         const masterCv = getMasterCv();
         const matcher = new LlmMatcher();
-        const matchResult = await matcher.matchJob(jobToTailor, masterCv);
+        const { LLMError } = await import('./server/llm/llmErrors.js');
+        let matchResult: Awaited<ReturnType<typeof matcher.matchJob>>;
+        try {
+          matchResult = await matcher.matchJob(jobToTailor, masterCv);
+        } catch (llmErr: any) {
+          if (llmErr instanceof LLMError) {
+            const status = llmErr.code === 'timeout' ? 504 : llmErr.code === 'invalid_key' ? 401 : llmErr.code === 'rate_limit' ? 429 : 502;
+            res.status(status).json({ error: llmErr.message, code: llmErr.code });
+            return;
+          }
+          throw llmErr;
+        }
         jobToTailor = updateJobInStorage({
           ...job,
           matchScore: matchResult.matchScore,
@@ -2345,8 +2367,18 @@ Return valid JSON only, no markdown:
 
       const masterCv = getMasterCv();
       const tailorEngine = new LlmCvTailor();
-
-      const tailoredCv = await tailorEngine.tailorCv(jobToTailor, masterCv);
+      let tailoredCv: Awaited<ReturnType<typeof tailorEngine.tailorCv>>;
+      try {
+        tailoredCv = await tailorEngine.tailorCv(jobToTailor, masterCv);
+      } catch (llmErr: any) {
+        const { LLMError } = await import('./server/llm/llmErrors.js');
+        if (llmErr instanceof LLMError) {
+          const status = llmErr.code === 'timeout' ? 504 : llmErr.code === 'invalid_key' ? 401 : llmErr.code === 'rate_limit' ? 429 : 502;
+          res.status(status).json({ error: llmErr.message, code: llmErr.code });
+          return;
+        }
+        throw llmErr;
+      }
 
       const updatedJob = updateJobInStorage({
         ...jobToTailor,
