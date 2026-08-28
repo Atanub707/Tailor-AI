@@ -4,7 +4,9 @@
 
 export type LlmErrorCode =
   | 'no_api_key'
+  | 'no_model'
   | 'invalid_key'
+  | 'invalid_model'
   | 'timeout'
   | 'network'
   | 'rate_limit'
@@ -34,6 +36,12 @@ export function normalizeLlmError(err: unknown): LLMError {
   }
   if (code === 'NO_API_KEY') {
     return new LLMError('no_api_key', 'No API token configured — add your API key in Settings.');
+  }
+  if (code === 'NO_MODEL') {
+    return new LLMError('no_model', 'No AI model selected — choose a model in Settings.');
+  }
+  if (code === 'INVALID_MODEL' || /404/.test(message)) {
+    return new LLMError('invalid_model', 'The model name or endpoint was not found — check the model and base URL in Settings.');
   }
   if (code === 'AUTH' || /401|403|api key|invalid.*key|unauthorized/i.test(message)) {
     return new LLMError('invalid_key', 'Your API key appears to be expired or invalid — update it in Settings.');

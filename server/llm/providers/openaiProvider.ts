@@ -53,6 +53,9 @@ export async function askOpenAi(options: OpenAiOptions): Promise<string> {
   if (response.status === 401 || response.status === 403) {
     throw providerError('AUTH', `auth failed (${response.status})`);
   }
+  if (response.status === 404) {
+    throw providerError('INVALID_MODEL', `model/endpoint not found (404) — check the model name and base URL`);
+  }
   if (response.status === 429) {
     throw providerError('RATE_LIMIT', `rate limited (${response.status})`);
   }
