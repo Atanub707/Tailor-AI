@@ -154,6 +154,136 @@ export interface CertificationItem {
   link?: string;
 }
 
+// ── Applicant Profile v1 — canonical structured application facts ─────────
+// Local source of truth for future Fit/Tailor/Apply consumers. Explicit
+// unknown/null beats guessing; NEVER inferred by the LLM.
+
+export type TriState = 'yes' | 'no' | 'unknown';
+export type RemotePreference = 'remote' | 'hybrid' | 'onsite' | 'flexible' | 'unknown';
+
+export interface ProfileExperience {
+  company: string;
+  title: string;
+  employmentType?: string;
+  location?: string;
+  startDate?: string;
+  endDate?: string;
+  isCurrent?: boolean;
+  summary?: string;
+  achievements?: string[];
+  technologies?: string[];
+  skills?: string[];
+  source?: 'manual' | 'master_cv' | 'imported';
+}
+
+export interface ProfileEducation {
+  institution: string;
+  degree?: string;
+  fieldOfStudy?: string;
+  startDate?: string;
+  endDate?: string;
+  grade?: string;
+  gradeScale?: string;
+  location?: string;
+  description?: string;
+}
+
+export interface ProfileSkill {
+  name: string;
+  category?: string;
+  yearsExperience?: number;
+  lastUsed?: string;
+  proficiency?: string;
+  source?: 'manual' | 'master_cv' | 'imported';
+}
+
+export interface ProfileCertification {
+  name: string;
+  issuer?: string;
+  issueDate?: string;
+  expiryDate?: string;
+  credentialId?: string;
+  credentialUrl?: string;
+  status?: string;
+}
+
+export interface ApplicantProfile {
+  version: number;
+  updatedAt?: string;
+  personal: {
+    firstName?: string;
+    middleName?: string;
+    lastName?: string;
+    preferredName?: string;
+    email?: string;
+    phone?: string;
+    phoneCountryCode?: string;
+  };
+  contact: {
+    city?: string;
+    state?: string;
+    country?: string;
+    postalCode?: string;
+  };
+  links: {
+    linkedin?: string;
+    github?: string;
+    portfolio?: string;
+    website?: string;
+    other?: string[];
+  };
+  locationPrefs: {
+    currentCity?: string;
+    currentState?: string;
+    currentCountry?: string;
+    willingToRelocate?: TriState;
+    preferredLocations?: string[];
+    remotePreference?: RemotePreference;
+  };
+  workAuthorization: {
+    country?: string;
+    authorizedToWork?: TriState;
+    requiresSponsorship?: TriState;
+    visaType?: string;
+    validUntil?: string;
+  };
+  preferences: {
+    desiredTitles?: string[];
+    preferredEmploymentTypes?: string[];
+    minimumSalary?: number;
+    targetSalary?: number;
+    currentSalary?: number;
+    salaryCurrency?: string;
+    salaryPeriod?: 'year' | 'month' | 'hour' | 'unknown';
+    noticePeriod?: string;
+    earliestStartDate?: string;
+    willingToTravel?: TriState;
+    travelPercentage?: number;
+    preferredIndustries?: string[];
+    excludedIndustries?: string[];
+    excludedCompanies?: string[];
+  };
+  experience: ProfileExperience[];
+  education: ProfileEducation[];
+  skills: ProfileSkill[];
+  certifications: ProfileCertification[];
+  // APPLICATION DEFAULTS: reusable free-text answers ONLY. Structured
+  // facts live in exactly one canonical field elsewhere (preferences /
+  // locationPrefs / workAuthorization) — never duplicated here.
+  applicationDefaults: {
+    reasonForChange?: string;
+    whyInterestedDefault?: string;
+    preferredContactMethod?: string;
+  };
+  optionalSensitive: {
+    enabled?: boolean;
+    gender?: string;
+    raceEthnicity?: string;
+    veteranStatus?: string;
+    disabilityStatus?: string;
+  };
+}
+
 export interface MasterCv {
   fullName: string;
   designation?: string;

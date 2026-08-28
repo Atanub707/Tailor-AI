@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { IdentificationBadge, SlidersHorizontal, FileText, SignOut, CaretDown, GlobeSimple, Question, Tray, ChatCircleDots, PaperPlaneTilt } from '@phosphor-icons/react';
+import { IdentificationBadge, SlidersHorizontal, FileText, SignOut, CaretDown, GlobeSimple, Question, Tray, ChatCircleDots, PaperPlaneTilt, UserCircle } from '@phosphor-icons/react';
 
 interface NavbarProps {
   onOpenMasterCv: () => void;
+  onOpenApplicantProfile?: () => void;
   onOpenSettings: () => void;
   onOpenManualJd: () => void;
   onOpenJobPortals?: () => void;
@@ -18,6 +19,7 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({
   onOpenMasterCv,
+  onOpenApplicantProfile,
   onOpenSettings,
   onOpenManualJd,
   onOpenJobPortals,
@@ -200,6 +202,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button role="menuitem" onClick={closeAnd(onOpenMasterCv)} className={ddItemCls}>
                   <span className={ddIconCls}><IdentificationBadge size={16} weight="duotone" /></span>
                   Master Candidate CV
+                </button>
+                <button role="menuitem" onClick={closeAnd(() => onOpenApplicantProfile?.())} className={ddItemCls}>
+                  <span className={ddIconCls}><UserCircle size={16} weight="duotone" /></span>
+                  Applicant Profile
                 </button>
                 <button role="menuitem" onClick={closeAnd(onOpenManualJd)} className={ddItemCls}>
                   <span className={ddIconCls}><FileText size={16} weight="duotone" /></span>
