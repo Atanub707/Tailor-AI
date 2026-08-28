@@ -2388,6 +2388,88 @@ Return valid JSON only, no markdown:
     }
   });
 
+  // ── Tailor V2 — grounded resume tailoring + fact verification ─────────
+  app.post('/api/jobs/:id/tailor-v2', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const job = getJobById(req.params.id);
+      if (!job) {
+        res.status(404).json({ error: 'Job not found.' });
+        return;
+      }
+      const { ensureJobDescription } = await import('./server/tailor/jdResolver.js');
+      let fullJob: Job;
+      try {
+        fullJob = await ensureJobDescription(job);
+      } catch (jdErr: any) {
+        if (jdErr?.name === 'JDResolutionError') {
+          res.status(502).json({ error: jdErr.message });
+          return;
+        }
+        throw jdErr;
+      }
+      const { computeFit } = await import('./server/fit/fitEngine.js');
+      const { getApplicantProfile } = await import('./server/storage/applicantProfile.js');
+      const { getMasterCv, getMasterCvUpdatedAt } = await import('./server/storage/fileStorage.js');
+      const { fitCacheKeyFor, getCachedFit, storeCachedFit } = await import('./server/fit/fitCache.js');
+      const profile = getApplicantProfile(userId);
+      const masterCv = getMasterCv(userId);
+      const jd = fullJob.description || '';
+      const key = fitCacheKeyFor(profile.updatedAt, getMasterCvUpdatedAt(userId), jd);
+      let fit = getCachedFit(userId, job.id, key);
+      if (!fit) {
+        fit = computeFit(profile, masterCv, fullJob, jd);
+        storeCachedFit(userId, job.id, key, fit);
+      }
+      const { runTailorV2 } = await import('./server/tailorV2/tailorV2Engine.js');
+      const { jdHash } = await import('./server/fit/fitCache.js');
+      const result = await runTailorV2(
+        userId, masterCv, profile, fullJob, jd, fit,
+        { masterCvUpdatedAt: getMasterCvUpdatedAt(userId), profileUpdatedAt: profile.updatedAt, jdHash: jdHash(jd), fitEngineVersion: fit.version }
+      );
+      res.json({
+        success: true,
+        version: result.version,
+        resume: result.draft,
+        verification: result.verification,
+        jdTerms: result.jdTerms,
+        pdfOk: result.pdfOk,
+        fromCache: false,
+      });
+    } catch (err: any) {
+      if (err?.name === 'TailorVerificationFailedError') {
+        res.status(422).json({ error: err.message, code: 'verification_failed' });
+        return;
+      }
+      res.status(500).json({ error: String(err?.message || 'Tailor V2 failed.').slice(0, 300) });
+    }
+  });
+
+  // PDF for the latest Tailor V2 version of a job (regenerated deterministically).
+  app.get('/api/jobs/:id/tailor-v2/pdf', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { getLatestTailorVersion } = await import('./server/tailorV2/versionStore.js');
+      const { toTailoredCv } = await import('./server/tailorV2/tailorV2Engine.js');
+      const { getMasterCv } = await import('./server/storage/fileStorage.js');
+      const v = getLatestTailorVersion(userId, req.params.id);
+      if (!v) {
+        res.status(404).json({ error: 'No tailored resume for this job yet.' });
+        return;
+      }
+      const { generatePdfBuffer } = await import('./server/builder/docxGenerator.js');
+      const cv = getMasterCv(userId);
+      const buf = await generatePdfBuffer(toTailoredCv(v.content, cv.fullName || ''));
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="tailored-cv-v${v.version}.pdf"`);
+      res.send(buf);
+    } catch (err: any) {
+      res.status(500).json({ error: String(err?.message || 'PDF failed.').slice(0, 200) });
+    }
+  });
+
   // ── Fit Engine V1 — deterministic applicant ↔ job matching ───────────
   app.post('/api/jobs/:id/fit', async (req, res) => {
     try {

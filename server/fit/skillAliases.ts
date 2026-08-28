@@ -49,8 +49,8 @@ export const SKILL_IMPLIES: Record<string, string[]> = {
   'infrastructure as code': ['terraform', 'pulumi', 'cloudformation', 'ansible'],
   'machine learning': ['pytorch', 'tensorflow', 'scikit-learn', 'keras', 'xgboost'],
   'artificial intelligence': ['llm', 'rag', 'openai', 'gpt', 'langchain'],
-  'continuous integration': ['gitlab ci', 'github actions', 'jenkins', 'circleci', 'travis'],
-  'continuous delivery': ['gitlab ci', 'github actions', 'jenkins', 'argo', 'spinnaker'],
+  'continuous integration': ['gitlab ci', 'gitlab', 'github actions', 'github', 'jenkins', 'circleci', 'travis'],
+  'continuous delivery': ['gitlab ci', 'gitlab', 'github actions', 'github', 'jenkins', 'argo', 'spinnaker'],
   monitoring: ['prometheus', 'grafana', 'datadog', 'new relic', 'cloudwatch', 'splunk'],
   sql: ['postgresql', 'postgres', 'mysql', 'sqlite', 'mariadb'],
   containers: ['docker', 'containerd', 'podman'],
@@ -77,14 +77,18 @@ function tokenPresent(haystack: string, term: string): boolean {
 export function skillCovered(requiredSkill: string, candidateSkills: string[]): { covered: boolean; by?: string } {
   const req = canonicalizeSkill(requiredSkill);
   if (!req) return { covered: false };
+  const rawReq = String(requiredSkill || '').toLowerCase().trim();
   const cand = candidateSkills.map((c) => canonicalizeSkill(c)).filter(Boolean);
   // 1. True alias: the same canonical term present (exact or word-boundary
-  //    token — "kubernetes clusters" still evidences kubernetes).
-  if (cand.some((c) => c === req || tokenPresent(c, req))) return { covered: true, by: req };
+  //    token — "kubernetes clusters" still evidences kubernetes). Both the
+  //    canonical form AND the raw term are token-tested (a raw "ci/cd"
+  //    mention must satisfy a canonicalized "continuous integration").
+  const hitAlias = (term: string) => cand.some((c) => c === term || tokenPresent(c, term));
+  if (hitAlias(req) || (rawReq && hitAlias(rawReq))) return { covered: true, by: rawReq || req };
   // 2. Hierarchy: candidate holds a SPECIFIC that implies the requirement.
   const specifics = SKILL_IMPLIES[req] || [];
   for (const spec of specifics) {
-    if (cand.some((c) => c === spec || tokenPresent(c, spec))) return { covered: true, by: spec };
+    if (hitAlias(spec)) return { covered: true, by: spec };
   }
   return { covered: false };
 }
