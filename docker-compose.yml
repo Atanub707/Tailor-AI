@@ -20,6 +20,7 @@ services:
       # Normal intended runtime: Greenhouse searches use the LOCAL INDEX
       # (ENABLE_LOCAL_ATS_INDEX=true). Set false for rollback/testing.
       - ENABLE_LOCAL_ATS_INDEX=true
+      - ATS_INDEX_PLATFORMS=greenhouse,lever
     restart: unless-stopped
 
 volumes:
