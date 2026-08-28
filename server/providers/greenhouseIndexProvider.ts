@@ -74,3 +74,4 @@ export function createAtsIndexProvider(platform: string, sourceLabel: string): A
 
 export const greenhouseIndexProvider = createAtsIndexProvider('greenhouse', 'Greenhouse');
 export const leverIndexProvider = createAtsIndexProvider('lever', 'Lever');
+export const ashbyIndexProvider = createAtsIndexProvider('ashby', 'Ashby');

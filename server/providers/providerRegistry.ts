@@ -30,8 +30,7 @@ export const ATS_FLAGS = {
 export function atsProviderMode(source: string, indexEnabled: boolean): 'local_index' | 'network' | 'none' {
   if (!indexEnabled) return 'network';
   const s = String(source || '');
-  if (s === 'Greenhouse' || s === 'Lever') return 'local_index'; // index-backed
-  if (s === 'Ashby') return 'network'; // ingestion not built yet
+  if (s === 'Greenhouse' || s === 'Lever' || s === 'Ashby') return 'local_index'; // index-backed
   return 'none';
 }
 

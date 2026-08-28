@@ -1497,7 +1497,7 @@ Return valid JSON only — NO markdown, NO code fences:
       const { greenhouseProvider } = await import('./server/providers/greenhouseProvider.js');
       const { leverProvider } = await import('./server/providers/leverProvider.js');
       const { ashbyProvider } = await import('./server/providers/ashbyProvider.js');
-      const { greenhouseIndexProvider, leverIndexProvider } = await import('./server/providers/greenhouseIndexProvider.js');
+      const { greenhouseIndexProvider, leverIndexProvider, ashbyIndexProvider } = await import('./server/providers/greenhouseIndexProvider.js');
       const { toDurableJob } = await import('./server/providers/atsProviderShared.js');
       // Index-backed providers (searched from ats_jobs); the others stay
       // network-backed until their ingestion phases land. NEVER falls back
@@ -1505,6 +1505,7 @@ Return valid JSON only — NO markdown, NO code fences:
       const indexProviders: Partial<Record<string, import('./server/providers/types.js').JobSearchProvider>> = {
         Greenhouse: greenhouseIndexProvider,
         Lever: leverIndexProvider,
+        Ashby: ashbyIndexProvider,
       };
       const networkProviders = { Greenhouse: greenhouseProvider, Lever: leverProvider, Ashby: ashbyProvider } as const;
       if (sources.length === 1 && atsProviderMode(sources[0], ATS_FLAGS.ENABLE_LOCAL_ATS_INDEX) === 'local_index') {
