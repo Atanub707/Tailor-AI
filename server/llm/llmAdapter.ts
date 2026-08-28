@@ -6,11 +6,13 @@ import { PROVIDER_BASE_URLS } from '../../src/constants/llmPresets.js';
 import { normalizeLlmError, type LLMError } from './llmErrors.js';
 
 // ONE centralized bounded timeout for every outbound LLM request.
-// Env-configurable; the default is generous for long Tailor generations but
-// still finite — an unreachable provider must never hang a request forever.
+// Env-configurable; default 90s — MEASURED against the live BYOK provider:
+// tiny probes complete instantly, but a realistic Tailor-scale prompt
+// (synthetic 3.5KB) exceeded 60s and even 90s on opencode.ai's router.
+// Still finite — an unreachable provider must never hang forever.
 export function llmRequestTimeoutMs(): number {
   const v = Number(process.env.LLM_REQUEST_TIMEOUT_MS);
-  return Number.isFinite(v) && v >= 1000 ? v : 60_000;
+  return Number.isFinite(v) && v >= 1000 ? v : 90_000;
 }
 
 function resolveApiKey(configuredKey: string): string | undefined {
@@ -32,6 +34,11 @@ export async function ask(prompt: string, temperature?: number, responseFormat: 
   if (!apiKey) {
     const err = new Error('No API key configured. Set one in Settings or via GEMINI_API_KEY env var.');
     (err as any).code = 'NO_API_KEY';
+    throw err;
+  }
+  if (!model) {
+    const err = new Error('No AI model selected. Choose a model in Settings.');
+    (err as any).code = 'NO_MODEL';
     throw err;
   }
 

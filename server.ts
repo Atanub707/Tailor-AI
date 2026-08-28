@@ -591,6 +591,7 @@ async function startServer() {
         return;
       }
       const started = Date.now();
+      const TIMEOUT_MS = 20_000; // bounded probe — never hangs the settings UI
       const check = async (): Promise<void> => {
         if (p === 'gemini') {
           const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(mdl)}:generateContent?key=${encodeURIComponent(key)}`;
@@ -598,6 +599,7 @@ async function startServer() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ contents: [{ parts: [{ text: 'ping' }] }] }),
+            signal: AbortSignal.timeout(TIMEOUT_MS),
           });
           if (!r.ok) throw new Error(`Gemini API error ${r.status}`);
           return;
@@ -606,18 +608,24 @@ async function startServer() {
           const r = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-            body: JSON.stringify({ model: mdl, max_tokens: 5, messages: [{ role: 'user', content: 'ping' }] }),
+            body: JSON.stringify({ model: mdl, messages: [{ role: 'user', content: 'ping' }] }),
+            signal: AbortSignal.timeout(TIMEOUT_MS),
           });
           if (!r.ok) throw new Error(`Anthropic API error ${r.status}`);
           return;
         }
         const base = String(baseUrl || '').trim().replace(/\/+$/, '');
         if (!base) throw new Error('Enter a Base URL first.');
+        // IMPORTANT: no max_tokens in the probe — the opencode.ai router
+        // HANGS (never responds) when max_tokens is present, even for a
+        // valid key. The probe mirrors the working completion shape.
         const r = await fetch(`${base}/chat/completions`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: mdl, max_tokens: 5, messages: [{ role: 'user', content: 'ping' }] }),
+          body: JSON.stringify({ model: mdl, messages: [{ role: 'user', content: 'ping' }] }),
+          signal: AbortSignal.timeout(TIMEOUT_MS),
         });
+        if (r.status === 404) throw new Error('Model or endpoint not found (404) — check the model name and base URL.');
         if (!r.ok) throw new Error(`API error ${r.status}`);
       };
       await check();

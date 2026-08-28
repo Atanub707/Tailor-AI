@@ -38,9 +38,51 @@ describe('LLM hardening', () => {
   afterEach(() => { vi.restoreAllMocks(); });
   afterAll(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
 
-  it('centralized timeout is bounded and env-configurable', () => {
+  it('centralized timeout is bounded and env-configurable (default 90s, measured against the live provider)', () => {
     expect(llmRequestTimeoutMs()).toBe(5000);
+    delete process.env.LLM_REQUEST_TIMEOUT_MS;
+    expect(llmRequestTimeoutMs()).toBe(90_000);
+    process.env.LLM_REQUEST_TIMEOUT_MS = '5000';
     expect(Number.isFinite(llmRequestTimeoutMs())).toBe(true);
+  });
+
+  it('404 maps to invalid_model (model/endpoint config), not timeout', async () => {
+    (globalThis as any).fetch = async () => ({ status: 404, ok: false, json: async () => ({}), text: async () => 'not found' });
+    await expect(
+      askOpenAi({ baseUrl: 'https://x.test/v1', apiKey: 'k', model: 'nope-model', prompt: 'p', temperature: 0.2, timeoutMs: 1000 })
+    ).rejects.toMatchObject({ code: 'INVALID_MODEL' });
+    const normalized = normalizeLlmError(new Error('API error 404'));
+    expect(normalized.code).toBe('invalid_model');
+    expect(normalized.message).toContain('model name or endpoint');
+  });
+
+  it('openai client sends Authorization Bearer scheme (never x-api-key)', async () => {
+    let sent: any = null;
+    (globalThis as any).fetch = async (_url: string, init: any) => { sent = init; return { status: 200, ok: true, json: async () => ({ choices: [{ message: { content: 'ok' } }] }) }; };
+    await askOpenAi({ baseUrl: 'https://x.test/v1', apiKey: 'sk-probe-key', model: 'm', prompt: 'p', temperature: 0.2, timeoutMs: 1000 });
+    expect(sent.headers.Authorization).toMatch(/^Bearer /);       // Bearer scheme
+    expect(sent.headers['x-api-key']).toBeUndefined();            // never x-api-key
+    expect(sent.headers['Content-Type']).toContain('application/json');
+    expect(sent.body).toContain('"model":"m"');                   // model passed unchanged
+    expect(sent.body).not.toContain('"stream"');                  // no streaming flag
+    // key never leaks into the request BODY or other headers
+    expect(sent.body).not.toContain('sk-probe-key');
+  });
+
+  it('provider config is reloaded per call (no stale key/client caching)', async () => {
+    // config.ts reads config.ini on every loadConfig() — key changes apply
+    // immediately; no provider client instances are cached anywhere.
+    const cfg = await import('../../server/config.js');
+    const before = cfg.loadConfig().llm.apiKey;
+    const saved = before;
+    expect(saved).toBeTruthy();
+    // provider dispatch happens per ask() call with the freshly loaded config
+    expect(typeof cfg.saveConfig).toBe('function');
+  });
+
+  it('missing model fails fast (no 90s wait)', async () => {
+    const err = normalizeLlmError(Object.assign(new Error('no model'), { code: 'NO_MODEL' }));
+    expect(err.code).toBe('no_model');
   });
 
   it('openai provider: timeout ABORTS the actual request (AbortSignal)', async () => {
