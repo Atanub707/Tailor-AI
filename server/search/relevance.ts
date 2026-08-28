@@ -165,10 +165,21 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// Deterministic regex construction cached (bounded) — same match semantics,
+// no regex rebuilt per candidate.
+const PHRASE_RE_CACHE = new Map<string, RegExp>();
+const PHRASE_RE_CACHE_MAX = 2048;
+
 /** Word-boundary phrase match — "ai" must not match "train", "test" must not match "latest". */
 function containsPhrase(text: string, phrase: string): boolean {
   if (!phrase) return false;
-  return new RegExp(`\\b${escapeRe(phrase)}\\b`).test(text);
+  let re = PHRASE_RE_CACHE.get(phrase);
+  if (!re) {
+    re = new RegExp(`\\b${escapeRe(phrase)}\\b`);
+    if (PHRASE_RE_CACHE.size >= PHRASE_RE_CACHE_MAX) PHRASE_RE_CACHE.clear();
+    PHRASE_RE_CACHE.set(phrase, re);
+  }
+  return re.test(text);
 }
 
 /** Find the relationship-map key for a specialization, if any. */
@@ -189,11 +200,28 @@ function relationshipKey(specialization: string[]): string | undefined {
   return undefined;
 }
 
+// Bounded memo of parseQuery — a pure, deterministic function that the
+// evaluator would otherwise re-run for EVERY candidate. Same profile object
+// semantics (all consumers are read-only); memory-bounded.
+const PARSE_CACHE = new Map<string, QueryProfile>();
+const PARSE_CACHE_MAX = 256;
+
 /**
  * Parse any query into a QueryProfile. Derived FROM THE QUERY — no global
- * profession assumptions.
+ * profession assumptions. Deterministic; results are memoized per query
+ * string (bounded).
  */
 export function parseQuery(query: string): QueryProfile {
+  const key = String(query || '').trim();
+  const hit = PARSE_CACHE.get(key);
+  if (hit) return hit;
+  const profile = parseQueryUncached(query);
+  if (PARSE_CACHE.size >= PARSE_CACHE_MAX) PARSE_CACHE.clear();
+  PARSE_CACHE.set(key, profile);
+  return profile;
+}
+
+function parseQueryUncached(query: string): QueryProfile {
   const normalized = normalizeText(query);
   const expanded = expandAbbreviations(normalized);
   const words = normalized.split(' ').filter(Boolean);
