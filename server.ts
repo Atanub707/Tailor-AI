@@ -1472,20 +1472,21 @@ Return valid JSON only — NO markdown, NO code fences:
       // exactly the selected ATS is queried — never a silent fallback to
       // another provider. When the flag is OFF, the request-driven V1
       // direct-ATS path below is unchanged.
-      const { ATS_FLAGS } = await import('./server/providers/providerRegistry.js');
+      const { ATS_FLAGS, atsProviderMode } = await import('./server/providers/providerRegistry.js');
       const { greenhouseProvider } = await import('./server/providers/greenhouseProvider.js');
       const { leverProvider } = await import('./server/providers/leverProvider.js');
       const { ashbyProvider } = await import('./server/providers/ashbyProvider.js');
       const { greenhouseIndexProvider } = await import('./server/providers/greenhouseIndexProvider.js');
       const { toDurableJob } = await import('./server/providers/atsProviderShared.js');
       // Index-backed providers (searched from ats_jobs); the others stay
-      // network-backed until their ingestion phases land.
+      // network-backed until their ingestion phases land. NEVER falls back
+      // from local_index to the legacy 8-board path.
       const indexProviders: Partial<Record<string, import('./server/providers/types.js').JobSearchProvider>> = {
         Greenhouse: greenhouseIndexProvider,
       };
       const networkProviders = { Greenhouse: greenhouseProvider, Lever: leverProvider, Ashby: ashbyProvider } as const;
-      if (ATS_FLAGS.ENABLE_LOCAL_ATS_INDEX && sources.length === 1) {
-        const selectedProvider = indexProviders[sources[0]] ?? networkProviders[sources[0] as keyof typeof networkProviders];
+      if (sources.length === 1 && atsProviderMode(sources[0], ATS_FLAGS.ENABLE_LOCAL_ATS_INDEX) === 'local_index') {
+        const selectedProvider = indexProviders[sources[0]];
         if (selectedProvider) {
           const { runV2Search } = await import('./server/search/searchOrchestrator.js');
           const userLimit = Math.min(maxJobsPerSource ? Number(maxJobsPerSource) : 15, 50);
@@ -1510,25 +1511,11 @@ Return valid JSON only — NO markdown, NO code fences:
           // dedupes by fingerprint, so repeated searches never duplicate.
           const { added, skipped } = persistJobsWithUpgrade(result.jobs.map(toDurableJob));
           // Index-state honesty for the UI: an empty/incomplete index is
-          // "building", never "no jobs exist".
+          // "building", never "no jobs exist". searchMode proves the path.
           let indexState = {};
           if (sources[0] === 'Greenhouse') {
-            const { boardRefreshStats } = await import('./server/ats-index/atsRepository.js');
-            const st = boardRefreshStats('greenhouse');
-            const { isAtsCycleRunning } = await import('./server/ats-index/atsScheduler.js');
-            // Honest coverage semantics: `indexReady` = search can return
-            // data; `indexState`/`coveragePercent` say HOW complete the
-            // ingestion is (4,000 jobs != 6,032 boards).
-            indexState = {
-              indexReady: st.boardsSynced > 0 && st.activeJobs > 0,
-              indexState: st.indexState,
-              coveragePercent: st.coveragePercent,
-              indexedJobs: st.activeJobs,
-              boardsSynced: st.boardsSynced,
-              boardsTotal: st.boardsTotal,
-              lastRefresh: st.lastRefreshAt,
-              refreshInProgress: isAtsCycleRunning(),
-            };
+            const { indexResponseState } = await import('./server/ats-index/atsRepository.js');
+            indexState = indexResponseState('greenhouse');
           }
           res.json({
             success: true,

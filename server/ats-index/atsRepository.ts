@@ -407,6 +407,35 @@ export function ftsLookup(platform: string, match: string): AtsJobRow[] {
   return rows;
 }
 
+/**
+ * Observability fields for index-backed search responses (non-sensitive).
+ * Proves WHICH path served the search (searchMode) + honest coverage state.
+ */
+export function indexResponseState(platform: string): {
+  searchMode: 'local_index';
+  indexReady: boolean;
+  indexState: IndexReadinessState;
+  coveragePercent: number;
+  indexedJobs: number;
+  boardsSynced: number;
+  boardsTotal: number;
+  lastRefresh: string | null;
+  refreshInProgress: boolean;
+} {
+  const st = boardRefreshStats(platform);
+  return {
+    searchMode: 'local_index',
+    indexReady: st.boardsSynced > 0 && st.activeJobs > 0,
+    indexState: st.indexState,
+    coveragePercent: st.coveragePercent,
+    indexedJobs: st.activeJobs,
+    boardsSynced: st.boardsSynced,
+    boardsTotal: st.boardsTotal,
+    lastRefresh: st.lastRefreshAt,
+    refreshInProgress: st.refreshInProgress,
+  };
+}
+
 export function dbSizeBytes(): number {
   const db = getDb();
   const path = (db.prepare('PRAGMA database_list').get() as { file: string }).file;

@@ -18,6 +18,23 @@ export const ATS_FLAGS = {
   ENABLE_LOCAL_ATS_INDEX: (process.env.ENABLE_LOCAL_ATS_INDEX ?? 'false') === 'true',
 };
 
+// Which provider mode serves a single-source ATS search.
+//   local_index — the neutral local ATS index (zero network at search time)
+//   network     — legacy request-time provider (Greenhouse/Lever/Ashby public
+//                 APIs sampled per request) — used only for rollback or for
+//                 ATS platforms without an index yet
+//   none        — no provider for this source
+// NEVER silently falls back from local_index to network: an uninitialized or
+// building index returns explicit indexState fields instead of pretending the
+// 8-board sample is a full Greenhouse search.
+export function atsProviderMode(source: string, indexEnabled: boolean): 'local_index' | 'network' | 'none' {
+  if (!indexEnabled) return 'network';
+  const s = String(source || '');
+  if (s === 'Greenhouse') return 'local_index'; // index-backed today
+  if (s === 'Lever' || s === 'Ashby') return 'network'; // ingestion not built yet
+  return 'none';
+}
+
 /**
  * Build the ordered provider list from the registered providers + flags.
  * The provider array passed in is the full known set; the registry returns

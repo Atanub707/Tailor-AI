@@ -55,9 +55,10 @@ export async function runV2Search(
   params: JobSearchParams,
   providers: JobSearchProvider[]
 ): Promise<OrchestratorResult> {
-  // The selected source is part of the cache fingerprint — a LinkedIn
-  // DevOps search must never reuse a Naukri DevOps cache.
-  const queryFp = canonicalQueryFp(params.keywords, params.location, params.postedWindow || 'any', params.source);
+  // The cache fingerprint isolates every user-visible filter: source, work
+// mode and job type. A remote-only "DevOps Engineer" search must NEVER
+// reuse an all-modes cache (candidates are stored post-filter).
+  const queryFp = canonicalQueryFp(params.keywords, params.location, params.postedWindow || 'any', `${params.source}|${params.workMode || 'all'}|${params.jobType || 'all'}`);
   // The search CONTEXT is source-isolated too (same filterKey pattern as the
   // V1 scrape path): a Greenhouse "DevOps Engineer" search never reuses a
   // Lever or Ashby context for the same query.
@@ -140,8 +141,12 @@ function acceptResults(jobs: NormalizedJob[], params: JobSearchParams, queryFp: 
     if (!j.title || (!j.applyUrl && !j.url)) return false;
     // Date — Tailor always revalidates, provider-side is a bonus.
     if (!withinWindow(j, params.postedWindow)) return false;
-    // Location.
-    if (!matchesLocation(j.location, params.location, { remote: params.workMode === 'remote' })) return false;
+    // Location — matches the requested PLACE only. Work-mode (remote/hybrid/
+    // on-site) is a separate filter below: a "Remote" work-mode search must
+    // not turn the location matcher remote-only (a Bengaluru office job
+    // described as Remote would otherwise be wrongly rejected). The user's
+    // location choice 'Remote' is handled by the matcher's own want-tokens.
+    if (!matchesLocation(j.location, params.location)) return false;
     // Work-mode.
     if (params.workMode && params.workMode !== 'all') {
       const wm = detectWorkMode(j);

@@ -239,7 +239,12 @@ function wantTokensFor(want: string): string[] {
  */
 export function matchesLocation(jobLocation: string | string[] | undefined, searchLocation?: string, opts: LocationMatchOptions = {}): boolean {
   const want = (searchLocation || '').trim().toLowerCase();
-  if (!want) return true;
+  // Empty AND the UI's neutral 'Worldwide' placeholder mean "no location
+  // constraint" — except remote-only requests, which still require an actual
+  // remote marker (reference semantics preserved there).
+  if (!want || want === 'worldwide') {
+    return opts.remote === true ? matchesLocationRef(jobLocation, searchLocation, opts) : true;
+  }
 
   const wantTokens = wantTokensFor(want);
   const raw = Array.isArray(jobLocation) ? jobLocation.join(', ') : String(jobLocation || '');

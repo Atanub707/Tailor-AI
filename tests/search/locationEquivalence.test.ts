@@ -109,6 +109,14 @@ describe('location equivalence — optimized path == reference (bit-identical de
     }
   });
 
+  it("'Worldwide' (UI neutral placeholder) means no location constraint", () => {
+    expect(matchesLocation('San Francisco, CA, USA', 'Worldwide')).toBe(true);
+    expect(matchesLocation('Bengaluru, India', 'Worldwide')).toBe(true);
+    expect(matchesLocation('', 'Worldwide')).toBe(true);
+    expect(matchesLocation(undefined, 'Worldwide')).toBe(true);
+    expect(matchesLocation('London, UK', 'Worldwide', { remote: true })).toBe(false); // remote-only still applies
+  });
+
   it('abbreviations and aliases supported by the reference behave identically', () => {
     const pairs: Array<[string, string]> = [
       ['San Francisco, CA, USA', 'US'],
