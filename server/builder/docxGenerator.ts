@@ -1,4 +1,20 @@
 import PDFDocument from 'pdfkit';
+import path from 'node:path';
+
+// Embed REAL font files (LiberationSans — metric-compatible with
+// Helvetica, ships inside pdfjs-dist). Standard-14 fonts are NOT embedded
+// in the PDF, which makes their glyphs unextractable for ATS text-layer
+// verification. Embedded fonts always map.
+function registerEmbeddedFonts(doc: PDFKit.PDFDocument): void {
+  try {
+    const fontDir = path.join(process.cwd(), 'node_modules', 'pdfjs-dist', 'standard_fonts');
+    doc.registerFont('HelveticaEmbed', path.join(fontDir, 'LiberationSans-Regular.ttf'));
+    doc.registerFont('HelveticaEmbed-Bold', path.join(fontDir, 'LiberationSans-Bold.ttf'));
+    doc.registerFont('HelveticaEmbed-Oblique', path.join(fontDir, 'LiberationSans-Italic.ttf'));
+  } catch {
+    // best-effort: fall back to standard fonts (extraction may degrade)
+  }
+}
 import { TailoredCv } from '../../src/types.js';
 import { CV_TEMPLATE_GEOMETRY, cvSkillsColumnWidth } from '../../src/constants/cvTemplateConfig.js';
 import { displayUrl } from '../../src/lib/displayUrl.js';
@@ -203,6 +219,22 @@ function generateAtanuPdf(cv: TailoredCv): Promise<Buffer> {
       margins: { top: MARGIN_Y, bottom: MARGIN_Y, left: MARGIN_X, right: MARGIN_X },
     });
 
+    // Embed REAL font files (LiberationSans — metric-compatible with
+    // Helvetica, ships inside pdfjs-dist). Standard-14 fonts are NOT
+    // embedded in the PDF, which makes their glyphs unextractable for
+    // ATS text-layer verification. Embedded fonts always map.
+    try {
+      const fontDir = path.join(process.cwd(), 'node_modules', 'pdfjs-dist', 'standard_fonts');
+      console.warn('[PDF] fontDir:', fontDir);
+      doc.registerFont('HelveticaEmbed', path.join(fontDir, 'LiberationSans-Regular.ttf'));
+      doc.registerFont('HelveticaEmbed-Bold', path.join(fontDir, 'LiberationSans-Bold.ttf'));
+      doc.registerFont('HelveticaEmbed-Oblique', path.join(fontDir, 'LiberationSans-Italic.ttf'));
+    } catch (fontErr: any) {
+      // Embedding is best-effort: fall back to standard fonts (extraction
+      // may degrade) but never fail PDF generation over fonts.
+      console.warn('[PDF] font embedding unavailable:', String(fontErr?.message || fontErr).slice(0, 120));
+    }
+
     const buffers: Buffer[] = [];
     doc.on('data', (chunk) => buffers.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(buffers)));
@@ -220,7 +252,7 @@ function generateAtanuPdf(cv: TailoredCv): Promise<Buffer> {
     ensurePageSpace(60);
     const NAME_SIZE = 24;
     const NAME_SPACING = 3;
-    doc.font('Helvetica-Bold').fontSize(NAME_SIZE);
+    doc.font('HelveticaEmbed-Bold').fontSize(NAME_SIZE);
     let nameWidth = 0;
     for (const ch of Array.from(name)) nameWidth += doc.widthOfString(ch) + NAME_SPACING;
     nameWidth -= NAME_SPACING;
@@ -243,7 +275,7 @@ function generateAtanuPdf(cv: TailoredCv): Promise<Buffer> {
         const ROLE_SIZE = 12;
         const ROLE_SPACING = 1.5;
         const roleY = doc.y;
-        doc.font('Helvetica-Bold').fontSize(ROLE_SIZE);
+        doc.font('HelveticaEmbed-Bold').fontSize(ROLE_SIZE);
         let roleW = 0;
         for (const ch of Array.from(role)) roleW += doc.widthOfString(ch) + ROLE_SPACING;
         roleW -= ROLE_SPACING;
@@ -306,7 +338,7 @@ function generateAtanuPdf(cv: TailoredCv): Promise<Buffer> {
       doc.moveDown(0.74); // 10px above (0.74 × ~13.5pt line)
       const headY = doc.y;
       const secTitle = title.toUpperCase();
-      doc.font('Helvetica').fontSize(11); // normal weight
+      doc.font('HelveticaEmbed').fontSize(11); // normal weight
       let cx = leftMargin;
       for (const ch of Array.from(secTitle)) {
         doc.fillColor(ACCENT).text(ch, cx, headY, { lineBreak: false });
@@ -335,10 +367,10 @@ function generateAtanuPdf(cv: TailoredCv): Promise<Buffer> {
       const tWidth = contentWidth - 11;
       const currentY = doc.y;
 
-      doc.font('Helvetica').fontSize(9.5).fillColor(ACCENT).text('\u2022', bulletX, currentY, { lineBreak: false });
+      doc.font('HelveticaEmbed').fontSize(9.5).fillColor(ACCENT).text('\u2022', bulletX, currentY, { lineBreak: false });
 
       const normUrl = linkUrl ? normalizeUrl(linkUrl) : undefined;
-      doc.font('Helvetica').fontSize(9.5).fillColor(BODY);
+      doc.font('HelveticaEmbed').fontSize(9.5).fillColor(BODY);
       if (normUrl) {
         doc.fillColor(ACCENT).text(clean, textX, currentY, { width: tWidth, lineGap: LINE_GAP, align: 'justify' });
         const rawH = doc.heightOfString(clean, { width: tWidth });
@@ -358,7 +390,7 @@ function generateAtanuPdf(cv: TailoredCv): Promise<Buffer> {
       if (cleanSummary) {
         renderSectionHeader('Summary');
         ensurePageSpace(20);
-        doc.font('Helvetica').fontSize(9.5).fillColor(BODY).text(cleanSummary, leftMargin, doc.y, {
+        doc.font('HelveticaEmbed').fontSize(9.5).fillColor(BODY).text(cleanSummary, leftMargin, doc.y, {
           width: contentWidth,
           lineGap: LINE_GAP,
           align: 'justify',
@@ -384,7 +416,7 @@ function generateAtanuPdf(cv: TailoredCv): Promise<Buffer> {
 
       if (useCompetencies) {
         ensurePageSpace(15);
-        doc.font('Helvetica').fontSize(9.5).fillColor(BODY).text(
+        doc.font('HelveticaEmbed').fontSize(9.5).fillColor(BODY).text(
           cv.coreCompetencies.map((c) => sanitizeText(c)).filter(Boolean).join(', '),
           leftMargin, doc.y, { width: contentWidth, lineGap: LINE_GAP }
         );
@@ -409,14 +441,14 @@ function generateAtanuPdf(cv: TailoredCv): Promise<Buffer> {
           ensurePageSpace(rowH + 4);
           const rowY = doc.y;
           if (left) {
-            doc.font('Helvetica-Bold').fontSize(9.5).fillColor(NAVY);
+            doc.font('HelveticaEmbed-Bold').fontSize(9.5).fillColor(NAVY);
             doc.text(left.name ? left.name + ': ' : '', leftX, rowY, { continued: true, width: colW });
-            doc.font('Helvetica').fillColor('#374151').text(left.list, { width: colW, lineGap: LINE_GAP });
+            doc.font('HelveticaEmbed').fillColor('#374151').text(left.list, { width: colW, lineGap: LINE_GAP });
           }
           if (right) {
-            doc.font('Helvetica-Bold').fontSize(9.5).fillColor(NAVY);
+            doc.font('HelveticaEmbed-Bold').fontSize(9.5).fillColor(NAVY);
             doc.text(right.name ? right.name + ': ' : '', rightX, rowY, { continued: true, width: colW });
-            doc.font('Helvetica').fillColor('#374151').text(right.list, { width: colW, lineGap: LINE_GAP });
+            doc.font('HelveticaEmbed').fillColor('#374151').text(right.list, { width: colW, lineGap: LINE_GAP });
           }
           doc.y = rowY + rowH;
           doc.x = leftMargin;
@@ -444,21 +476,21 @@ function generateAtanuPdf(cv: TailoredCv): Promise<Buffer> {
         // Line 1: role (navy bold) — company (teal bold), period right-aligned
         const leftText = title + (company ? '  \u2014  ' + company : '');
         const leftW = contentWidth - 150;
-        doc.font('Helvetica-Bold').fontSize(10.5).fillColor(NAVY);
+        doc.font('HelveticaEmbed-Bold').fontSize(10.5).fillColor(NAVY);
         const leftH = doc.heightOfString(leftText, { width: leftW });
         doc.text(title, leftMargin, entryY, { continued: true });
         doc.fillColor(ACCENT).text(company ? '  \u2014  ' + company : '', { width: leftW });
         doc.x = leftMargin;
 
         if (period) {
-          doc.font('Helvetica').fontSize(9).fillColor(MUTED);
+          doc.font('HelveticaEmbed').fontSize(9).fillColor(MUTED);
           doc.text(period, leftMargin + contentWidth - doc.widthOfString(period), entryY + Math.max(0, leftH - 12), { width: doc.widthOfString(period) });
         }
         doc.y = entryY + Math.max(leftH, 12);
 
         if (loc) {
           ensurePageSpace(12);
-          doc.font('Helvetica').fontSize(9).fillColor(MUTED).text(loc, leftMargin, doc.y, { width: contentWidth });
+          doc.font('HelveticaEmbed').fontSize(9).fillColor(MUTED).text(loc, leftMargin, doc.y, { width: contentWidth });
         }
         doc.x = leftMargin;
         doc.moveDown(0.1);
@@ -491,12 +523,12 @@ function generateAtanuPdf(cv: TailoredCv): Promise<Buffer> {
         const projY = doc.y;
 
         const pLeftW = contentWidth - 130;
-        doc.font('Helvetica-Bold').fontSize(9.5).fillColor(NAVY);
+        doc.font('HelveticaEmbed-Bold').fontSize(9.5).fillColor(NAVY);
         const pH = doc.heightOfString(pName, { width: pLeftW });
         doc.text(pName, leftMargin, projY, { width: pLeftW });
         if (pDates) {
           const tag = '  [' + pDates + ']';
-          doc.font('Helvetica').fontSize(9).fillColor(MUTED);
+          doc.font('HelveticaEmbed').fontSize(9).fillColor(MUTED);
           doc.text(tag, leftMargin + contentWidth - doc.widthOfString(tag), projY + Math.max(0, pH - 12), { width: doc.widthOfString(tag) });
         }
         doc.y = projY + Math.max(pH, 12);
@@ -507,7 +539,7 @@ function generateAtanuPdf(cv: TailoredCv): Promise<Buffer> {
           const desc = sanitizeText(proj.description);
           if (desc) {
             ensurePageSpace(15);
-            doc.font('Helvetica').fontSize(9.5).fillColor(BODY).text(desc, leftMargin, doc.y, {
+            doc.font('HelveticaEmbed').fontSize(9.5).fillColor(BODY).text(desc, leftMargin, doc.y, {
               width: contentWidth,
               lineGap: LINE_GAP,
             });
@@ -519,7 +551,7 @@ function generateAtanuPdf(cv: TailoredCv): Promise<Buffer> {
           ensurePageSpace(12);
           const ly = doc.y;
           const disp = displayUrl(proj.link);
-          doc.font('Helvetica').fontSize(9.5).fillColor(ACCENT).text(disp, leftMargin, ly, { width: contentWidth });
+          doc.font('HelveticaEmbed').fontSize(9.5).fillColor(ACCENT).text(disp, leftMargin, ly, { width: contentWidth });
           doc.link(leftMargin, ly, Math.min(doc.widthOfString(disp), contentWidth), Math.max(doc.heightOfString(disp, { width: contentWidth }), 10), normLink);
           doc.x = leftMargin;
         }
@@ -538,11 +570,11 @@ function generateAtanuPdf(cv: TailoredCv): Promise<Buffer> {
         const eDates = sanitizeText(edu.dates);
         const eduY = doc.y;
 
-        doc.font('Helvetica-Bold').fontSize(9.5).fillColor(NAVY);
+        doc.font('HelveticaEmbed-Bold').fontSize(9.5).fillColor(NAVY);
         const eduText = inst + (degree ? '  \u2014  ' + degree : '') + (eDates ? '  \u00A0\u00A0' + eDates : '');
         const eduH = doc.heightOfString(eduText, { width: contentWidth });
         doc.text(inst, leftMargin, eduY, { continued: true });
-        doc.font('Helvetica').fillColor(BODY).text((degree ? '  \u2014  ' + degree : '') + (eDates ? '  \u00A0\u00A0' + eDates : ''), { width: contentWidth });
+        doc.font('HelveticaEmbed').fillColor(BODY).text((degree ? '  \u2014  ' + degree : '') + (eDates ? '  \u00A0\u00A0' + eDates : ''), { width: contentWidth });
         doc.y = eduY + Math.max(eduH, 12);
         doc.x = leftMargin;
         doc.moveDown(0.25);
@@ -569,11 +601,11 @@ function generateAtanuPdf(cv: TailoredCv): Promise<Buffer> {
         if (!name) continue;
 
         const certY = doc.y;
-        doc.font('Helvetica-Bold').fontSize(9.5).fillColor(NAVY);
+        doc.font('HelveticaEmbed-Bold').fontSize(9.5).fillColor(NAVY);
         const certText = (issuer ? issuer + '  \u2014  ' : '') + name + (date ? ' (' + date + ')' : '');
         const certH = doc.heightOfString(certText, { width: contentWidth });
         doc.text(issuer, leftMargin, certY, { continued: true });
-        doc.font('Helvetica').fillColor(BODY)
+        doc.font('HelveticaEmbed').fillColor(BODY)
           .text((issuer ? '  \u2014  ' : '') + name + (date ? ' (' + date + ')' : ''), { width: contentWidth });
         doc.y = certY + Math.max(certH, 12);
         doc.x = leftMargin;
@@ -613,6 +645,7 @@ function generateAtanuProPdf(cv: TailoredCv): Promise<Buffer> {
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'LETTER', margins: { top: MARGIN_Y, bottom: MARGIN_Y, left: MARGIN_X, right: MARGIN_X } });
+    registerEmbeddedFonts(doc);
     const buffers: Buffer[] = [];
     doc.on('data', (chunk) => buffers.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(buffers)));
@@ -629,7 +662,7 @@ function generateAtanuProPdf(cv: TailoredCv): Promise<Buffer> {
     const renderSectionHeading = (title: string) => {
       ensurePageSpace(30);
       const y0 = doc.y;
-      doc.font('Helvetica-Bold').fontSize(geo.headingSize).fillColor(NAVY).text(title.toUpperCase(), leftMargin, y0, { width: contentWidth });
+      doc.font('HelveticaEmbed-Bold').fontSize(geo.headingSize).fillColor(NAVY).text(title.toUpperCase(), leftMargin, y0, { width: contentWidth });
       const ruleY = doc.y + 2;
       doc.fillColor(ACCENT).rect(leftMargin, ruleY, contentWidth, RULE_H).fill();
       doc.y = ruleY + RULE_H + 4;
@@ -644,7 +677,7 @@ function generateAtanuProPdf(cv: TailoredCv): Promise<Buffer> {
       const bulletH = doc.heightOfString(clean, { width: tWidth, lineGap: LINE_GAP });
       ensurePageSpace((isFinite(bulletH) && bulletH > 0 ? bulletH : 12) + 2);
       const y0 = doc.y;
-      doc.font('Helvetica').fontSize(geo.bulletSize).fillColor(ACCENT).text('\u2022', leftMargin, y0, { lineBreak: false });
+      doc.font('HelveticaEmbed').fontSize(geo.bulletSize).fillColor(ACCENT).text('\u2022', leftMargin, y0, { lineBreak: false });
       doc.fillColor(NAVY).text(clean, leftMargin + HANGING, y0, { width: tWidth, lineGap: LINE_GAP, align: 'justify' });
       doc.x = leftMargin;
       doc.moveDown(0.18);
@@ -653,14 +686,14 @@ function generateAtanuProPdf(cv: TailoredCv): Promise<Buffer> {
     // ── Header: name + title + contact + accent rule ──
     const name = sanitizeText(cv.candidateName).toUpperCase() || 'CANDIDATE NAME';
     ensurePageSpace(60);
-    doc.font('Helvetica-Bold').fontSize(geo.nameSize).fillColor(NAVY).text(name, leftMargin, doc.y, { width: contentWidth });
+    doc.font('HelveticaEmbed-Bold').fontSize(geo.nameSize).fillColor(NAVY).text(name, leftMargin, doc.y, { width: contentWidth });
     if (cv.targetRole) {
-      doc.font('Helvetica-Bold').fontSize(geo.roleSize).fillColor(GRAY).text(sanitizeText(cv.targetRole), leftMargin, doc.y, { width: contentWidth });
+      doc.font('HelveticaEmbed-Bold').fontSize(geo.roleSize).fillColor(GRAY).text(sanitizeText(cv.targetRole), leftMargin, doc.y, { width: contentWidth });
     }
     const contacts = getContactLinks(cv);
     if (contacts.length > 0) {
       ensurePageSpace(14);
-      doc.font('Helvetica').fontSize(9).fillColor(GRAY);
+      doc.font('HelveticaEmbed').fontSize(9).fillColor(GRAY);
       contacts.forEach((c, i) => {
         if (i > 0) doc.fillColor(FAINT).text(' | ', leftMargin, doc.y, { continued: true, lineBreak: false });
         doc.fillColor(c.url ? ACCENT : GRAY);
@@ -686,7 +719,7 @@ function generateAtanuProPdf(cv: TailoredCv): Promise<Buffer> {
       if (s) {
         renderSectionHeading('Summary');
         ensurePageSpace(18);
-        doc.font('Helvetica').fontSize(geo.bodySize).fillColor(NAVY).text(s, leftMargin, doc.y, { width: contentWidth, align: 'justify', lineGap: LINE_GAP });
+        doc.font('HelveticaEmbed').fontSize(geo.bodySize).fillColor(NAVY).text(s, leftMargin, doc.y, { width: contentWidth, align: 'justify', lineGap: LINE_GAP });
         doc.x = leftMargin;
         doc.moveDown(0.2);
       }
@@ -703,7 +736,7 @@ function generateAtanuProPdf(cv: TailoredCv): Promise<Buffer> {
       renderSectionHeading('Skills');
       if (useCompetencies) {
         ensurePageSpace(15);
-        doc.font('Helvetica').fontSize(geo.bodySize).fillColor(NAVY).text(
+        doc.font('HelveticaEmbed').fontSize(geo.bodySize).fillColor(NAVY).text(
           cv.coreCompetencies.map((c) => sanitizeText(c)).filter(Boolean).join(', '),
           leftMargin, doc.y, { width: contentWidth, lineGap: LINE_GAP }
         );
@@ -725,14 +758,14 @@ function generateAtanuProPdf(cv: TailoredCv): Promise<Buffer> {
           ensurePageSpace(rowH + 4);
           const rowY = doc.y;
           if (left) {
-            doc.font('Helvetica-Bold').fontSize(geo.skillCategorySize).fillColor(NAVY);
+            doc.font('HelveticaEmbed-Bold').fontSize(geo.skillCategorySize).fillColor(NAVY);
             doc.text(left.name ? left.name + ': ' : '', leftX, rowY, { continued: true, width: colW });
-            doc.font('Helvetica').fillColor(GRAY).text(left.list, { width: colW, lineGap: LINE_GAP });
+            doc.font('HelveticaEmbed').fillColor(GRAY).text(left.list, { width: colW, lineGap: LINE_GAP });
           }
           if (right) {
-            doc.font('Helvetica-Bold').fontSize(geo.skillCategorySize).fillColor(NAVY);
+            doc.font('HelveticaEmbed-Bold').fontSize(geo.skillCategorySize).fillColor(NAVY);
             doc.text(right.name ? right.name + ': ' : '', rightX, rowY, { continued: true, width: colW });
-            doc.font('Helvetica').fillColor(GRAY).text(right.list, { width: colW, lineGap: LINE_GAP });
+            doc.font('HelveticaEmbed').fillColor(GRAY).text(right.list, { width: colW, lineGap: LINE_GAP });
           }
           doc.y = rowY + rowH;
           doc.x = leftMargin;
@@ -754,14 +787,14 @@ function generateAtanuProPdf(cv: TailoredCv): Promise<Buffer> {
         const y0 = doc.y;
         const leftText = title + (company ? '  \u2014  ' + company : '');
         const leftW = contentWidth - 140;
-        doc.font('Helvetica-Bold').fontSize(geo.expTitleSize).fillColor(NAVY);
+        doc.font('HelveticaEmbed-Bold').fontSize(geo.expTitleSize).fillColor(NAVY);
         const leftH = doc.heightOfString(leftText, { width: leftW });
         doc.text(title, leftMargin, y0, { continued: true });
-        doc.font('Helvetica').fillColor(GRAY).text(company ? '  \u2014  ' + company : '', { width: leftW });
+        doc.font('HelveticaEmbed').fillColor(GRAY).text(company ? '  \u2014  ' + company : '', { width: leftW });
         doc.x = leftMargin;
         const meta = [period, loc].filter(Boolean).join('  |  ');
         if (meta) {
-          doc.font('Helvetica-Oblique').fontSize(8.5).fillColor(GRAY).text(meta, leftMargin + leftW, y0 + Math.max(0, leftH - 12), { width: 140 - 6, align: 'right' });
+          doc.font('HelveticaEmbed-Oblique').fontSize(8.5).fillColor(GRAY).text(meta, leftMargin + leftW, y0 + Math.max(0, leftH - 12), { width: 140 - 6, align: 'right' });
           doc.x = leftMargin;
         }
         doc.y = y0 + Math.max(leftH, 12);
@@ -782,16 +815,16 @@ function generateAtanuProPdf(cv: TailoredCv): Promise<Buffer> {
         const pDates = sanitizeText(p.dates);
         const pDesc = sanitizeText(p.description);
         const y0 = doc.y;
-        doc.font('Helvetica-Bold').fontSize(geo.expTitleSize).fillColor(NAVY).text(pName, leftMargin, y0, { continued: true });
+        doc.font('HelveticaEmbed-Bold').fontSize(geo.expTitleSize).fillColor(NAVY).text(pName, leftMargin, y0, { continued: true });
         doc.x = leftMargin;
         if (pDates) {
-          doc.font('Helvetica-Oblique').fontSize(8.5).fillColor(GRAY).text('  [' + pDates + ']', { continued: true });
+          doc.font('HelveticaEmbed-Oblique').fontSize(8.5).fillColor(GRAY).text('  [' + pDates + ']', { continued: true });
           doc.x = leftMargin;
         }
         doc.text('', { lineBreak: true });
         if (pDesc) {
           ensurePageSpace(12);
-          doc.font('Helvetica').fontSize(geo.bodySize).fillColor(NAVY).text(pDesc, leftMargin, doc.y, { width: contentWidth, lineGap: LINE_GAP, align: 'justify' });
+          doc.font('HelveticaEmbed').fontSize(geo.bodySize).fillColor(NAVY).text(pDesc, leftMargin, doc.y, { width: contentWidth, lineGap: LINE_GAP, align: 'justify' });
           doc.x = leftMargin;
         }
         if (p.link) {
@@ -799,7 +832,7 @@ function generateAtanuProPdf(cv: TailoredCv): Promise<Buffer> {
           ensurePageSpace(12);
           const lx = leftMargin;
           const ly = doc.y;
-          doc.font('Helvetica').fontSize(geo.bodySize).fillColor(ACCENT).text(sanitizeText(displayUrl(p.link)), lx, ly, { width: contentWidth });
+          doc.font('HelveticaEmbed').fontSize(geo.bodySize).fillColor(ACCENT).text(sanitizeText(displayUrl(p.link)), lx, ly, { width: contentWidth });
           const disp = sanitizeText(displayUrl(p.link));
           const lw = doc.widthOfString(disp);
           const lh = doc.heightOfString(disp, { width: contentWidth });
@@ -819,9 +852,9 @@ function generateAtanuProPdf(cv: TailoredCv): Promise<Buffer> {
         const inst = sanitizeText(e.institution);
         const deg = sanitizeText(e.degree);
         const dates = sanitizeText(e.dates);
-        doc.font('Helvetica-Bold').fontSize(geo.bodySize).fillColor(NAVY).text(inst, leftMargin, doc.y, { continued: true });
-        doc.font('Helvetica').fillColor(NAVY).text(deg ? '  \u2014  ' + deg : '', { continued: true });
-        doc.font('Helvetica-Oblique').fillColor(GRAY).text(dates ? '   ' + dates : '', { continued: true });
+        doc.font('HelveticaEmbed-Bold').fontSize(geo.bodySize).fillColor(NAVY).text(inst, leftMargin, doc.y, { continued: true });
+        doc.font('HelveticaEmbed').fillColor(NAVY).text(deg ? '  \u2014  ' + deg : '', { continued: true });
+        doc.font('HelveticaEmbed-Oblique').fillColor(GRAY).text(dates ? '   ' + dates : '', { continued: true });
         doc.text('', { lineBreak: true });
         doc.x = leftMargin;
         doc.moveDown(0.05);
@@ -837,8 +870,8 @@ function generateAtanuProPdf(cv: TailoredCv): Promise<Buffer> {
         if (typeof cert === 'string') nameT = cert;
         else { nameT = cert.name || ''; issuer = cert.issuer || ''; }
         ensurePageSpace(12);
-        doc.font('Helvetica-Bold').fontSize(geo.bodySize).fillColor(NAVY).text(issuer ? issuer + '  \u2014  ' : '', leftMargin, doc.y, { continued: true });
-        doc.font('Helvetica').fillColor(NAVY).text(nameT, { width: contentWidth });
+        doc.font('HelveticaEmbed-Bold').fontSize(geo.bodySize).fillColor(NAVY).text(issuer ? issuer + '  \u2014  ' : '', leftMargin, doc.y, { continued: true });
+        doc.font('HelveticaEmbed').fillColor(NAVY).text(nameT, { width: contentWidth });
         doc.x = leftMargin;
         doc.moveDown(0.05);
       }
@@ -870,6 +903,7 @@ function generateHarvardPdf(cv: TailoredCv): Promise<Buffer> {
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'LETTER', margins: { top: MARGIN_Y, bottom: MARGIN_Y, left: MARGIN_X, right: MARGIN_X } });
+    registerEmbeddedFonts(doc);
     const buffers: Buffer[] = [];
     doc.on('data', (chunk) => buffers.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(buffers)));
@@ -882,7 +916,7 @@ function generateHarvardPdf(cv: TailoredCv): Promise<Buffer> {
     // Centered name (bold, 15pt, uppercase)
     const name = sanitizeText(cv.candidateName).toUpperCase() || 'CANDIDATE NAME';
     ensurePageSpace(40);
-    doc.font('Helvetica-Bold').fontSize(15).fillColor(INK).text(name, leftMargin, doc.y, { align: 'center', width: contentWidth });
+    doc.font('HelveticaEmbed-Bold').fontSize(15).fillColor(INK).text(name, leftMargin, doc.y, { align: 'center', width: contentWidth });
     doc.moveDown(0.2);
 
     // Centered contact line with bullet separators
@@ -900,7 +934,7 @@ function generateHarvardPdf(cv: TailoredCv): Promise<Buffer> {
         let currentX = leftMargin + Math.max(0, (contentWidth - totalWidth) / 2);
         itemsMeasured.forEach(({ item, label, w }, idx) => {
           const normUrl = item.url ? normalizeUrl(item.url) : undefined;
-          doc.font('Helvetica').fontSize(10).fillColor(INK);
+          doc.font('HelveticaEmbed').fontSize(10).fillColor(INK);
           doc.text(label, currentX, currentY, { lineBreak: false });
           if (normUrl) doc.link(currentX, currentY, w, 10, normUrl);
           currentX += w;
@@ -919,7 +953,7 @@ function generateHarvardPdf(cv: TailoredCv): Promise<Buffer> {
       ensurePageSpace(30);
       doc.moveDown(0.35);
       const y0 = doc.y;
-      doc.font('Helvetica-Bold').fontSize(11).fillColor(INK)
+      doc.font('HelveticaEmbed-Bold').fontSize(11).fillColor(INK)
         .text(title.toUpperCase(), leftMargin, y0, { align: 'center', width: contentWidth });
       doc.moveDown(0.15);
       doc.x = leftMargin;
@@ -935,7 +969,7 @@ function generateHarvardPdf(cv: TailoredCv): Promise<Buffer> {
       const bulletH = doc.heightOfString(clean, { width: contentWidth - 13, lineGap: LINE_GAP });
       ensurePageSpace((isFinite(bulletH) && bulletH > 0 ? bulletH : 12) + 2);
       const y0 = doc.y;
-      doc.font('Helvetica').fontSize(10.5).fillColor(INK).text('\u2022', leftMargin, y0, { lineBreak: false });
+      doc.font('HelveticaEmbed').fontSize(10.5).fillColor(INK).text('\u2022', leftMargin, y0, { lineBreak: false });
       doc.text(clean, leftMargin + 13, y0, { width: contentWidth - 13, align: 'justify', lineGap: LINE_GAP });
       doc.x = leftMargin;
       doc.moveDown(0.18);
@@ -947,7 +981,7 @@ function generateHarvardPdf(cv: TailoredCv): Promise<Buffer> {
       if (s) {
         section('Summary');
         ensurePageSpace(18);
-        doc.font('Helvetica').fontSize(10.5).fillColor(INK).text(s, leftMargin, doc.y, { width: contentWidth, align: 'justify', lineGap: LINE_GAP });
+        doc.font('HelveticaEmbed').fontSize(10.5).fillColor(INK).text(s, leftMargin, doc.y, { width: contentWidth, align: 'justify', lineGap: LINE_GAP });
         doc.x = leftMargin;
         doc.moveDown(0.2);
       }
@@ -1015,7 +1049,7 @@ function generateHarvardPdf(cv: TailoredCv): Promise<Buffer> {
           if (link) {
             const ly = doc.y;
             const disp = displayUrl(proj.link);
-            doc.font('Helvetica').fontSize(10.5).fillColor(INK).text(disp, leftMargin, ly, { width: contentWidth });
+            doc.font('HelveticaEmbed').fontSize(10.5).fillColor(INK).text(disp, leftMargin, ly, { width: contentWidth });
             doc.link(leftMargin, ly, Math.min(doc.widthOfString(disp), contentWidth), Math.max(doc.heightOfString(disp, { width: contentWidth }), 10), link);
             doc.x = leftMargin;
             doc.moveDown(0.1);
@@ -1036,8 +1070,8 @@ function generateHarvardPdf(cv: TailoredCv): Promise<Buffer> {
       for (const cat of skillCats) {
         ensurePageSpace(14);
         const y0 = doc.y;
-        doc.font('Helvetica-Bold').fontSize(10.5).fillColor(INK).text(cat.name + ': ', leftMargin, y0, { continued: true });
-        doc.font('Helvetica').fillColor(INK).text(cat.list, { width: contentWidth - 1, lineGap: LINE_GAP });
+        doc.font('HelveticaEmbed-Bold').fontSize(10.5).fillColor(INK).text(cat.name + ': ', leftMargin, y0, { continued: true });
+        doc.font('HelveticaEmbed').fillColor(INK).text(cat.list, { width: contentWidth - 1, lineGap: LINE_GAP });
         doc.x = leftMargin;
         doc.moveDown(0.15);
       }
@@ -1054,8 +1088,8 @@ function generateHarvardPdf(cv: TailoredCv): Promise<Buffer> {
         if (!nameT) continue;
         ensurePageSpace(14);
         const y0 = doc.y;
-        if (issuer) doc.font('Helvetica-Bold').fontSize(10.5).fillColor(INK).text(issuer, leftMargin, y0, { continued: true });
-        doc.font('Helvetica').fillColor(INK).text((issuer ? '  \u2014  ' : '') + nameT, { width: contentWidth });
+        if (issuer) doc.font('HelveticaEmbed-Bold').fontSize(10.5).fillColor(INK).text(issuer, leftMargin, y0, { continued: true });
+        doc.font('HelveticaEmbed').fillColor(INK).text((issuer ? '  \u2014  ' : '') + nameT, { width: contentWidth });
         doc.x = leftMargin;
         doc.moveDown(0.15);
       }
@@ -1087,6 +1121,7 @@ function generateJakePdf(cv: TailoredCv): Promise<Buffer> {
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'LETTER', margins: { top: MARGIN_Y, bottom: MARGIN_Y, left: MARGIN_X, right: MARGIN_X } });
+    registerEmbeddedFonts(doc);
     const buffers: Buffer[] = [];
     doc.on('data', (chunk) => buffers.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(buffers)));
@@ -1099,13 +1134,13 @@ function generateJakePdf(cv: TailoredCv): Promise<Buffer> {
     // Header: uppercase name left, role, contact
     const name = sanitizeText(cv.candidateName).toUpperCase() || 'CANDIDATE NAME';
     ensurePageSpace(60);
-    doc.font('Helvetica-Bold').fontSize(24).fillColor('#111111').text(name, leftMargin, doc.y, { width: contentWidth });
+    doc.font('HelveticaEmbed-Bold').fontSize(24).fillColor('#111111').text(name, leftMargin, doc.y, { width: contentWidth });
     doc.moveDown(0.15);
     if (cv.targetRole) {
       const role = sanitizeText(cv.targetRole);
       if (role) {
         ensurePageSpace(14);
-        doc.font('Helvetica-Bold').fontSize(11.5).fillColor(MUTED).text(role, leftMargin, doc.y, { width: contentWidth });
+        doc.font('HelveticaEmbed-Bold').fontSize(11.5).fillColor(MUTED).text(role, leftMargin, doc.y, { width: contentWidth });
         doc.moveDown(0.15);
       }
     }
@@ -1120,7 +1155,7 @@ function generateJakePdf(cv: TailoredCv): Promise<Buffer> {
         if (!label) return;
         const w = doc.widthOfString(label);
         const normUrl = item.url ? normalizeUrl(item.url) : undefined;
-        doc.font('Helvetica').fontSize(9.5).fillColor('#444444');
+        doc.font('HelveticaEmbed').fontSize(9.5).fillColor('#444444');
         doc.text(label, cx, y0, { lineBreak: false });
         if (normUrl) doc.link(cx, y0, w, 10, normUrl);
         cx += w;
@@ -1139,7 +1174,7 @@ function generateJakePdf(cv: TailoredCv): Promise<Buffer> {
       ensurePageSpace(30);
       doc.moveDown(0.3);
       const y0 = doc.y;
-      doc.font('Helvetica-Bold').fontSize(11).fillColor('#111111').text(title.toUpperCase(), leftMargin, y0, { width: contentWidth });
+      doc.font('HelveticaEmbed-Bold').fontSize(11).fillColor('#111111').text(title.toUpperCase(), leftMargin, y0, { width: contentWidth });
       const ruleY = doc.y + 2;
       doc.moveTo(leftMargin, ruleY).lineTo(rightMargin, ruleY).lineWidth(1).strokeColor('#111111').stroke();
       doc.y = ruleY + 5;
@@ -1154,7 +1189,7 @@ function generateJakePdf(cv: TailoredCv): Promise<Buffer> {
       const bulletH = doc.heightOfString(clean, { width: contentWidth - 12, lineGap: LINE_GAP });
       ensurePageSpace((isFinite(bulletH) && bulletH > 0 ? bulletH : 12) + 2);
       const y0 = doc.y;
-      doc.font('Helvetica').fontSize(9).fillColor(INK).text('\u2014', leftMargin, y0, { lineBreak: false });
+      doc.font('HelveticaEmbed').fontSize(9).fillColor(INK).text('\u2014', leftMargin, y0, { lineBreak: false });
       doc.text(clean, leftMargin + 12, y0, { width: contentWidth - 12, align: 'justify', lineGap: LINE_GAP });
       doc.x = leftMargin;
       doc.moveDown(0.12);
@@ -1165,7 +1200,7 @@ function generateJakePdf(cv: TailoredCv): Promise<Buffer> {
       if (s) {
         section('Summary');
         ensurePageSpace(16);
-        doc.font('Helvetica').fontSize(9).fillColor(INK).text(s, leftMargin, doc.y, { width: contentWidth, align: 'justify', lineGap: 1 });
+        doc.font('HelveticaEmbed').fontSize(9).fillColor(INK).text(s, leftMargin, doc.y, { width: contentWidth, align: 'justify', lineGap: 1 });
         doc.x = leftMargin;
         doc.moveDown(0.15);
       }
@@ -1195,14 +1230,14 @@ function generateJakePdf(cv: TailoredCv): Promise<Buffer> {
         ensurePageSpace(rowH + 3);
         const rowY = doc.y;
         if (left) {
-          doc.font('Helvetica-Bold').fontSize(9).fillColor('#111111');
+          doc.font('HelveticaEmbed-Bold').fontSize(9).fillColor('#111111');
           doc.text(left.name + ': ', leftX, rowY, { continued: true, width: colW });
-          doc.font('Helvetica').fillColor(INK).text(left.list, { width: colW, lineGap: LINE_GAP });
+          doc.font('HelveticaEmbed').fillColor(INK).text(left.list, { width: colW, lineGap: LINE_GAP });
         }
         if (right) {
-          doc.font('Helvetica-Bold').fontSize(9).fillColor('#111111');
+          doc.font('HelveticaEmbed-Bold').fontSize(9).fillColor('#111111');
           doc.text(right.name + ': ', rightX, rowY, { continued: true, width: colW });
-          doc.font('Helvetica').fillColor(INK).text(right.list, { width: colW, lineGap: LINE_GAP });
+          doc.font('HelveticaEmbed').fillColor(INK).text(right.list, { width: colW, lineGap: LINE_GAP });
         }
         doc.y = rowY + rowH;
         doc.x = leftMargin;
@@ -1222,19 +1257,19 @@ function generateJakePdf(cv: TailoredCv): Promise<Buffer> {
         const y0 = doc.y;
         const leftText = title + (company ? '  \u2014  ' + company : '');
         const leftW = contentWidth - 140;
-        doc.font('Helvetica-Bold').fontSize(9.5).fillColor('#111111');
+        doc.font('HelveticaEmbed-Bold').fontSize(9.5).fillColor('#111111');
         const leftH = doc.heightOfString(leftText, { width: leftW });
         doc.text(title, leftMargin, y0, { continued: true });
-        doc.font('Helvetica').fillColor(MUTED).text(company ? '  \u2014  ' + company : '', { width: leftW });
+        doc.font('HelveticaEmbed').fillColor(MUTED).text(company ? '  \u2014  ' + company : '', { width: leftW });
         doc.x = leftMargin;
         if (period) {
-          doc.font('Helvetica').fontSize(8.5).fillColor(FAINT);
+          doc.font('HelveticaEmbed').fontSize(8.5).fillColor(FAINT);
           doc.text(period, leftMargin + contentWidth - doc.widthOfString(period), y0 + Math.max(0, leftH - 12), { width: doc.widthOfString(period) });
         }
         doc.y = y0 + Math.max(leftH, 12);
         if (loc) {
           ensurePageSpace(11);
-          doc.font('Helvetica').fontSize(9).fillColor(FAINT).text(loc, leftMargin, doc.y, { width: contentWidth });
+          doc.font('HelveticaEmbed').fontSize(9).fillColor(FAINT).text(loc, leftMargin, doc.y, { width: contentWidth });
           doc.moveDown(0.1);
         }
         doc.x = leftMargin;
@@ -1252,12 +1287,12 @@ function generateJakePdf(cv: TailoredCv): Promise<Buffer> {
         const pDates = sanitizeText(proj.dates);
         const y0 = doc.y;
         const pLeftW = contentWidth - 130;
-        doc.font('Helvetica-Bold').fontSize(9.5).fillColor('#111111');
+        doc.font('HelveticaEmbed-Bold').fontSize(9.5).fillColor('#111111');
         const pH = doc.heightOfString(pName, { width: pLeftW });
         doc.text(pName, leftMargin, y0, { width: pLeftW });
         if (pDates) {
           const tag = '  [' + pDates + ']';
-          doc.font('Helvetica').fontSize(8.5).fillColor(FAINT);
+          doc.font('HelveticaEmbed').fontSize(8.5).fillColor(FAINT);
           doc.text(tag, leftMargin + contentWidth - doc.widthOfString(tag), y0 + Math.max(0, pH - 12), { width: doc.widthOfString(tag) });
         }
         doc.y = y0 + Math.max(pH, 12);
@@ -1267,7 +1302,7 @@ function generateJakePdf(cv: TailoredCv): Promise<Buffer> {
           const d = sanitizeText(proj.description);
           if (d) {
             ensurePageSpace(13);
-            doc.font('Helvetica').fontSize(9).fillColor(INK).text(d, leftMargin, doc.y, { width: contentWidth, lineGap: 1 });
+            doc.font('HelveticaEmbed').fontSize(9).fillColor(INK).text(d, leftMargin, doc.y, { width: contentWidth, lineGap: 1 });
             doc.x = leftMargin;
             doc.moveDown(0.05);
           }
@@ -1278,7 +1313,7 @@ function generateJakePdf(cv: TailoredCv): Promise<Buffer> {
             ensurePageSpace(11);
             const ly = doc.y;
             const disp = displayUrl(proj.link);
-            doc.font('Helvetica').fontSize(9).fillColor('#111111').text(disp, leftMargin, ly, { width: contentWidth });
+            doc.font('HelveticaEmbed').fontSize(9).fillColor('#111111').text(disp, leftMargin, ly, { width: contentWidth });
             doc.link(leftMargin, ly, Math.min(doc.widthOfString(disp), contentWidth), Math.max(doc.heightOfString(disp, { width: contentWidth }), 10), link);
             doc.x = leftMargin;
           }
@@ -1296,8 +1331,8 @@ function generateJakePdf(cv: TailoredCv): Promise<Buffer> {
         const degree = sanitizeText(edu.degree);
         const dates = sanitizeText(edu.dates);
         const y0 = doc.y;
-        doc.font('Helvetica-Bold').fontSize(9.5).fillColor('#111111').text(inst, leftMargin, y0, { continued: true });
-        doc.font('Helvetica').fillColor(INK)
+        doc.font('HelveticaEmbed-Bold').fontSize(9.5).fillColor('#111111').text(inst, leftMargin, y0, { continued: true });
+        doc.font('HelveticaEmbed').fillColor(INK)
           .text((degree ? '  \u2014  ' + degree : '') + (dates ? '  \u00A0\u00A0' + dates : ''));
         doc.x = leftMargin;
         doc.moveDown(0.2);
@@ -1314,8 +1349,8 @@ function generateJakePdf(cv: TailoredCv): Promise<Buffer> {
         if (!nameT) continue;
         ensurePageSpace(13);
         const y0 = doc.y;
-        if (issuer) doc.font('Helvetica-Bold').fontSize(9.5).fillColor('#111111').text(issuer, leftMargin, y0, { continued: true });
-        doc.font('Helvetica').fillColor(INK).text((issuer ? '  \u2014  ' : '') + nameT, { width: contentWidth });
+        if (issuer) doc.font('HelveticaEmbed-Bold').fontSize(9.5).fillColor('#111111').text(issuer, leftMargin, y0, { continued: true });
+        doc.font('HelveticaEmbed').fillColor(INK).text((issuer ? '  \u2014  ' : '') + nameT, { width: contentWidth });
         doc.x = leftMargin;
         doc.moveDown(0.15);
       }
