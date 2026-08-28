@@ -2388,6 +2388,160 @@ Return valid JSON only, no markdown:
     }
   });
 
+  // ── Application Package V1 — immutable preparation snapshot ───────────
+  // PREPARE ONLY. No submission endpoints exist.
+  const loadPackageDeps = async () => {
+    const { preparePackage, resumePdfHash } = await import('./server/applicationPackage/packageEngine.js');
+    const { getLatestPackage, listPackages, getPackageById, markPackageStale, packageInputFingerprint } = await import('./server/applicationPackage/packageStore.js');
+    const { getApplicantProfile } = await import('./server/storage/applicantProfile.js');
+    const { getMasterCv, getMasterCvUpdatedAt } = await import('./server/storage/fileStorage.js');
+    const { getLatestTailorVersion } = await import('./server/tailorV2/versionStore.js');
+    return { preparePackage, resumePdfHash, getLatestPackage, listPackages, getPackageById, markPackageStale, packageInputFingerprint, getApplicantProfile, getMasterCv, getMasterCvUpdatedAt, getLatestTailorVersion };
+  };
+  const packageContext = async (userId: string, job: Job) => {
+    const deps = await loadPackageDeps();
+    const { ensureJobDescription } = await import('./server/tailor/jdResolver.js');
+    const { computeFit } = await import('./server/fit/fitEngine.js');
+    const { fitCacheKeyFor, getCachedFit, storeCachedFit, jdHash } = await import('./server/fit/fitCache.js');
+    const fullJob = await ensureJobDescription(job);
+    const profile = deps.getApplicantProfile(userId);
+    const masterCv = deps.getMasterCv(userId);
+    const jd = fullJob.description || '';
+    const key = fitCacheKeyFor(profile.updatedAt, deps.getMasterCvUpdatedAt(userId), jd);
+    let fit = getCachedFit(userId, job.id, key);
+    if (!fit) {
+      fit = computeFit(profile, masterCv, fullJob, jd);
+      storeCachedFit(userId, job.id, key, fit);
+    }
+    const tailored = deps.getLatestTailorVersion(userId, job.id);
+    return { deps, fullJob, profile, masterCv, jd, fit, tailored };
+  };
+
+  // Create or reuse the current package for a job.
+  app.post('/api/jobs/:id/application-package', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const job = getJobById(req.params.id);
+      if (!job) return res.status(404).json({ error: 'Job not found.' });
+      const ctx = await packageContext(userId, job);
+      const { buildPackage, computePackageKeys } = await import('./server/applicationPackage/packageEngine.js');
+      const { getLatestPackage, storePackage, packageInputFingerprint } = await import('./server/applicationPackage/packageStore.js');
+      const latest = getLatestPackage(userId, job.id);
+      const keys = computePackageKeys({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredVersion: ctx.tailored });
+      keys.masterCvUpdatedAt = ctx.deps.getMasterCvUpdatedAt(userId);
+      const fp = packageInputFingerprint(keys);
+      if (latest && latest.status !== 'STALE' && latest.inputFingerprint === fp) {
+        res.json({ package: latest, reused: true });
+        return;
+      }
+      const pkg = await buildPackage({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredVersion: ctx.tailored }, ctx.deps.getMasterCvUpdatedAt(userId));
+      storePackage(pkg);
+      res.json({ package: pkg, reused: false });
+    } catch (err: any) {
+      res.status(500).json({ error: String(err?.message || 'Package preparation failed.').slice(0, 300) });
+    }
+  });
+
+  app.get('/api/jobs/:id/application-package', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { getLatestPackage } = await import('./server/applicationPackage/packageStore.js');
+      const pkg = getLatestPackage(userId, req.params.id);
+      if (!pkg) return res.status(404).json({ error: 'No package for this job yet.' });
+      res.json({ package: pkg });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'failed' });
+    }
+  });
+
+  app.get('/api/jobs/:id/application-packages', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { listPackages } = await import('./server/applicationPackage/packageStore.js');
+      res.json({ packages: listPackages(userId, req.params.id) });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'failed' });
+    }
+  });
+
+  // User supplies a missing answer value (validated; source = USER).
+  app.patch('/api/application-packages/:packageId/answers', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { getPackageById, storePackage } = await import('./server/applicationPackage/packageStore.js');
+      const { validatePackage } = await import('./server/applicationPackage/answers.js');
+      const pkg = getPackageById(userId, req.params.packageId);
+      if (!pkg) return res.status(404).json({ error: 'Package not found.' });
+      if (pkg.status === 'READY') {
+        // Never mutate a frozen READY package — tell the caller to rebuild.
+        return res.status(409).json({ error: 'Package is READY — rebuild to change answers.', code: 'ready_frozen' });
+      }
+      const { key, value } = req.body || {};
+      const idx = pkg.answers.findIndex((a) => a.key === key);
+      if (idx === -1) return res.status(400).json({ error: `Unknown answer key: ${key}` });
+      const allowed = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || Array.isArray(value);
+      if (!allowed) return res.status(400).json({ error: 'Invalid answer value type.' });
+      pkg.answers[idx] = { ...pkg.answers[idx], value: value ?? null, source: 'USER', status: value === null || value === '' ? 'NEEDS_INPUT' : 'RESOLVED' };
+      const { getApplicantProfile } = await import('./server/storage/applicantProfile.js');
+      pkg.validation = validatePackage(pkg, pkg.answers, undefined, getApplicantProfile(userId));
+      pkg.status = pkg.validation.status;
+      pkg.updatedAt = new Date().toISOString();
+      storePackage(pkg);
+      res.json({ package: pkg });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'failed' });
+    }
+  });
+
+  // Immutable PDF artifact retrieval — exact stored bytes, NEVER regenerated.
+  app.get('/api/application-packages/:packageId/resume.pdf', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { getPackageById } = await import('./server/applicationPackage/packageStore.js');
+      const pkg = getPackageById(userId, req.params.packageId); // ownership enforced
+      if (!pkg) return res.status(404).json({ error: 'Package not found.' });
+      if (!pkg.resumeSnapshot?.pdfHash) return res.status(404).json({ error: 'No PDF artifact for this package.' });
+      const { readPdfArtifact } = await import('./server/applicationPackage/artifactStore.js');
+      let buf: Buffer;
+      try {
+        buf = readPdfArtifact(pkg.resumeSnapshot.pdfHash);
+      } catch (err: any) {
+        return res.status(410).json({ error: err?.message || 'PDF artifact unavailable.' });
+      }
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="package-v${pkg.version}-resume.pdf"`);
+      res.send(buf);
+    } catch (err: any) {
+      res.status(500).json({ error: String(err?.message || 'failed').slice(0, 200) });
+    }
+  });
+
+  // Rebuild a new package version from current inputs (old versions preserved).
+  app.post('/api/application-packages/:packageId/rebuild', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { getPackageById } = await import('./server/applicationPackage/packageStore.js');
+      const old = getPackageById(userId, req.params.packageId);
+      if (!old) return res.status(404).json({ error: 'Package not found.' });
+      const job = getJobById(old.jobId);
+      if (!job) return res.status(404).json({ error: 'Job not found.' });
+      const ctx = await packageContext(userId, job);
+      const { buildPackage } = await import('./server/applicationPackage/packageEngine.js');
+      const { storePackage } = await import('./server/applicationPackage/packageStore.js');
+      const pkg = await buildPackage({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredVersion: ctx.tailored, answers: old.answers, questions: old.questions }, ctx.deps.getMasterCvUpdatedAt(userId));
+      storePackage(pkg);
+      res.json({ package: pkg, oldStatus: old.status });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'failed' });
+    }
+  });
+
   // ── Tailor V2 — grounded resume tailoring + fact verification ─────────
   app.post('/api/jobs/:id/tailor-v2', async (req, res) => {
     try {

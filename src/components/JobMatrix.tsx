@@ -204,6 +204,119 @@ function JobTailorV2({ jobId }: { jobId: string }) {
   );
 }
 
+
+// ── Application Package V1 — prepare-only review surface (no submission) ──
+function JobApplyPackage({ jobId }: { jobId: string }) {
+  const [state, setState] = React.useState<'idle' | 'preparing' | 'done' | 'error'>('idle');
+  const [pkg, setPkg] = React.useState<any>(null);
+  const [open, setOpen] = React.useState(false);
+  const [error, setError] = React.useState('');
+  const [input, setInput] = React.useState<Record<string, string>>({});
+
+  const prepare = async () => {
+    setState('preparing');
+    setError('');
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/application-package`, { method: 'POST' });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Preparation failed.'); }
+      const d = await res.json();
+      setPkg(d.package);
+      setState('done');
+      setOpen(true);
+    } catch (e: any) {
+      setState('error');
+      setError(String(e?.message || 'Preparation failed.'));
+    }
+  };
+
+  const supply = async (key: string, value: string) => {
+    if (!pkg) return;
+    const res = await fetch(`/api/application-packages/${pkg.id}/answers`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value }),
+    });
+    if (res.ok) {
+      const d = await res.json();
+      setPkg(d.package);
+    } else {
+      const d = await res.json().catch(() => ({}));
+      setError(d.error || 'Failed to save answer.');
+    }
+  };
+
+  const statusColor: Record<string, string> = { READY: 'text-emerald-600', NEEDS_INPUT: 'text-amber-600', STALE: 'text-orange-600', DRAFT: 'text-slate-500' };
+  const statusLabel: Record<string, string> = { READY: 'Ready to Apply', NEEDS_INPUT: 'Needs your input', STALE: 'Application package is out of date', DRAFT: 'Application preparation incomplete' };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={prepare}
+        disabled={state === 'preparing'}
+        className="px-2.5 py-1.5 rounded-md text-xs font-medium bg-white hover:bg-[var(--color-brand-soft)] border-[1.5px] border-[var(--color-brand-line)] text-[var(--color-muted)] disabled:opacity-50"
+        title="Prepare an immutable application package (no submission)"
+      >
+        {state === 'preparing' ? 'Preparing…' : 'Prepare Application'}
+      </button>
+      {error && <span className="text-[10px] text-red-600 block">{error}</span>}
+      {pkg && open && (
+        <div className="absolute right-0 top-10 z-40 w-80 rounded-xl border border-[var(--color-border)] bg-white shadow-lg p-4 text-left max-h-[28rem] overflow-y-auto">
+          <div className="flex items-baseline justify-between">
+            <span className="text-sm font-bold text-[var(--color-ink)]">{pkg.jobSnapshot.title}</span>
+            <span className={`text-xs font-black ${statusColor[pkg.status] || ''}`}>{statusLabel[pkg.status] || pkg.status}</span>
+          </div>
+          <div className="text-xs text-[var(--color-faint)]">{pkg.jobSnapshot.company} · v{pkg.version} · Fit {pkg.fitSnapshot?.score}% ({pkg.fitSnapshot?.grade})</div>
+          {pkg.resumeSnapshot && (
+            <div className="mt-2 text-xs text-emerald-700">Tailored Resume v{pkg.resumeSnapshot.version} · Verification Passed</div>
+          )}
+          {!pkg.resumeSnapshot && <div className="mt-2 text-xs text-slate-500">No verified tailored resume — run Tailor V2 first.</div>}
+          <div className="mt-2 text-xs text-[var(--color-ink)]">
+            Answers: {pkg.answers.filter((a: any) => a.status === 'RESOLVED').length} resolved · {pkg.answers.filter((a: any) => a.status !== 'RESOLVED').length} missing
+          </div>
+          {pkg.validation.missingPrerequisites.length > 0 && (
+            <div className="mt-2 rounded-lg bg-slate-50 border border-slate-200 p-2">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Preparation</div>
+              {pkg.validation.missingPrerequisites.slice(0, 4).map((p2: string, i: number) => (
+                <div key={i} className="text-xs text-slate-600">• {p2}</div>
+              ))}
+            </div>
+          )}
+          {pkg.validation.needsInput.length > 0 && (
+            <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 p-2">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-amber-700">Needs your input</div>
+              {pkg.validation.needsInput.slice(0, 4).map((n: string, i: number) => (
+                <div key={i} className="mt-1 text-xs text-amber-800">{n}</div>
+              ))}
+            </div>
+          )}
+          {pkg.validation.blockers.length > 0 && (
+            <div className="mt-2 rounded-lg bg-slate-50 border border-slate-200 p-2">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Blockers</div>
+              {pkg.validation.blockers.slice(0, 3).map((b: string, i: number) => (
+                <div key={i} className="text-xs text-slate-600">• {b}</div>
+              ))}
+            </div>
+          )}
+          {pkg.answers.filter((a: any) => a.status === 'MISSING' && ['authorizedToWork', 'requiresSponsorship'].includes(a.key)).length > 0 && (
+            <div className="mt-2 space-y-2">
+              {pkg.answers.filter((a: any) => a.status === 'MISSING' && ['authorizedToWork', 'requiresSponsorship'].includes(a.key)).map((a: any) => (
+                <div key={a.key} className="flex items-center gap-2">
+                  <input
+                    className="w-full text-xs border border-[var(--color-border)] rounded px-2 py-1"
+                    placeholder={a.label}
+                    value={input[a.key] || ''}
+                    onChange={(e) => setInput((p) => ({ ...p, [a.key]: e.target.value }))}
+                  />
+                  <button onClick={() => supply(a.key, input[a.key] || '')} className="text-xs font-bold px-2 py-1 rounded bg-[var(--color-accent)] text-white">Save</button>
+                </div>
+              ))}
+            </div>
+          )}
+          {pkg.generatedContent?.coverLetter && <div className="mt-2 text-xs text-[var(--color-ink)]">Cover letter: {pkg.generatedContent.coverLetter.verified ? 'verified' : 'not verified'}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const JobCard = React.memo(function JobCard({
   job,
   scoreMsg,
@@ -443,6 +556,7 @@ const JobCard = React.memo(function JobCard({
           {/* Fit Engine — deterministic fit score */}
           <JobFit jobId={job.id} />
           <JobTailorV2 jobId={job.id} />
+          <JobApplyPackage jobId={job.id} />
 
           {/* Tailor CV */}
           <div className="relative group">

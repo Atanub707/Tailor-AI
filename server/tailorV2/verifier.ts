@@ -268,6 +268,7 @@ export async function verifyDraft(
 
   // ── Claim-strength scan (ownership/leadership/scale inflation) ───────
   const STRENGTH_VERBS = ['led ', 'spearheaded', 'owned ', 'directed ', 'architected ', 'scaled to', 'managed a team', 'built the enterprise', 'engineering leader', 'technical leader', 'team lead', 'leadership', 'director of'];
+  const strengthVerbs = STRENGTH_VERBS;
   const draftTextAll = JSON.stringify(draft).toLowerCase();
   for (const v of STRENGTH_VERBS) {
     const inDraft = new RegExp(`\\b${v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(draftTextAll);
@@ -299,4 +300,50 @@ export async function verifyDraft(
     supportedJdTermsAfter: supportedAfter,
     unsupportedInserted,
   };
+}
+/**
+ * Deterministic safety check for GENERATED free text (application answers,
+ * cover letters). Reuses the same grounding sources as the resume verifier:
+ * employers/titles/dates/skills/metrics/leadership claims must be supported
+ * by the candidate's own sources. The JD is NOT candidate evidence.
+ */
+export async function checkGeneratedTextSafety(text: string, cv: import('../../src/types.js').MasterCv, profile: import('../../src/types.js').ApplicantProfile): Promise<{ ok: boolean; issues: string[] }> {
+  const ledger = buildCandidateFactLedger(cv, profile);
+  const sourceText = JSON.stringify({ cv, profile }).toLowerCase();
+  const issues: string[] = [];
+  const t = String(text || '');
+
+  const sourceNumbers = extractDraftNumbers(sourceText);
+  const metricSupported = (token: string): boolean => {
+    if (token === '%') return sourceNumbers.some((s) => s.endsWith('%'));
+    const dBase = token.replace(/[+xkmb%]/g, '');
+    const dStrong = /[+x%k]/.test(token);
+    return sourceNumbers.some((s) => {
+      if (token.endsWith('%') && !s.endsWith('%')) return false;
+      if (s.replace(/[+xkmb%]/g, '') !== dBase) return false;
+      return !dStrong || /[+x%k]/.test(s);
+    });
+  };
+  for (const n of extractDraftNumbers(t)) {
+    if (!metricSupported(n)) issues.push(`unsupported number: ${n}`);
+  }
+
+  const { SKILL_TERMS } = await import('../fit/requirementsParser.js');
+  const lower = t.toLowerCase();
+  for (const term of SKILL_TERMS) {
+    if (!new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(lower)) continue;
+    const supported = ledger.explicitSkills.some((s) => skillCovered(term, [s]).covered) ||
+      ledger.technologies.some((x) => skillCovered(term, [x]).covered) ||
+      new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(sourceText);
+    if (!supported) issues.push(`unsupported skill: ${term}`);
+  }
+
+  const STRENGTH_VERBS = ['led ', 'spearheaded', 'owned ', 'directed ', 'architected ', 'scaled to', 'managed a team', 'built the enterprise', 'engineering leader', 'technical leader', 'team lead', 'leadership', 'director of'];
+  for (const v of STRENGTH_VERBS) {
+    if (t.toLowerCase().includes(v) && !sourceText.includes(v)) {
+      issues.push(`unsupported claim: "${v.trim()}"`);
+    }
+  }
+
+  return { ok: issues.length === 0, issues };
 }
