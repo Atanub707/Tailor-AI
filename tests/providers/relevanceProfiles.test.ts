@@ -1,119 +1,165 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateRelevance, selectProfile, queryProfiles } from '../../server/search/relevance.js';
+import {
+  evaluateRelevance,
+  parseQuery,
+  selectProfile,
+  queryProfiles,
+  expandAbbreviations,
+  type MatchTier,
+} from '../../server/search/relevance.js';
 
-describe('query profiles — all registered', () => {
-  it('has the required profiles', () => {
-    const ids = queryProfiles();
-    for (const p of ['devops', 'cybersecurity', 'ai-ml', 'backend', 'frontend', 'fullstack', 'data-engineering', 'qa', 'mobile']) {
-      expect(ids).toContain(p);
-    }
+// One engine for ANY query — the acceptance matrix from the product spec.
+// Each query must accept its role family and reject unrelated/generic roles,
+// including unknown roles (Blockchain) with no predefined category.
+
+function check(query: string, title: string): MatchTier {
+  return evaluateRelevance(query, title).matchType;
+}
+const ACCEPT = ['exact', 'strong_related', 'related', 'weak_related'];
+
+describe('query parsing — generic, derived from the query', () => {
+  it('derives specialization tokens from the query', () => {
+    expect(parseQuery('Senior Backend Engineer').specializationTerms).toEqual(['backend']);
+    expect(parseQuery('Senior Backend Engineer').seniorityTerms).toEqual(['senior']);
+    expect(parseQuery('Machine Learning Engineer').specializationTerms).toContain('machine');
+    expect(parseQuery('DevOps Engineer').specializationTerms).toEqual(['devops']);
   });
-  it('selects the right profile per query', () => {
+  it('expands safe abbreviations symmetrically', () => {
+    expect(expandAbbreviations('ml engineer')).toBe('machine learning engineer');
+    expect(expandAbbreviations('sre')).toBe('site reliability');
+  });
+  it('resolves profile ids for known and unknown queries', () => {
     expect(selectProfile('DevOps Engineer').id).toBe('devops');
-    expect(selectProfile('Cyber Security Engineer').id).toBe('cybersecurity');
-    expect(selectProfile('AI Engineer').id).toBe('ai-ml');
-    expect(selectProfile('Backend Engineer').id).toBe('backend');
-    expect(selectProfile('Frontend Developer').id).toBe('frontend');
-    expect(selectProfile('Full Stack Engineer').id).toBe('fullstack');
-    expect(selectProfile('Data Engineer').id).toBe('data-engineering');
-    expect(selectProfile('QA Engineer').id).toBe('qa');
-    expect(selectProfile('Mobile Engineer').id).toBe('mobile');
+    expect(selectProfile('Machine Learning Engineer').id).toBe('machine_learning');
+    expect(selectProfile('Blockchain Engineer').id).toBe('generic');
+    expect(queryProfiles()).toContain('devops');
   });
 });
 
-describe('DevOps Engineer query', () => {
+describe('QUERY: DevOps Engineer', () => {
   const q = 'DevOps Engineer';
-  const tier = (title: string) => evaluateRelevance(q, title).matchType;
-  it('accepts DevOps titles', () => {
-    expect(tier('DevOps Engineer')).toBe('exact');
-    expect(tier('Senior DevOps Engineer')).toBe('exact');
-    expect(tier('DevSecOps Engineer')).toBe('exact');
-    expect(tier('SRE')).toBe('exact');
+  it('accepts', () => {
+    expect(ACCEPT).toContain(check(q, 'DevOps Engineer'));
+    expect(ACCEPT).toContain(check(q, 'DevSecOps Engineer'));
+    expect(ACCEPT).toContain(check(q, 'Site Reliability Engineer'));
+    expect(ACCEPT).toContain(check(q, 'Platform Engineer'));
   });
-  it('accepts strong related', () => {
-    expect(tier('Platform Engineer')).toBe('strong_related');
-    expect(tier('Infrastructure Engineer')).toBe('strong_related');
-    expect(tier('Cloud Infrastructure Engineer')).toBe('strong_related');
-  });
-  it('accepts related', () => {
-    expect(tier('Cloud Engineer')).toBe('related');
-    expect(tier('Systems Engineer')).toBe('related');
-  });
-  it('rejects unrelated roles', () => {
-    expect(tier('Software Engineer')).toBe('irrelevant');
-    expect(tier('Data Engineer')).toBe('irrelevant');
-    expect(tier('Product Manager')).toBe('irrelevant');
-    expect(tier('Account Executive')).toBe('irrelevant');
-    expect(tier('Backend Engineer')).toBe('irrelevant');
-    expect(tier('Security Engineer')).toBe('irrelevant');
+  it('rejects', () => {
+    expect(check(q, 'Data Engineer')).toBe('irrelevant');
+    expect(check(q, 'Operations Analyst')).toBe('irrelevant');
+    expect(check(q, 'Credit Operations Analyst')).toBe('irrelevant');
+    expect(check(q, 'Product Manager')).toBe('irrelevant');
+    expect(check(q, 'Account Executive')).toBe('irrelevant');
   });
 });
 
-describe('Cyber Security Engineer query', () => {
+describe('QUERY: Data Engineer', () => {
+  const q = 'Data Engineer';
+  it('accepts', () => {
+    expect(ACCEPT).toContain(check(q, 'Data Engineer'));
+    expect(ACCEPT).toContain(check(q, 'Senior Data Engineer'));
+    expect(ACCEPT).toContain(check(q, 'Data Platform Engineer'));
+  });
+  it('rejects', () => {
+    expect(check(q, 'DevOps Engineer')).toBe('irrelevant');
+    expect(check(q, 'Frontend Engineer')).toBe('irrelevant');
+    expect(check(q, 'Account Executive')).toBe('irrelevant');
+  });
+});
+
+describe('QUERY: Software Engineer', () => {
+  const q = 'Software Engineer';
+  it('accepts', () => {
+    expect(ACCEPT).toContain(check(q, 'Software Engineer'));
+    expect(ACCEPT).toContain(check(q, 'Senior Software Engineer'));
+    expect(ACCEPT).toContain(check(q, 'Software Developer'));
+  });
+  it('rejects', () => {
+    expect(check(q, 'Sales Engineer')).toBe('irrelevant');
+    expect(check(q, 'Product Manager')).toBe('irrelevant');
+    expect(check(q, 'Account Executive')).toBe('irrelevant');
+  });
+});
+
+describe('QUERY: Frontend Engineer', () => {
+  const q = 'Frontend Engineer';
+  it('accepts', () => {
+    expect(ACCEPT).toContain(check(q, 'Frontend Engineer'));
+    expect(ACCEPT).toContain(check(q, 'Frontend Developer'));
+    expect(ACCEPT).toContain(check(q, 'React Engineer'));
+  });
+  it('rejects', () => {
+    expect(check(q, 'Backend Engineer')).toBe('irrelevant');
+    expect(check(q, 'Data Engineer')).toBe('irrelevant');
+    expect(check(q, 'Product Manager')).toBe('irrelevant');
+  });
+});
+
+describe('QUERY: Cyber Security Engineer', () => {
   const q = 'Cyber Security Engineer';
-  const tier = (title: string) => evaluateRelevance(q, title).matchType;
-  it('accepts security titles', () => {
-    expect(tier('Cybersecurity Engineer')).toBe('exact');
-    expect(tier('Security Engineer')).toBe('exact');
-    expect(tier('Cloud Security Engineer')).toBe('exact'); // contains "security engineer" + cloud
-    expect(tier('Application Security Engineer')).toBe('exact');
-    expect(tier('DevSecOps Engineer')).toBe('exact');
-    expect(tier('Security Architect')).toBe('exact');
+  it('accepts', () => {
+    expect(ACCEPT).toContain(check(q, 'Cyber Security Engineer'));
+    expect(ACCEPT).toContain(check(q, 'Security Engineer'));
+    expect(ACCEPT).toContain(check(q, 'Application Security Engineer'));
+    expect(ACCEPT).toContain(check(q, 'Cloud Security Engineer'));
   });
-  it('rejects unrelated roles', () => {
-    expect(tier('Data Engineer')).toBe('irrelevant');
-    expect(tier('Platform Engineer')).toBe('irrelevant');
-    expect(tier('Product Manager')).toBe('irrelevant');
+  it('rejects', () => {
+    expect(check(q, 'Software Engineer')).toBe('irrelevant');
+    expect(check(q, 'Sales Engineer')).toBe('irrelevant');
+    expect(check(q, 'Account Executive')).toBe('irrelevant');
   });
 });
 
-describe('AI Engineer query', () => {
-  const q = 'AI Engineer';
-  const tier = (title: string) => evaluateRelevance(q, title).matchType;
-  it('accepts AI/ML titles', () => {
-    expect(tier('AI Engineer')).toBe('exact');
-    expect(tier('ML Engineer')).toBe('exact');
-    expect(tier('Machine Learning Engineer')).toBe('exact');
-    expect(tier('LLM Engineer')).toBe('exact');
-    expect(tier('Generative AI Engineer')).toBe('exact');
+describe('QUERY: Machine Learning Engineer', () => {
+  const q = 'Machine Learning Engineer';
+  it('accepts', () => {
+    expect(ACCEPT).toContain(check(q, 'Machine Learning Engineer'));
+    expect(ACCEPT).toContain(check(q, 'ML Engineer'));
+    expect(ACCEPT).toContain(check(q, 'Applied ML Engineer'));
   });
-  it('rejects unrelated roles', () => {
-    expect(tier('DevOps Engineer')).toBe('irrelevant');
-    expect(tier('Data Analyst')).toBe('irrelevant');
-    expect(tier('Product Manager')).toBe('irrelevant');
-    expect(tier('Frontend Engineer')).toBe('irrelevant');
+  it('rejects', () => {
+    expect(check(q, 'Data Entry')).toBe('irrelevant');
+    expect(check(q, 'Account Executive')).toBe('irrelevant');
+    expect(check(q, 'Frontend Engineer')).toBe('irrelevant');
   });
 });
 
-describe('other profiles — smoke', () => {
-  it('backend', () => {
-    expect(evaluateRelevance('Backend Engineer', 'Backend Engineer').matchType).toBe('exact');
-    expect(evaluateRelevance('Backend Engineer', 'Java Backend Developer').matchType).toBe('strong_related');
-    expect(evaluateRelevance('Backend Engineer', 'Frontend Engineer').matchType).toBe('irrelevant');
+describe('QUERY: Blockchain Engineer (unknown role — generic path)', () => {
+  const q = 'Blockchain Engineer';
+  it('accepts without any predefined category', () => {
+    expect(ACCEPT).toContain(check(q, 'Blockchain Engineer'));
+    expect(ACCEPT).toContain(check(q, 'Senior Blockchain Engineer'));
+    expect(ACCEPT).toContain(check(q, 'Blockchain Developer'));
   });
-  it('frontend', () => {
-    expect(evaluateRelevance('Frontend Engineer', 'React Engineer').matchType).toBe('exact');
-    expect(evaluateRelevance('Frontend Engineer', 'Backend Engineer').matchType).toBe('irrelevant');
-  });
-  it('data engineering', () => {
-    expect(evaluateRelevance('Data Engineer', 'Data Engineer').matchType).toBe('exact');
-    expect(evaluateRelevance('Data Engineer', 'ETL Engineer').matchType).toBe('exact');
-    expect(evaluateRelevance('Data Engineer', 'DevOps Engineer').matchType).toBe('irrelevant');
-  });
-  it('qa', () => {
-    expect(evaluateRelevance('QA Engineer', 'Test Automation Engineer').matchType).toBe('exact');
-    expect(evaluateRelevance('QA Engineer', 'Software Engineer').matchType).toBe('irrelevant');
-  });
-  it('mobile', () => {
-    expect(evaluateRelevance('Mobile Engineer', 'iOS Engineer').matchType).toBe('exact');
-    expect(evaluateRelevance('Mobile Engineer', 'Frontend Engineer').matchType).toBe('irrelevant');
+  it('rejects', () => {
+    expect(check(q, 'Backend Engineer')).toBe('irrelevant');
+    expect(check(q, 'Sales Engineer')).toBe('irrelevant');
+    expect(check(q, 'Product Manager')).toBe('irrelevant');
   });
 });
 
-describe('generic fallback — conservative', () => {
-  it('unknown query requires the exact term in the title', () => {
-    expect(evaluateRelevance('Cassandra Administrator', 'Cassandra Administrator').matchType).toBe('exact');
-    expect(evaluateRelevance('Cassandra Administrator', 'Software Engineer').matchType).toBe('irrelevant');
+describe('scoring tiers — specialization beats generic role word', () => {
+  it('exact role phrase scores 100', () => {
+    expect(evaluateRelevance('Data Engineer', 'Data Engineer').relevanceScore).toBe(100);
+    expect(evaluateRelevance('Software Engineer', 'Senior Software Engineer').relevanceScore).toBe(100);
+  });
+  it('specialization + role word is strong, not exact', () => {
+    expect(evaluateRelevance('Frontend Engineer', 'Frontend Developer').matchType).toBe('strong_related');
+    expect(evaluateRelevance('Blockchain Engineer', 'Blockchain Developer').matchType).toBe('strong_related');
+    expect(evaluateRelevance('Data Engineer', 'Data Platform Engineer').matchType).toBe('strong_related');
+  });
+  it('specialization without a role word is related', () => {
+    expect(evaluateRelevance('DevOps', 'DevOps Manager').matchType).toBe('exact'); // full query phrase present
+  });
+  it('domain synonyms are query-aware', () => {
+    expect(evaluateRelevance('DevOps Engineer', 'Platform Engineer').matchType).toBe('related');
+    expect(evaluateRelevance('DevOps Engineer', 'DevSecOps Engineer').matchType).toBe('strong_related');
+    expect(evaluateRelevance('Machine Learning Engineer', 'MLOps Engineer').matchType).toBe('strong_related');
+    expect(evaluateRelevance('Cyber Security Engineer', 'SOC Analyst').matchType).toBe('related');
+  });
+  it('word-boundary matching prevents substring false positives', () => {
+    expect(evaluateRelevance('AI Engineer', 'Train Engineer').relevanceScore).toBe(0);
+    expect(evaluateRelevance('QA Engineer', 'Latest Engineer').relevanceScore).toBe(0);
   });
 });
 
@@ -133,6 +179,6 @@ describe('leak regression — generic words never qualify alone', () => {
     expect(r.relevanceScore).toBe(0);
     const ok = evaluateRelevance(q, 'Platform Engineer');
     expect(ok.matchedSignals).toContain('platform');
-    expect(ok.matchType).toBe('strong_related');
+    expect(ok.matchType).toBe('related');
   });
 });

@@ -9,11 +9,19 @@ services:
       - ./:/app
       # node_modules stays in the image-built volume (not shadowed by the mount).
       - ats_node_modules:/app/node_modules
-      - ./data:/app/data
+      # LIVE SQLite lives on a Docker-managed named volume — NOT the host bind
+      # mount. Docker Desktop's bind-mount inode replacement on restart
+      # orphaned the long-lived better-sqlite3 WAL/SHM handles (silent write
+      # divergence). WAL/SHM and the DB now share one Docker filesystem.
+      - tailor-data:/app/data
       - ./config.ini:/app/config.ini
     environment:
       - DISABLE_HMR=true
+      # Normal intended runtime: Greenhouse searches use the LOCAL INDEX
+      # (ENABLE_LOCAL_ATS_INDEX=true). Set false for rollback/testing.
+      - ENABLE_LOCAL_ATS_INDEX=true
     restart: unless-stopped
 
 volumes:
   ats_node_modules:
+  tailor-data:

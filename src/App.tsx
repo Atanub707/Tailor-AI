@@ -45,6 +45,11 @@ export default function App() {
 
   // Active filters and views
   const [activeStateTab, setActiveStateTab] = useState<'all' | JobState>('all');
+  // Current-search view: when set, the job list shows ONLY the jobs of this
+  // search context (searchId → search_jobs → jobs). null = the full library.
+  const [activeSearchId, setActiveSearchId] = useState<string | null>(null);
+  const [searchResultCount, setSearchResultCount] = useState<number | null>(null);
+  const [searchHistory, setSearchHistory] = useState<{ id: string; query: string; location: string | null; postedWindow: string | null; source: string | null; lastSearchedAt: string; resultCount: number }[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [selectedJobTab, setSelectedJobTab] = useState<'details' | 'gap' | 'tailored'>('details');
 
@@ -133,10 +138,12 @@ export default function App() {
       page: String(page),
       limit: String(pageSize),
     });
-    // The All Jobs list always shows the user's FULL stored library (newest
-    // scraped first) — a search ADDS jobs to it and never hides previous
-    // results. Search-context isolation applies to cache/session identity
-    // server-side, not to hiding existing jobs from the list.
+    // After a search, the primary view is the CURRENT SEARCH RESULT SET
+    // (searchId → search_jobs → jobs), not the whole library. The full
+    // library stays one click away via the search banner.
+    if (activeSearchId) {
+      params.set('searchId', activeSearchId);
+    }
     const [listRes, statsRes] = await Promise.all([
       fetch(`/api/jobs?${params}`),
       fetch('/api/jobs/stats'),
@@ -149,7 +156,7 @@ export default function App() {
     if (statsRes.ok) {
       setStats(await statsRes.json());
     }
-  }, [activeStateTab, sourceFilter, searchTerm, sortBy, page, pageSize]);
+  }, [activeStateTab, sourceFilter, searchTerm, sortBy, page, pageSize, activeSearchId]);
 
   // Back/Close from any screen: land on the dashboard with FRESH data from
   // the server (newly saved LinkedIn posts, scraped jobs, updated scores)
@@ -161,6 +168,18 @@ export default function App() {
       else fetchJobs();           // already page 1 — fetch now
     }
   }, [navigate, currentUser, page, fetchJobs]);
+
+  // Search history — persisted backend activity, newest first. Refetched on
+  // mount and after every successful search (DB is the source of truth).
+  const refreshSearchHistory = useCallback(async () => {
+    try {
+      const res = await fetch('/api/searches');
+      if (res.ok) {
+        const data = await res.json();
+        setSearchHistory(data.searches || []);
+      }
+    } catch { /* non-fatal */ }
+  }, []);
 
   // Initial Fetch (session + config + first page)
   const fetchAllData = async () => {
@@ -242,7 +261,10 @@ export default function App() {
 
   // Refetch whenever filters/pagination change
   useEffect(() => {
-    if (currentUser) fetchJobs();
+    if (currentUser) {
+      fetchJobs();
+      refreshSearchHistory();
+    }
   }, [fetchJobs, currentUser]);
 
   // Reset to page 1 when a filter changes
@@ -277,13 +299,14 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        // Searching ADDS jobs to the store. The list always shows the full
-        // library (newest scraped first) — the search never narrows or hides
-        // existing jobs. Use the toolbar search box / source / sort controls
-        // to filter the view manually.
+        // Primary view becomes THIS search's result set. scrapedTotal is the
+        // result count — NEVER addedCount (addedCount = newly persisted only).
         setActiveStateTab('all');
         setPage(1);
+        setActiveSearchId(data.searchId || null);
+        setSearchResultCount(data.scrapedTotal ?? null);
         await fetchJobs();
+        refreshSearchHistory();
         // Notification badge: new recruiters found in this scrape's
         // descriptions (accumulates until the Recruiters screen is opened).
         if (data.newContacts?.length > 0) {
@@ -292,6 +315,12 @@ export default function App() {
         // V2 search returns cached candidates (searchId/returnedCount/jobs),
         // not durable additions — the banner reports matches found.
         if (data.queryFp !== undefined) {
+          setActiveSearchId(data.searchId || null);
+          setSearchResultCount(data.returnedCount ?? null);
+          setActiveStateTab('all');
+          setPage(1);
+          await fetchJobs();
+          refreshSearchHistory();
           return {
             scrapedTotal: data.returnedCount || 0,
             addedCount: data.returnedCount || 0,
@@ -595,6 +624,49 @@ export default function App() {
 
           {/* Main Jobs Matrix View */}
           <main>
+            {searchHistory.length > 0 && (
+              <div style={{ marginBottom: 8, padding: '8px 12px', background: 'var(--color-surface, #f6f7f8)', border: '1px solid var(--color-border, #e2e4e8)', borderRadius: 10, fontSize: 12.5 }}>
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>Search History ({searchHistory.length})</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {searchHistory.map((h) => (
+                    <button
+                      key={h.id}
+                      onClick={() => {
+                        setActiveSearchId(h.id);
+                        setSearchResultCount(h.resultCount);
+                        setActiveStateTab('all');
+                        setPage(1);
+                        fetchJobs();
+                      }}
+                      style={{
+                        textAlign: 'left', padding: '5px 8px', borderRadius: 8, cursor: 'pointer', fontSize: 12.5,
+                        border: activeSearchId === h.id ? '1px solid var(--color-accent, #3b82f6)' : '1px solid var(--color-border, #e2e4e8)',
+                        background: activeSearchId === h.id ? 'rgba(59,130,246,0.08)' : 'transparent',
+                      }}
+                    >
+                      {h.query}
+                      <span style={{ opacity: 0.65 }}> · {h.location || 'Worldwide'} · {h.postedWindow || 'any'} · {h.source || '—'} · {h.resultCount} results</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {activeSearchId && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', marginBottom: 8, background: 'var(--color-surface, #f6f7f8)', border: '1px solid var(--color-border, #e2e4e8)', borderRadius: 10, fontSize: 13 }}>
+                <span style={{ fontWeight: 600 }}>Search results: {searchResultCount ?? jobs.length}</span>
+                <button
+                  onClick={() => {
+                    setActiveSearchId(null);
+                    setSearchResultCount(null);
+                    setPage(1);
+                    fetchJobs();
+                  }}
+                  style={{ marginLeft: 'auto', padding: '4px 10px', borderRadius: 8, border: '1px solid var(--color-border, #d0d3d8)', background: 'transparent', cursor: 'pointer', fontSize: 12 }}
+                >
+                  ← Show All Jobs
+                </button>
+              </div>
+            )}
             <JobMatrix
               jobs={jobs}
               totalJobs={totalJobs}

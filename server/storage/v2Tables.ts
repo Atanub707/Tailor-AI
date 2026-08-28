@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { getDb } from './fileStorage.js';
+import { getDb, withDbRecovery } from './fileStorage.js';
 
 export interface CompanyCareerSite {
   id: string;
@@ -173,6 +173,14 @@ export function ensureV2Tables(): void {
     CREATE INDEX IF NOT EXISTS idx_provider_runs_provider ON provider_runs(provider);
   `);
 
+  // Search-history columns (non-destructive, idempotent-guarded). Older
+  // databases lack source/last_searched_at — ALTER ADD COLUMN never rewrites
+  // the table and existing rows keep NULLs (displayed with fallbacks).
+  const searchCols = new Set((db.prepare('PRAGMA table_info(searches)').all() as Array<{ name: string }>).map((c) => c.name));
+  if (!searchCols.has('source')) db.exec('ALTER TABLE searches ADD COLUMN source TEXT');
+  if (!searchCols.has('last_searched_at')) db.exec('ALTER TABLE searches ADD COLUMN last_searched_at TEXT');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_searches_user_last ON searches (user_id, last_searched_at)');
+
   // Add indexes on jobs JSON for V2 fields (if not exists, SQLite will ignore duplicate)
   try {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_jobs_fingerprint ON jobs(json_extract(data, '$.fingerprint'))`);
@@ -232,22 +240,90 @@ export function getOrCreateSearch(
   query: string,
   location: string | undefined,
   postedWindow: string | undefined,
-  filterKey?: string
+  filterKey?: string,
+  source?: string
+): string {
+  // Search-context creation is idempotent (reuses an existing row by
+  // fingerprint) — safe to re-execute completely after a connection reset.
+  return withDbRecovery(() => getOrCreateSearchInner(userId, query, location, postedWindow, filterKey, source));
+}
+
+function getOrCreateSearchInner(
+  userId: string,
+  query: string,
+  location: string | undefined,
+  postedWindow: string | undefined,
+  filterKey?: string,
+  source?: string
 ): string {
   ensureV2Tables();
   const db = getDb();
+  const now = new Date().toISOString();
   const fp = canonicalQueryFp(query, location, postedWindow, filterKey);
   const existing = db.prepare('SELECT id FROM searches WHERE user_id = ? AND query_fp = ? LIMIT 1').get(userId, fp) as { id: string } | undefined;
-  if (existing) return existing.id;
+  if (existing) {
+    // Re-executed canonical search: reuse the row, bump its last-searched
+    // timestamp so it moves to the TOP of history — never a duplicate row.
+    db.prepare('UPDATE searches SET last_searched_at = ?, source = COALESCE(source, ?) WHERE id = ?').run(now, source ?? null, existing.id);
+    return existing.id;
+  }
   const id = `search-${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`;
   db.prepare(
-    'INSERT INTO searches (id, user_id, query_fp, query, location, posted_window, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, userId, fp, String(query || '').trim(), location ?? null, postedWindow ?? null, new Date().toISOString());
+    'INSERT INTO searches (id, user_id, query_fp, query, location, posted_window, created_at, source, last_searched_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, userId, fp, String(query || '').trim(), location ?? null, postedWindow ?? null, now, source ?? null, now);
   return id;
+}
+
+export interface SearchHistoryItem {
+  id: string;
+  query: string;
+  location: string | null;
+  postedWindow: string | null;
+  source: string | null;
+  createdAt: string;
+  lastSearchedAt: string;
+  resultCount: number;
+}
+
+/**
+ * Search history — the user's search ACTIVITY, newest first.
+ * Ordering is activity-based: last_searched_at DESC, created_at DESC, then a
+ * deterministic id tie-break. NEVER ordered by job counts or alphabetic
+ * keywords. Reads are wrapped in connection recovery like the other search
+ * persistence ops.
+ */
+export function getSearchHistory(userId: string, limit = 50): SearchHistoryItem[] {
+  return withDbRecovery(() => {
+    ensureV2Tables();
+    const db = getDb();
+    const rows = db.prepare(
+      `SELECT s.id, s.query, s.location, s.posted_window, s.source, s.created_at, s.last_searched_at,
+              (SELECT count(*) FROM search_jobs sj WHERE sj.search_id = s.id) AS result_count
+       FROM searches s
+       WHERE s.user_id = ?
+       ORDER BY s.last_searched_at DESC, s.created_at DESC, s.id
+       LIMIT ?`
+    ).all(userId, limit) as Array<Record<string, unknown>>;
+    return rows.map((r) => ({
+      id: String(r.id),
+      query: String(r.query),
+      location: (r.location as string | null) ?? null,
+      postedWindow: (r.posted_window as string | null) ?? null,
+      source: (r.source as string | null) ?? null,
+      createdAt: String(r.created_at),
+      lastSearchedAt: String(r.last_searched_at ?? r.created_at),
+      resultCount: Number(r.result_count ?? 0),
+    }));
+  });
 }
 
 /** Link persisted jobs to a search context (idempotent). */
 export function linkJobsToSearch(searchId: string, jobIds: string[]): void {
+  // INSERT OR IGNORE — idempotent, safe to re-execute fully after reset.
+  withDbRecovery(() => linkJobsToSearchInner(searchId, jobIds));
+}
+
+function linkJobsToSearchInner(searchId: string, jobIds: string[]): void {
   ensureV2Tables();
   const db = getDb();
   const now = new Date().toISOString();
@@ -262,6 +338,14 @@ export function linkJobsToSearch(searchId: string, jobIds: string[]): void {
 
 /** Replace one search run's result set instead of accumulating stale jobs. */
 export function replaceJobsForSearch(searchId: string, jobIds: string[]): void {
+  // This was the exact failing boundary in the stale-connection incident.
+  // The retry re-executes the ENTIRE transaction on the fresh connection —
+  // the old transaction is never continued after a reset, so the
+  // DELETE + re-INSERT set stays atomic and idempotent.
+  withDbRecovery(() => replaceJobsForSearchInner(searchId, jobIds));
+}
+
+function replaceJobsForSearchInner(searchId: string, jobIds: string[]): void {
   ensureV2Tables();
   const db = getDb();
   const now = new Date().toISOString();
@@ -277,6 +361,11 @@ export function replaceJobsForSearch(searchId: string, jobIds: string[]): void {
 
 /** Job ids linked to a search context, newest link first. */
 export function getJobIdsForSearch(userId: string, searchId: string): string[] {
+  // Read-only — a stale connection should never wedge search views either.
+  return withDbRecovery(() => getJobIdsForSearchInner(userId, searchId));
+}
+
+function getJobIdsForSearchInner(userId: string, searchId: string): string[] {
   ensureV2Tables();
   const db = getDb();
   const rows = db.prepare(
@@ -296,6 +385,11 @@ export function isJobFresh(scrapedAt?: string, ttlHours = JOB_CACHE_TTL_HOURS): 
 
 export function markSeen(userId: string, queryFp: string, fingerprints: string[]): void {
   if (!userId || !queryFp || fingerprints.length === 0) return;
+  // INSERT OR IGNORE — idempotent, safe to re-execute fully after reset.
+  withDbRecovery(() => markSeenInner(userId, queryFp, fingerprints));
+}
+
+function markSeenInner(userId: string, queryFp: string, fingerprints: string[]): void {
   const db = getDb();
   const now = new Date().toISOString();
   const stmt = db.prepare(
@@ -309,6 +403,10 @@ export function markSeen(userId: string, queryFp: string, fingerprints: string[]
 
 export function getSeenFingerprints(userId: string, queryFp: string): Set<string> {
   if (!userId || !queryFp) return new Set();
+  return withDbRecovery(() => getSeenFingerprintsInner(userId, queryFp));
+}
+
+function getSeenFingerprintsInner(userId: string, queryFp: string): Set<string> {
   const db = getDb();
   const rows = db.prepare('SELECT fingerprint FROM search_seen WHERE user_id = ? AND query_fp = ?').all(userId, queryFp) as { fingerprint: string }[];
   return new Set(rows.map((r) => r.fingerprint));

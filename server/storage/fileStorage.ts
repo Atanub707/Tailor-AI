@@ -328,6 +328,86 @@ export function resetDbForTests(): void {
   if (db) { try { db.close(); } catch { /* noop */ } db = null; }
 }
 
+/**
+ * Close and reopen the canonical SQLite connection.
+ *
+ * WHY: a long-lived better-sqlite3 connection can hold file descriptors to
+ * deleted/orphaned WAL/SHM inodes after a Docker restart (bind-mount inode
+ * swap). That stale connection then reports SQLITE_CORRUPT ("database disk
+ * image is malformed") on writes even though the on-disk database is healthy
+ * (PRAGMA quick_check = ok from any fresh connection). Reopening gives the
+ * process a clean handle on the current WAL/SHM files. Exactly one connection
+ * exists at a time — this never creates a second permanent one.
+ */
+export function resetDbConnection(): void {
+  if (db) {
+    try {
+      db.close();
+    } catch {
+      /* best-effort close — the connection may already be wedged */
+    }
+    db = null;
+  }
+  // Reopen lazily via getDb() — restores journal_mode=WAL + base schema.
+  getDb();
+}
+
+function isCorruptError(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    ((err as { code?: string }).code === 'SQLITE_CORRUPT' ||
+      String((err as Error).message || '').includes('database disk image is malformed'))
+  );
+}
+
+/**
+ * Run a DB operation with ONE automatic connection-recovery attempt for the
+ * stale-connection SQLITE_CORRUPT condition:
+ *
+ *   op → SQLITE_CORRUPT → close+reopen connection → PRAGMA quick_check
+ *     quick_check = ok  → retry op ONCE (whole operation, fresh transaction)
+ *     quick_check ≠ ok  → surface the ORIGINAL error (no retry)
+ *
+ * Non-corrupt errors are never swallowed and never trigger a reconnect.
+ * Maximum: 1 reconnect, 1 retry. No loops.
+ */
+export function withDbRecovery<T>(op: () => T): T {
+  try {
+    return op();
+  } catch (err) {
+    if (!isCorruptError(err)) throw err;
+    console.warn(`[SQLite] connection recovery triggered (${(err as { code?: string }).code || 'SQLITE_CORRUPT'})`);
+    try {
+      resetDbConnection();
+    } catch (reopenErr) {
+      console.warn(`[SQLite] connection reopen failed: ${String((reopenErr as Error).message || reopenErr).slice(0, 120)} — no retry`);
+      throw err;
+    }
+    let quickCheck = 'unknown';
+    try {
+      quickCheck = String((getDb().prepare('PRAGMA quick_check').get() as { quick_check?: string })?.quick_check ?? 'unknown');
+    } catch (qcErr) {
+      quickCheck = 'error';
+    }
+    console.warn(`[SQLite] connection reopened; quick_check=${quickCheck}`);
+    if (quickCheck !== 'ok') {
+      // On-disk integrity genuinely bad (or DB unreadable) — do NOT retry.
+      console.warn('[SQLite] quick_check not ok — surfacing original error without retry');
+      throw err;
+    }
+    console.warn('[SQLite] retrying operation once');
+    try {
+      const result = op();
+      console.warn('[SQLite] retry succeeded');
+      return result;
+    } catch (retryErr) {
+      console.warn(`[SQLite] retry failed: ${(retryErr as { code?: string }).code || String((retryErr as Error).message || retryErr).slice(0, 120)} — no second reconnect`);
+      throw retryErr;
+    }
+  }
+}
+
 export function getDb(): Database.Database {
   if (db) return db;
   ensureDataDir();

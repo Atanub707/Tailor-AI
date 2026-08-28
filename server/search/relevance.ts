@@ -1,11 +1,24 @@
-// Query-aware deterministic relevance engine.
+// Generic query-aware deterministic relevance engine.
 //
-// The QUERY decides the vocabulary — "DevOps Engineer" and "Cyber Security
-// Engineer" accept DIFFERENT titles. Named match tiers, not magic numbers:
-// EXACT > STRONG_RELATED > RELATED > WEAK_RELATED > IRRELEVANT.
-// Infrastructure/domain words (platform, cloud, systems…) NEVER qualify a job
-// by themselves — they must pair with a technical role word.
-// No LLM, no live calls — pure local deterministic computation.
+// One engine for ANY query — no hard-coded profession profiles. The query is
+// parsed into a QueryProfile (role phrase + specialization tokens +
+// seniority), then every candidate title is scored by token overlap.
+//
+// Principles:
+//   * Indexing is neutral — relevance happens at QUERY time.
+//   * Specialization match matters MORE than a generic role word
+//     ("Data Engineer" and "DevOps Engineer" share "Engineer" but are not
+//     related; "Credit Operations Analyst" never qualifies as DevOps).
+//   * Unknown queries (e.g. "Blockchain Engineer") work through the same
+//     generic matching — no predefined category required.
+//   * A small ROLE_RELATIONSHIPS map ENHANCES known domains (DevOps↔SRE,
+//     Security↔AppSec…) but is never required for a query to work.
+//   * Safe abbreviation expansion (SRE → site reliability, ML → machine
+//     learning) is applied identically to queries AND titles.
+//   * No LLM, no live calls — pure local deterministic computation.
+//
+// Tiers (kept for the existing rank/orchestrator ordering contract):
+//   exact 100 > strong_related 90 > related 70 > weak_related 50 > irrelevant 0
 
 export type MatchTier =
   | 'exact'
@@ -32,193 +45,321 @@ export const TIER_WEIGHT: Record<Exclude<MatchTier, 'irrelevant'>, number> = {
 
 export const IRRELEVANT_SCORE = 0;
 
-// Technical role words — "manager"/"executive" deliberately absent so Product
-// Manager / Account Executive titles can never pair with a domain word.
-const ROLE_WORDS = /\b(engineer|engineering|developer|architect|administrator|admin|analyst|technician|specialist|scientist|lead)\b/i;
-
 // Explicit exclusions — titles containing these are ALWAYS irrelevant, no
-// matter which domain words they also contain.
-const EXCLUSIONS = /\b(account executive|product manager|sales|marketing|recruiter|customer success|account manager|business development|director|vp|head of)\b/i;
+// matter which other signals they carry. "data entry" is clerical work, never
+// an engineering role.
+const EXCLUSIONS = /\b(account executive|product manager|sales|marketing|recruiter|customer success|account manager|business development|director|vp|head of|data entry)\b/i;
 
-export interface QueryProfile {
-  id: string;
-  triggers: RegExp;       // query words that select this profile
-  exact: RegExp;          // titles that ARE the role
-  strongRelated: RegExp;  // strongly equivalent titles (paired with ROLE_WORDS)
-  related: RegExp;        // related titles (paired with ROLE_WORDS)
-  weakRelated: RegExp;    // loosely related (paired with ROLE_WORDS)
-  signals: RegExp;        // domain words collected for matchedSignals/debug
+// Generic role words — weak signals by themselves; they never qualify a job
+// without a specialization token.
+const GENERIC_ROLE_WORDS = /\b(engineer|engineering|developer|architect|administrator|admin|analyst|technician|specialist|scientist|lead|consultant|manager)\b/i;
+
+// Seniority / modifier tokens — stripped from the exact-match phrase, matched
+// against the title for near-exact credit.
+const SENIORITY_WORDS = /\b(senior|staff|principal|lead|junior|mid|associate|entry|intern|head|chief|sr|jr)\b/i;
+
+// Safe abbreviation expansions — applied to queries AND titles so "ML
+// Engineer" ↔ "Machine Learning Engineer" both match. Only standalone tokens
+// are expanded; expansions are never ambiguous in a tech-job context.
+const ABBREVIATIONS: Record<string, string> = {
+  sre: 'site reliability',
+  ml: 'machine learning',
+  ai: 'artificial intelligence',
+  qa: 'quality assurance',
+  ui: 'user interface',
+  infosec: 'information security',
+};
+
+// Optional domain relationship knowledge — ENHANCES related matching for
+// known specializations. Never required for an unknown query to work.
+//   strong: near-synonyms that pair with a role word → strong_related
+//   related: clearly-related roles → related
+export interface RelationshipEntry {
+  strong: string[];
+  related: string[];
 }
 
-const PROFILES: QueryProfile[] = [
-  {
-    id: 'devops',
-    triggers: /\b(devops|devsecops|sre|site reliability|platform engineer|infrastructure engineer|cloud engineer|cloud infrastructure|kubernetes|terraform|ci\/?cd|release engineering|gitops)\b/i,
-    exact: /\b(devops|devsecops|sre|site reliability)\b/i,
-    strongRelated: /\b(platform engineer|infrastructure engineer|cloud infrastructure engineer|gitops engineer)\b/i,
-    related: /\b(cloud engineer|systems engineer|release engineer|build engineer|kubernetes engineer|terraform engineer|deployment engineer|ci\/?cd engineer|site reliability engineer)\b/i,
-    weakRelated: /\b(platform|infrastructure|cloud|systems|kubernetes|terraform|containers|docker|linux|aws|azure|gcp|operations|deployment|release)\b/i,
-    signals: /\b(devops|devsecops|sre|platform|infrastructure|cloud|systems|kubernetes|terraform|containers|docker|linux|aws|azure|gcp|release|deployment|gitops)\b/i,
+export const ROLE_RELATIONSHIPS: Record<string, RelationshipEntry> = {
+  devops: {
+    strong: ['devsecops', 'sre', 'site reliability', 'cloud infrastructure', 'gitops'],
+    related: ['platform', 'infrastructure', 'systems', 'release', 'kubernetes', 'terraform', 'cloud'],
   },
-  {
-    id: 'cybersecurity',
-    triggers: /\b(cyber|cybersecurity|security engineer|infosec|appsec|application security|cloud security|network security|penetration|threat|vulnerability|soc|devsecops)\b/i,
-    exact: /\b(cybersecurity|cyber security|security engineer|security architect|security analyst|security operations|infosec|appsec|cloud security engineer|application security engineer|network security engineer|devsecops engineer|soc engineer|penetration tester)\b/i,
-    strongRelated: /\b(cloud security|application security|network security|devsecops|soc|threat|vulnerability|identity|iam|red team|blue team|incident response)\b/i,
-    related: /\b(security specialist|security administrator|security analyst)\b/i,
-    weakRelated: /\b(cloud|network|application)\b/i,
-    signals: /\b(cyber|cybersecurity|security|infosec|appsec|soc|threat|vulnerability|penetration|identity|iam|devsecops)\b/i,
+  cybersecurity: {
+    strong: ['application security', 'cloud security', 'network security', 'infosec', 'appsec', 'penetration'],
+    related: ['soc', 'threat', 'identity', 'iam', 'devsecops'],
   },
-  {
-    id: 'ai-ml',
-    triggers: /\b(ai engineer|machine learning|ml engineer|llm|generative ai|genai|deep learning|nlp|neural|transformer|langchain|pytorch|tensorflow|artificial intelligence|prompt)\b/i,
-    exact: /\b(ai engineer|ml engineer|machine learning engineer|llm engineer|generative ai engineer|applied ai|deep learning engineer|nlp engineer|prompt engineer|ai platform engineer)\b/i,
-    strongRelated: /\b(machine learning|mlops|ai infra|model engineer|research engineer|ai)\b/i,
-    related: /\b(ml|llm|generative|deep learning|nlp|neural|data science)\b/i,
-    weakRelated: /\b(backend|software|platform|infrastructure)\b/i,
-    signals: /\b(ai|ml|machine learning|llm|generative|deep learning|nlp|neural|transformer|langchain|pytorch|tensorflow|prompt|mlops)\b/i,
+  machine_learning: {
+    strong: ['mlops', 'applied ai', 'deep learning', 'genai', 'machine learning'],
+    related: ['nlp', 'llm', 'data science'],
   },
-  {
-    id: 'backend',
-    triggers: /\b(backend|back end|back-end|server-side|api engineer|microservices|distributed systems|node\.js|golang|java developer|python developer|ruby|\.net)\b/i,
-    exact: /\b(backend engineer|back-end engineer|back end engineer|server engineer|api engineer|microservices engineer|distributed systems engineer)\b/i,
-    strongRelated: /\b(backend|back-end|server-side|api|microservices|distributed systems)\b/i,
-    related: /\b(software engineer|java|golang|node|python|ruby|dotnet|\.net|typescript|sql)\b/i,
-    weakRelated: /\b(platform|systems|infrastructure|cloud)\b/i,
-    signals: /\b(backend|back-end|server|api|microservices|distributed|java|golang|node|python|ruby|\.net|typescript|sql)\b/i,
+  frontend: {
+    strong: ['ui', 'web'],
+    related: ['react', 'angular', 'vue', 'typescript', 'javascript'],
   },
-  {
-    id: 'frontend',
-    triggers: /\b(frontend|front end|front-end|ui engineer|web engineer|react|angular|vue|typescript|javascript|css|html|design systems)\b/i,
-    exact: /\b(frontend engineer|front-end engineer|front end engineer|ui engineer|web engineer|react engineer|angular engineer|vue engineer)\b/i,
-    strongRelated: /\b(frontend|front-end|front end|ui|web|react|angular|vue|typescript|javascript)\b/i,
-    related: /\b(design systems|css|html|accessibility)\b/i,
-    weakRelated: /\b(software|full stack|creative)\b/i,
-    signals: /\b(frontend|front-end|ui|web|react|angular|vue|typescript|javascript|css|html)\b/i,
+  data_engineering: {
+    strong: ['etl', 'pipeline', 'data infrastructure'],
+    related: ['warehouse', 'analytics', 'big data', 'sql', 'database'],
   },
-  {
-    id: 'fullstack',
-    triggers: /\b(fullstack|full stack|full-stack)\b/i,
-    exact: /\b(fullstack engineer|full stack engineer|full-stack engineer|fullstack developer|full stack developer)\b/i,
-    strongRelated: /\b(fullstack|full stack|full-stack)\b/i,
-    related: /\b(web|software|javascript|typescript|node|react)\b/i,
-    weakRelated: /\b(backend|frontend|front-end|front end)\b/i,
-    signals: /\b(fullstack|full stack|web|software|javascript|typescript|node|react|backend|frontend)\b/i,
+  backend: {
+    strong: ['server-side', 'microservices', 'distributed systems'],
+    related: ['api', 'node'],
   },
-  {
-    id: 'data-engineering',
-    triggers: /\b(data engineer|data engineering|etl|data pipeline|data platform|big data|analytics engineer|spark|kafka|airflow|warehouse engineer|dbt)\b/i,
-    exact: /\b(data engineer|data engineering|etl engineer|data pipeline engineer|data platform engineer|analytics engineer|big data engineer|warehouse engineer)\b/i,
-    strongRelated: /\b(etl|pipeline|data platform|data infrastructure|big data|spark|kafka|airflow|dbt)\b/i,
-    related: /\b(data|database|sql|analytics|warehouse|bi)\b/i,
-    weakRelated: /\b(software|backend|platform|systems)\b/i,
-    signals: /\b(data|etl|pipeline|warehouse|spark|kafka|airflow|analytics|database|sql|dbt|big data)\b/i,
+  mobile: {
+    strong: ['ios', 'android', 'react native', 'flutter'],
+    related: ['swift', 'kotlin'],
   },
-  {
-    id: 'qa',
-    triggers: /\b(qa|test automation|quality assurance|sdet|test engineer|tester|playwright|cypress|selenium|testing)\b/i,
-    exact: /\b(qa engineer|sdet|test engineer|test automation engineer|automation engineer|quality assurance engineer|quality engineer)\b/i,
-    strongRelated: /\b(qa|quality assurance|test automation|sdet|playwright|cypress|selenium)\b/i,
-    related: /\b(test|testing|automation|quality)\b/i,
-    weakRelated: /\b(manual)\b/i,
-    signals: /\b(qa|test|automation|quality|sdet|playwright|cypress|selenium)\b/i,
+  qa: {
+    strong: ['test automation', 'sdet', 'quality assurance'],
+    related: ['test', 'testing', 'automation'],
   },
-  {
-    id: 'mobile',
-    triggers: /\b(mobile|ios|android|react native|flutter|swift|kotlin|mobile app)\b/i,
-    exact: /\b(mobile engineer|ios engineer|android engineer|react native engineer|flutter engineer|mobile developer|ios developer|android developer)\b/i,
-    strongRelated: /\b(mobile|ios|android|react native|flutter|swift|kotlin)\b/i,
-    related: /\b(app|application)\b/i,
-    weakRelated: /(?!)/,
-    signals: /\b(mobile|ios|android|react native|flutter|swift|kotlin)\b/i,
-  },
-];
+};
 
-// Conservative generic fallback — unknown queries never match every
-// engineering job: the title must contain the query's primary term AND a
-// technical role word.
-function genericProfile(query: string): QueryProfile {
-  const term = query.toLowerCase().trim().split(/\s+/).filter((w) => w.length > 2)[0] || '';
-  const termRe = term ? new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i') : /(?!)/;
+// Abbreviation → relationship-map key aliases.
+const KEY_ALIASES: Record<string, string> = {
+  ai: 'machine_learning',
+  ml: 'machine_learning',
+  sre: 'devops',
+  qa: 'qa',
+  ui: 'frontend',
+  web: 'frontend',
+  infosec: 'cybersecurity',
+  appsec: 'cybersecurity',
+};
+
+export interface QueryProfile {
+  originalQuery: string;
+  normalizedQuery: string;
+  roleTerms: string[];            // full role phrases from the query
+  specializationTerms: string[];  // meaningful non-role, non-seniority tokens
+  seniorityTerms: string[];       // seniority/modifier tokens
+  strongSignals: string[];        // relationship near-synonyms (map)
+  relatedSignals: string[];       // relationship clearly-related (map)
+}
+
+export function normalizeText(s: string): string {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[-_/]+/g, ' ')
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Expand safe abbreviations in a normalized text (standalone tokens only). */
+export function expandAbbreviations(text: string): string {
+  const words = text.split(' ');
+  const out: string[] = [];
+  for (const w of words) {
+    const exp = ABBREVIATIONS[w];
+    if (exp) out.push(...exp.split(' '));
+    else out.push(w);
+  }
+  return out.join(' ');
+}
+
+function compactKey(s: string): string {
+  return s.replace(/[\s_]+/g, '').toLowerCase();
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Deterministic regex construction cached (bounded) — same match semantics,
+// no regex rebuilt per candidate.
+const PHRASE_RE_CACHE = new Map<string, RegExp>();
+const PHRASE_RE_CACHE_MAX = 2048;
+
+/** Word-boundary phrase match — "ai" must not match "train", "test" must not match "latest". */
+function containsPhrase(text: string, phrase: string): boolean {
+  if (!phrase) return false;
+  let re = PHRASE_RE_CACHE.get(phrase);
+  if (!re) {
+    re = new RegExp(`\\b${escapeRe(phrase)}\\b`);
+    if (PHRASE_RE_CACHE.size >= PHRASE_RE_CACHE_MAX) PHRASE_RE_CACHE.clear();
+    PHRASE_RE_CACHE.set(phrase, re);
+  }
+  return re.test(text);
+}
+
+/** Find the relationship-map key for a specialization, if any. */
+function relationshipKey(specialization: string[]): string | undefined {
+  if (specialization.length === 0) return undefined;
+  const keys = Object.keys(ROLE_RELATIONSHIPS);
+  const compacted = keys.map((k) => ({ k, c: compactKey(k) }));
+  const joined = compactKey(specialization.join(' '));
+  const match = compacted.find(({ c }) => c === joined || c.startsWith(joined) || joined.startsWith(c));
+  if (match) return match.k;
+  for (const token of specialization) {
+    const alias = KEY_ALIASES[token];
+    if (alias) return alias;
+    const t = compactKey(token);
+    const tm = compacted.find(({ c }) => c === t || c.startsWith(t) || t.startsWith(c));
+    if (tm) return tm.k;
+  }
+  return undefined;
+}
+
+// Bounded memo of parseQuery — a pure, deterministic function that the
+// evaluator would otherwise re-run for EVERY candidate. Same profile object
+// semantics (all consumers are read-only); memory-bounded.
+const PARSE_CACHE = new Map<string, QueryProfile>();
+const PARSE_CACHE_MAX = 256;
+
+/**
+ * Parse any query into a QueryProfile. Derived FROM THE QUERY — no global
+ * profession assumptions. Deterministic; results are memoized per query
+ * string (bounded).
+ */
+export function parseQuery(query: string): QueryProfile {
+  const key = String(query || '').trim();
+  const hit = PARSE_CACHE.get(key);
+  if (hit) return hit;
+  const profile = parseQueryUncached(query);
+  if (PARSE_CACHE.size >= PARSE_CACHE_MAX) PARSE_CACHE.clear();
+  PARSE_CACHE.set(key, profile);
+  return profile;
+}
+
+function parseQueryUncached(query: string): QueryProfile {
+  const normalized = normalizeText(query);
+  const expanded = expandAbbreviations(normalized);
+  const words = normalized.split(' ').filter(Boolean);
+  const seniority = words.filter((w) => SENIORITY_WORDS.test(w));
+  const senSet = new Set(seniority);
+
+  // Specialization = every meaningful query token (raw + expanded) minus
+  // seniority words and generic role words.
+  const specSet = new Set<string>();
+  for (const w of [...words, ...expanded.split(' ')]) {
+    if (!senSet.has(w) && !GENERIC_ROLE_WORDS.test(w) && w.length > 1) {
+      specSet.add(w);
+    }
+  }
+  const specialization = [...specSet];
+
+  const key = relationshipKey(specialization);
+  const rel = key ? ROLE_RELATIONSHIPS[key] : undefined;
+
   return {
-    id: 'generic',
-    triggers: /(?!)/,
-    exact: termRe,
-    strongRelated: /(?!)/,
-    related: /(?!)/,
-    weakRelated: /(?!)/,
-    signals: termRe,
+    originalQuery: String(query || '').trim(),
+    normalizedQuery: normalized,
+    roleTerms: [],
+    specializationTerms: specialization,
+    seniorityTerms: seniority,
+    strongSignals: rel ? rel.strong : [],
+    relatedSignals: rel ? rel.related : [],
   };
 }
 
-export function selectProfile(query: string): QueryProfile {
-  const q = String(query || '');
-  for (const p of PROFILES) {
-    if (p.triggers.test(q)) return p;
+function collectSignals(terms: string[], tRaw: string, tExp: string): string[] {
+  const found: string[] = [];
+  for (const term of terms) {
+    if (term && (containsPhrase(tRaw, term) || containsPhrase(tExp, term)) && !found.includes(term)) found.push(term);
   }
-  return genericProfile(q);
-}
-
-function collectSignals(re: RegExp, text: string): string[] {
-  const out: string[] = [];
-  const r = new RegExp(re.source, 'gi');
-  let m: RegExpExecArray | null;
-  while ((m = r.exec(text))) {
-    if (m[0] && !out.includes(m[0].toLowerCase())) out.push(m[0].toLowerCase());
-  }
-  return out.slice(0, 6);
+  return found.slice(0, 8);
 }
 
 /**
- * Evaluate a job title+company against a query.
- * Returns tier + score + matched/excluded signals (for debugging/UI).
+ * Generic deterministic scorer.
+ *   exact          100  full query phrase (minus seniority) present in title,
+ *                       or identical title via abbreviation expansion
+ *   strong_related 90   specialization + role word, or strong synonym + role word
+ *   related        70   specialization only, or related synonym (+ role word)
+ *   weak_related   50   partial specialization, or bare generic query
+ *   irrelevant      0   no signal / exclusion
  */
 export function evaluateRelevance(query: string, text: string): RelevanceResult {
   const q = String(query || '').trim();
-  const t = String(text || '');
+  const rawTitle = String(text || '');
   if (!q) return { relevanceScore: TIER_WEIGHT.related, matchType: 'related', matchedSignals: [], excludedSignals: [] };
 
   // 1. Explicit exclusions win over everything.
-  if (EXCLUSIONS.test(t)) {
-    return { relevanceScore: IRRELEVANT_SCORE, matchType: 'irrelevant', matchedSignals: [], excludedSignals: collectSignals(EXCLUSIONS, t) };
+  if (EXCLUSIONS.test(rawTitle)) {
+    const normalized = normalizeText(rawTitle);
+    return {
+      relevanceScore: IRRELEVANT_SCORE,
+      matchType: 'irrelevant',
+      matchedSignals: [],
+      excludedSignals: collectSignals(['account executive', 'product manager', 'sales', 'marketing', 'recruiter', 'customer success'], normalized, normalized),
+    };
   }
 
-  const profile = selectProfile(q);
+  const tRaw = normalizeText(rawTitle);
+  const tExp = expandAbbreviations(tRaw);
+  const profile = parseQuery(q);
+  const hasRoleWord = GENERIC_ROLE_WORDS.test(tRaw) || GENERIC_ROLE_WORDS.test(tExp);
 
-  // 2. Query term present in title/company → EXACT only when the title ALSO
-  //    carries the profile's domain signal. "DevOps Engineer" must not make
-  //    every engineering title exact via the generic "engineer" term — the
-  //    domain word (devops/platform/security/…) must be there too.
-  const qTerms = q.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
-  const tLower = t.toLowerCase();
-  const hasDomain = profile.signals.test(t);
-  const allTermsPresent = qTerms.length > 0 && qTerms.every((w) => tLower.includes(w));
-  if (allTermsPresent && hasDomain) {
-    return { relevanceScore: TIER_WEIGHT.exact, matchType: 'exact', matchedSignals: collectSignals(profile.signals, t), excludedSignals: [] };
-  }
-  // Single domain term present without the full query → still a strong match
-  // when the domain signal exists (searching "DevOps" matches "DevOps Manager"
-  // and "DevOps Engineer").
-  const primary = qTerms[0];
-  if (primary && tLower.includes(primary) && hasDomain) {
-    return { relevanceScore: TIER_WEIGHT.strong_related, matchType: 'strong_related', matchedSignals: [primary, ...collectSignals(profile.signals, t)], excludedSignals: [] };
+  // 2. Exact / near-exact: the full query phrase (minus seniority) appears in
+  //    the title — raw or abbreviation-expanded on BOTH sides. This is
+  //    generic: "Software Engineer"↔"Senior Software Engineer",
+  //    "ML Engineer"↔"Machine Learning Engineer", "Cassandra Administrator"
+  //    all resolve without any role-specific rule.
+  const queryCore = profile.normalizedQuery.split(' ').filter((w) => !new Set(profile.seniorityTerms).has(w)).join(' ');
+  const queryCoreExp = expandAbbreviations(queryCore);
+  if (
+    tRaw.includes(queryCore) ||
+    tExp.includes(queryCore) ||
+    tRaw.includes(queryCoreExp) ||
+    tExp.includes(queryCoreExp)
+  ) {
+    const seniorityGap =
+      profile.seniorityTerms.length > 0 &&
+      !profile.seniorityTerms.some((s) => tRaw.includes(s) || tExp.includes(s));
+    return {
+      relevanceScore: seniorityGap ? 95 : TIER_WEIGHT.exact,
+      matchType: 'exact',
+      matchedSignals: [queryCore],
+      excludedSignals: [],
+    };
   }
 
-  // 3. Profile tiers — domain words must pair with a technical role word
-  //    (except 'exact' and 'strongRelated' patterns which already contain the
-  //    role word in the pattern itself).
-  if (profile.exact.test(t)) {
-    return { relevanceScore: TIER_WEIGHT.exact, matchType: 'exact', matchedSignals: collectSignals(profile.signals, t), excludedSignals: [] };
+  // 3. Specialization matching — the core of the engine. Specialization
+  //    counts more than the generic role word.
+  const spec = profile.specializationTerms;
+  if (spec.length > 0) {
+    const present = spec.filter((s) => containsPhrase(tRaw, s) || containsPhrase(tExp, s));
+    const full = present.length === spec.length;
+    if (full && hasRoleWord) {
+      return { relevanceScore: TIER_WEIGHT.strong_related, matchType: 'strong_related', matchedSignals: present, excludedSignals: [] };
+    }
+    if (full) {
+      return { relevanceScore: TIER_WEIGHT.related, matchType: 'related', matchedSignals: present, excludedSignals: [] };
+    }
+    if (present.length > 0 && hasRoleWord) {
+      return { relevanceScore: TIER_WEIGHT.related, matchType: 'related', matchedSignals: present, excludedSignals: [] };
+    }
+    if (present.length > 0) {
+      return { relevanceScore: TIER_WEIGHT.weak_related, matchType: 'weak_related', matchedSignals: present, excludedSignals: [] };
+    }
   }
-  if (profile.strongRelated.test(t) && ROLE_WORDS.test(t)) {
-    return { relevanceScore: TIER_WEIGHT.strong_related, matchType: 'strong_related', matchedSignals: collectSignals(profile.signals, t), excludedSignals: [] };
+
+  // 4. Domain relationship knowledge (enhancement only).
+  const strongRel = profile.strongSignals.filter((s) => containsPhrase(tRaw, s) || containsPhrase(tExp, s));
+  if (strongRel.length > 0) {
+    return {
+      relevanceScore: hasRoleWord ? TIER_WEIGHT.strong_related : TIER_WEIGHT.related,
+      matchType: hasRoleWord ? 'strong_related' : 'related',
+      matchedSignals: strongRel,
+      excludedSignals: [],
+    };
   }
-  if (profile.related.test(t) && ROLE_WORDS.test(t)) {
-    return { relevanceScore: TIER_WEIGHT.related, matchType: 'related', matchedSignals: collectSignals(profile.signals, t), excludedSignals: [] };
+  const relSig = profile.relatedSignals.filter((s) => containsPhrase(tRaw, s) || containsPhrase(tExp, s));
+  if (relSig.length > 0) {
+    return {
+      relevanceScore: hasRoleWord ? TIER_WEIGHT.related : TIER_WEIGHT.weak_related,
+      matchType: hasRoleWord ? 'related' : 'weak_related',
+      matchedSignals: relSig,
+      excludedSignals: [],
+    };
   }
-  if (profile.weakRelated.test(t) && ROLE_WORDS.test(t)) {
-    return { relevanceScore: TIER_WEIGHT.weak_related, matchType: 'weak_related', matchedSignals: collectSignals(profile.signals, t), excludedSignals: [] };
+
+  // 5. Bare generic query (e.g. just "Engineer"): a role word in the title is
+  //    a defensible weak match; no specialization is claimed.
+  if (spec.length === 0 && hasRoleWord) {
+    return { relevanceScore: TIER_WEIGHT.weak_related, matchType: 'weak_related', matchedSignals: ['role word'], excludedSignals: [] };
   }
+
   return { relevanceScore: IRRELEVANT_SCORE, matchType: 'irrelevant', matchedSignals: [], excludedSignals: [] };
 }
 
@@ -235,7 +376,7 @@ export function isRelevantJob(query: string, titleCompany: string): boolean {
 /**
  * The V1 relevance guard. UNCONDITIONAL: when the query yields zero relevant
  * jobs, the result is [] — a fully-irrelevant slice must never survive into
- * persistence. Returns the filtered jobs (callers persist only these).
+ * persistence.
  */
 export function applyRelevanceGuard<T extends { title?: string; company?: string }>(
   jobs: T[],
@@ -251,6 +392,13 @@ export function isDevOpsAdjacent(text: string): boolean {
   return relevanceScore('devops', text) > 0;
 }
 
+/** Back-compat: profile id for a query (relationship key or 'generic'). */
+export function selectProfile(query: string): { id: string } {
+  const p = parseQuery(query);
+  const key = relationshipKey(p.specializationTerms);
+  return { id: key || 'generic' };
+}
+
 export function queryProfiles(): string[] {
-  return PROFILES.map((p) => p.id);
+  return Object.keys(ROLE_RELATIONSHIPS);
 }

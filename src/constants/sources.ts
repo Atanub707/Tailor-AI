@@ -68,3 +68,8 @@ export function getSourceCountry(source: string): string {
 export function getSourceMeta(source: JobSource): SourceMeta | undefined {
   return SOURCES[source];
 }
+
+// Neutral work-mode default — the search control shows "All" unless the user
+// explicitly picks Remote/Hybrid/On-site. 'remote' must NEVER be sent unless
+// the user visibly selected it.
+export const DEFAULT_JOB_TYPE: 'all' | 'remote' | 'onsite' | 'hybrid' = 'all';

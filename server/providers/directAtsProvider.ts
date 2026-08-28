@@ -63,7 +63,16 @@ function pickBoards(platform: string, cap: number): { companyName: string; slug:
     .filter((x): x is { companyName: string; slug: string } => !!x);
 }
 
+// Test seam: override the network fetcher (fixtures/mocks, never live calls).
+// Default = global fetch. Production code never calls this.
+type JsonFetcher = (url: string, timeoutMs?: number) => Promise<any>;
+let fetcherOverride: JsonFetcher | undefined;
+export function setDirectAtsFetcher(fn: JsonFetcher | undefined): void {
+  fetcherOverride = fn;
+}
+
 async function fetchJson(url: string, timeoutMs = 15000): Promise<any> {
+  if (fetcherOverride) return fetcherOverride(url, timeoutMs);
   const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), headers: { 'User-Agent': 'TailorAI/1.0' } });
   if (!res.ok) throw new Error(`${url.split('/')[2]} API ${res.status}`);
   return res.json();
@@ -305,4 +314,29 @@ export async function scrapeDirectAts(
   const results = await Promise.all(boards.map(norm(fns[platform as keyof typeof fns])));
   void keywords;
   return results.flat();
+}
+
+/**
+ * Fetch ONE board fully (all currently-open jobs) for the background indexer.
+ * Unlike scrapeDirectAts (capped, request-driven, failure-tolerant), this
+ * THROWS on failure so the indexer can record board-refresh state honestly —
+ * a failed fetch must never be treated as "board has no jobs".
+ */
+export async function fetchAtsBoard(
+  source: string,
+  platform: string,
+  slug: string,
+  companyName: string,
+  timeoutMs = 15000
+): Promise<Job[]> {
+  const fns = { greenhouse: ghJob, lever: leverJob, ashby: ashbyJob, smartrecruiters: srJob };
+  const fn = fns[platform as keyof typeof fns];
+  if (!fn) return [];
+  const url = boardUrl(platform, slug);
+  const data = await fetchJson(url, timeoutMs);
+  const raw = platform === 'smartrecruiters' ? data.content : platform === 'ashby' ? data.jobs : data.jobs || data;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((j: any) => fn(j, companyName, platform))
+    .filter((j: Job | null): j is Job => !!j);
 }
