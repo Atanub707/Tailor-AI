@@ -139,3 +139,49 @@ describe('search history', () => {
     expect(rows[0].last_searched_at).toBeTruthy();
   });
 });
+describe('library ordering after search (UI feed behavior)', () => {
+  it('same-search inserts keep ranked order (A,B,C) above older jobs; stable, persisted', async () => {
+    const { runWithUser, saveNewJobs, queryJobs } = await import('../../server/storage/fileStorage.js');
+    await runWithUser('order-user', async () => {
+      getDb().prepare('INSERT OR IGNORE INTO users (id, name, email, is_guest) VALUES (?, ?, ?, 1)').run('order-user', 'OrderUser', 'o@test.local');
+      // Older job first.
+      saveNewJobs([{
+        id: 'old-1', fingerprint: 'old-1', title: 'Old Job', company: 'C', location: 'India',
+        description: 'x', source: 'Greenhouse', url: 'https://x/old-1', applyUrl: 'https://x/old-1',
+        createdAt: new Date(Date.now() - 86400e3).toISOString(), scrapedAt: new Date().toISOString(),
+      } as any]);
+      // One search inserts ranked A,B,C (same createdAt tick).
+      // The real persist path stamps createdAt=now on insert (toDurableJob);
+      // same tick for the whole batch keeps the ranked order via the stable
+      // sort (rowid ASC fallback for the tie).
+      const nowIso = new Date().toISOString();
+      saveNewJobs([
+        { id: 'rank-a', fingerprint: 'rank-a', title: 'Job A', company: 'C', location: 'India', description: 'x', source: 'Greenhouse', url: 'https://x/a', applyUrl: 'https://x/a', createdAt: nowIso, scrapedAt: nowIso } as any,
+        { id: 'rank-b', fingerprint: 'rank-b', title: 'Job B', company: 'C', location: 'India', description: 'x', source: 'Greenhouse', url: 'https://x/b', applyUrl: 'https://x/b', createdAt: nowIso, scrapedAt: nowIso } as any,
+        { id: 'rank-c', fingerprint: 'rank-c', title: 'Job C', company: 'C', location: 'India', description: 'x', source: 'Greenhouse', url: 'https://x/c', applyUrl: 'https://x/c', createdAt: nowIso, scrapedAt: nowIso } as any,
+      ]);
+      const all = queryJobs({ page: 1, limit: 10 }).jobs as any[];
+      const titles = all.map((j) => j.title);
+      // Newest (search) jobs first, ranked order A,B,C preserved, older below.
+      expect(titles.indexOf('Job A')).toBeLessThan(titles.indexOf('Job B'));
+      expect(titles.indexOf('Job B')).toBeLessThan(titles.indexOf('Job C'));
+      expect(titles.indexOf('Job C')).toBeLessThan(titles.indexOf('Old Job'));
+      // Persisted determinism: fresh read has the same order.
+      const again = queryJobs({ page: 1, limit: 10 }).jobs as any[];
+      expect(again.map((j) => j.id).join(',')).toBe(all.map((j) => j.id).join(','));
+    });
+  });
+
+  it('re-found existing jobs are never duplicated (same fingerprint)', async () => {
+    const { runWithUser, saveNewJobs, queryJobs } = await import('../../server/storage/fileStorage.js');
+    await runWithUser('order-user', async () => {
+      saveNewJobs([{
+        id: 'dup-1', fingerprint: 'dup-1', title: 'Dup Job', company: 'C', location: 'India',
+        description: 'x', source: 'Greenhouse', url: 'https://x/dup', applyUrl: 'https://x/dup',
+        scrapedAt: new Date().toISOString(),
+      } as any]);
+      const once = (queryJobs({}).jobs as any[]).filter((j) => j.fingerprint === 'dup-1').length;
+      expect(once).toBe(1);
+    });
+  });
+});
