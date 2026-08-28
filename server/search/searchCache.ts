@@ -27,6 +27,14 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+/** Test seam: drop ALL cached candidates for a user (isolation). */
+export function clearSearchCache(userId: string): void {
+  try {
+    ensureV2Tables();
+    getDb().prepare('DELETE FROM search_cache WHERE user_id = ?').run(userId);
+  } catch { /* non-fatal */ }
+}
+
 /** Lazy cleanup: drop expired rows for this user (cheap, called on read). */
 export function purgeExpiredCache(userId: string): void {
   try {
