@@ -119,12 +119,6 @@ const JobCard = React.memo(function JobCard({
             <span>{job.source}</span>
             <ExternalLink className="w-2.5 h-2.5 text-blue-500 ml-0.5" />
           </a>
-          {(job as any).atsPlatform && (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200 uppercase ml-1">
-              {(job as any).atsPlatform}
-            </span>
-          )}
-
           {/* Posted Relative Time — hidden when the real posting time is unknown */}
           {timeAgoStr && (
             <span className="inline-flex items-center space-x-1 text-[11px] text-slate-500 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
@@ -272,7 +266,8 @@ const JobCard = React.memo(function JobCard({
           <div className="relative group">
             <button
               onClick={() => onMatchJob(job.id)}
-              className="px-2.5 py-1.5 rounded-md text-xs font-medium bg-white hover:bg-[var(--color-brand-soft)] hover:border-[var(--color-brand-line)] text-[var(--color-muted)] border-[1.5px] border-[var(--color-hairline)] transition-colors flex items-center space-x-1 cursor-pointer"
+              disabled={isScoreLoading}
+              className="px-2.5 py-1.5 rounded-md text-xs font-medium bg-white hover:bg-[var(--color-brand-soft)] hover:border-[var(--color-brand-line)] text-[var(--color-muted)] border-[1.5px] border-[var(--color-hairline)] transition-colors flex items-center space-x-1 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isScoreLoading ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-600" />
@@ -299,7 +294,8 @@ const JobCard = React.memo(function JobCard({
           <div className="relative group">
             <button
               onClick={() => onTailorJob(job.id)}
-              className="px-2.5 py-1.5 rounded-md text-xs font-medium bg-white hover:bg-[var(--color-brand-soft)] hover:border-[var(--color-brand-line)] text-[var(--color-muted)] border-[1.5px] border-[var(--color-hairline)] transition-colors flex items-center space-x-1 cursor-pointer"
+              disabled={isTailorLoading}
+              className="px-2.5 py-1.5 rounded-md text-xs font-medium bg-white hover:bg-[var(--color-brand-soft)] hover:border-[var(--color-brand-line)] text-[var(--color-muted)] border-[1.5px] border-[var(--color-hairline)] transition-colors flex items-center space-x-1 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isTailorLoading ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />

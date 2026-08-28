@@ -256,7 +256,7 @@ function srJob(j: any, companyName: string, platform: string): Job | null {
   } as unknown as Job;
 }
 
-function stripHtml(html: string): string {
+export function stripHtml(html: string): string {
   return String(html || '')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(p|div|li|h[1-6])>/gi, '\n')

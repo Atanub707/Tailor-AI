@@ -2195,18 +2195,32 @@ Return valid JSON only, no markdown:
         return;
       }
 
+      // Score shares the same JD resolver as Tailor — scoring resume-vs-job
+      // with an empty description would be meaningless.
+      const { ensureJobDescription } = await import('./server/tailor/jdResolver.js');
+      let scoredJob: Job;
+      try {
+        scoredJob = await ensureJobDescription(job);
+      } catch (jdErr: any) {
+        if (jdErr?.name === 'JDResolutionError') {
+          res.status(502).json({ error: jdErr.message });
+          return;
+        }
+        throw jdErr;
+      }
+
       const masterCv = getMasterCv();
       const config = loadConfig();
       const matcher = new LlmMatcher();
 
       const result = await matcher.matchJob(
-        job,
+        scoredJob,
         masterCv,
         config.thresholds.earlyBlockThreshold
       );
 
       const updatedJob = updateJobInStorage({
-        ...job,
+        ...scoredJob,
         matchScore: result.matchScore,
         gapAnalysis: result.gapAnalysis,
         state: result.isEarlyBlocked ? 'pending' : 'matched',
@@ -2302,11 +2316,24 @@ Return valid JSON only, no markdown:
         return;
       }
 
-      let jobToTailor = job;
-      if (!job.gapAnalysis) {
+      // Tailor must operate on the REAL job description — resolve it before
+      // any LLM work. A failed resolution is a hard error (never tailor on
+      // title+company pretending to be a JD).
+      const { ensureJobDescription } = await import('./server/tailor/jdResolver.js');
+      let jobToTailor: Job;
+      try {
+        jobToTailor = await ensureJobDescription(job);
+      } catch (jdErr: any) {
+        if (jdErr?.name === 'JDResolutionError') {
+          res.status(502).json({ error: jdErr.message });
+          return;
+        }
+        throw jdErr;
+      }
+      if (!jobToTailor.gapAnalysis) {
         const masterCv = getMasterCv();
         const matcher = new LlmMatcher();
-        const matchResult = await matcher.matchJob(job, masterCv);
+        const matchResult = await matcher.matchJob(jobToTailor, masterCv);
         jobToTailor = updateJobInStorage({
           ...job,
           matchScore: matchResult.matchScore,
