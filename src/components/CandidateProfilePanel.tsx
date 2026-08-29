@@ -27,7 +27,6 @@ const RELOCATE = [
 
 export function CandidateProfilePanel({ user, onSaved }: Props) {
   const [profile, setProfile] = React.useState<ApplicantProfile | null>(null);
-  const [conflicts, setConflicts] = React.useState<Record<string, string>>({});
   const [saveState, setSaveState] = React.useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = React.useState('');
   const [locValue, setLocValue] = React.useState('');
@@ -35,7 +34,7 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
   React.useEffect(() => {
     fetch('/api/profile')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('load failed'))))
-      .then((d) => { setProfile(d.profile); setConflicts(d.conflicts || {}); })
+      .then((d) => { setProfile(d.profile); })
       .catch((e) => { setSaveState('error'); setErrorMsg(String(e?.message || 'Failed to load profile.')); });
   }, []);
 
@@ -43,8 +42,6 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
     setProfile((prev) => (prev ? fn(prev) : prev));
     setSaveState('idle');
   };
-
-  // Manual save — explicit user action only.
 
   const save = async () => {
     if (!profile) return;
@@ -55,7 +52,6 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
       const d = await res.json();
       setProfile(d.profile);
       setSaveState('saved');
-      setConflicts({});
       setTimeout(() => setSaveState((s2) => (s2 === 'saved' ? 'idle' : s2)), 2500);
       onSaved?.();
     } catch (e: any) {
@@ -64,7 +60,7 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
   };
 
   if (!profile) {
-    return <section className="st-panel" aria-label="Candidate Profile"><div className="st-phead"><h2>Candidate Profile</h2><p>Your reusable identity, application information and job-search preferences — one source of truth.</p></div><div className="text-sm" style={{ color: 'var(--st-faint)' }}>Loading profile…</div></section>;
+    return <section className="st-panel" aria-label="Candidate Profile"><div className="st-phead"><h2>Candidate Profile</h2><p>One source of truth.</p></div><div className="text-sm" style={{ color: 'var(--st-faint)' }}>Loading profile…</div></section>;
   }
 
   const p = profile;
@@ -75,43 +71,12 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
   const personal = p.personal || {};
   const contact = p.contact || {};
 
-  const LOC_LABEL: Record<string, string> = { noticePeriod: 'Notice period', earliestStartDate: 'Available from', requiresSponsorship: 'Visa sponsorship', willingToRelocate: 'Willing to relocate', minimumSalary: 'Expected salary min', targetSalary: 'Expected salary max', salaryCurrency: 'Currency' };
-  const resolve = (key: string) => {
-    const legacy = conflicts[key];
-    if (!legacy) return;
-    setConflicts((c) => { const n = { ...c }; delete n[key]; return n; });
-    update((x) => {
-      if (key === 'requiresSponsorship') return { ...x, workAuthorization: { ...x.workAuthorization, requiresSponsorship: legacy === 'yes' ? 'yes' : legacy === 'no' ? 'no' : x.workAuthorization.requiresSponsorship } };
-      if (key === 'willingToRelocate') return { ...x, locationPrefs: { ...x.locationPrefs, willingToRelocate: legacy as any } };
-      if (key === 'earliestStartDate') return { ...x, preferences: { ...x.preferences, earliestStartDate: legacy } };
-      if (key === 'noticePeriod') return { ...x, preferences: { ...x.preferences, noticePeriod: legacy } };
-      return x;
-    });
-  };
-
-  const conflictKeys = Object.keys(conflicts);
-
   return (
     <section className="st-panel" aria-label="Candidate Profile">
       <div className="st-phead">
         <h2>Candidate Profile</h2>
         <p>Your reusable application identity, application information and job-search preferences — one source of truth for Auto-Apply, Tailor and Applications. Master CV remains the source for your professional history.</p>
       </div>
-
-      {conflictKeys.length > 0 && (
-        <div className="st-note-box" style={{ marginBottom: 14 }}>
-          <b>One-time migration:</b> your old Job Preferences had different values for some facts. Choose which value Tailor AI should use.
-          {conflictKeys.map((k) => (
-            <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
-              <span style={{ fontSize: 12.5 }}>{LOC_LABEL[k] || k}</span>
-              <span style={{ color: 'var(--st-faint)', fontSize: 12 }}>(current: profile value)</span>
-              <button type="button" onClick={() => resolve(k)} className="stp-chip" style={{ marginLeft: 'auto' }}>
-                Use legacy value: {conflicts[k]}
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* PERSONAL DETAILS */}
       <div className="stp-card" style={{ marginTop: 4 }}>
