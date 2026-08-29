@@ -274,6 +274,9 @@ export function parseLeverForm(html: string): { fields: ApplicationField[]; prov
       const $el = $(el);
       const name = $el.attr('name') || '';
       if (name.endsWith('baseTemplate]')) return;
+      // Hidden inputs are transport metadata (e.g. the hidden 0 sibling of a
+      // consent checkbox) — never applicant fields.
+      if ($el.attr('type') === 'hidden') return;
       const label = cleanLabel($el.closest('.card-field, .application-form-field').find('label').first().text() || name).slice(0, MAX_LABEL_CHARS);
       const required = $el.attr('required') !== undefined || $el.attr('aria-required') === 'true';
       const type = fieldTypeFrom($el.attr('type'), name);
@@ -286,9 +289,29 @@ export function parseLeverForm(html: string): { fields: ApplicationField[]; prov
     });
   }
 
-  // Consent section
-  if (form.find('[data-qa="consent-section"]').length) {
-    fields.push({ providerFieldId: 'consent', label: 'Consent / legal acknowledgement', type: 'CONSENT', required: true, category: 'CONSENT' });
+  // Consent section: only a generic field when it contains no parseable
+  // consent[...] inputs (e.g. veo's section is the consent[marketing] opt-in
+  // which is already parsed as a field — never double-counted as legal).
+  const consentSection = form.find('[data-qa="consent-section"]');
+  if (consentSection.length && !consentSection.find('input[name^="consent["]').length) {
+    const sectionText = cleanLabel(consentSection.find('.application-answer-alternative, p, label').first().text() || 'Consent / legal acknowledgement').slice(0, MAX_LABEL_CHARS);
+    fields.push({ providerFieldId: 'consent', label: sectionText, type: 'CONSENT', required: true, category: 'CONSENT' });
+  }
+
+  // Consent inputs (e.g. consent[marketing]/consent[legal]) are applicant
+  // choice fields — parsed independently of the question-template branch.
+  form.find('input[name^="consent["]').each((_, el) => {
+    const $el = $(el);
+    if ($el.attr('type') === 'hidden') return; // hidden 0-sibling is transport
+    const name = String($el.attr('name') || '');
+    const label = cleanLabel($el.closest('.application-question, label').find('label, .application-answer-alternative, p').first().text() || name).slice(0, MAX_LABEL_CHARS);
+    const required = $el.attr('required') !== undefined || $el.attr('aria-required') === 'true';
+    fields.push({ providerFieldId: name, label, type: 'CONSENT', required, category: 'CONSENT' });
+  });
+
+  // CAPTCHA presence (read-only observation; never solved/bypassed).
+  if (form.find('[data-sitekey], .h-captcha, [class*="h-captcha"]').length || /hcaptcha|h-captcha/i.test(html)) {
+    providerMetadata['hcaptcha'] = 'hCaptcha';
   }
 
   // Transport metadata — never applicant fields
@@ -361,11 +384,19 @@ export class LeverInspectionAdapter implements ApplicationInspectionAdapter {
     // Ensure the URL is the apply form (not the job page)
     const targetUrl = url.includes('/apply') ? url : `${url.replace(/\/+$/, '')}/apply`;
     const { html, finalUrl } = await httpGetOnly(targetUrl);
-    if (isChallengePage(html)) {
-      // No form + explicit challenge markers → provider challenge, NOT a form change.
-      throw new InspectionFailure('PROVIDER_CHALLENGE', 'LEVER_CHALLENGE_PAGE: Lever served an anti-automation challenge page.');
+    let parsed;
+    try {
+      parsed = parseLeverForm(html);
+    } catch (e: any) {
+      // Only when the page yields NO application form do we distinguish a
+      // provider challenge (explicit markers) from a plain form change.
+      // A legitimate hCaptcha board contains 'captcha' text AND a real form —
+      // with the form present this branch is never reached.
+      if (isChallengePage(html)) {
+        throw new InspectionFailure('PROVIDER_CHALLENGE', 'LEVER_CHALLENGE_PAGE: Lever served an anti-automation challenge page.');
+      }
+      throw e;
     }
-    const parsed = parseLeverForm(html);
     const hostname = new URL(finalUrl).hostname.toLowerCase();
     const fp = requirementsFingerprint(this.provider, hostname, parsed.fields);
     return {
@@ -380,6 +411,7 @@ export class LeverInspectionAdapter implements ApplicationInspectionAdapter {
       fields: parsed.fields,
       discoveredAt: new Date().toISOString(),
       fingerprint: fp,
+      providerMetadata: parsed.providerMetadata,
     };
   }
 }

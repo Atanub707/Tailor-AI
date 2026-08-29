@@ -8,30 +8,63 @@ export type ProviderCapability =
   | 'INSPECTION_NOT_IMPLEMENTED'
   | 'READ_ONLY_INSPECTION_SUPPORTED'
   | 'EXECUTION_RESEARCHED'
+  | 'DRY_RUN_EXECUTION_SUPPORTED'
   | 'ASSISTED_SUBMISSION_SUPPORTED'
   | 'AUTO_SUBMISSION_SUPPORTED'
   | 'MANUAL_ONLY';
 
+export const LEVER_CAPABILITY: Record<string, ProviderCapability> = {
+  inspection: 'READ_ONLY_INSPECTION_SUPPORTED',
+  executionResearch: 'EXECUTION_RESEARCHED',
+  dryRun: 'DRY_RUN_EXECUTION_SUPPORTED',
+  assistedSubmission: 'ASSISTED_SUBMISSION_SUPPORTED',
+  autoSubmission: 'AUTO_SUBMISSION_SUPPORTED',
+};
+
 // ── Consent / approval ───────────────────────────────────────────────────
 
+export type ConsentClassification =
+  | 'LEGAL_CONSENT'
+  | 'REQUIRED_ACKNOWLEDGEMENT'
+  | 'OPTIONAL_MARKETING'
+  | 'OPTIONAL_COMMUNICATION'
+  | 'UNKNOWN_CONSENT';
+
+/** Phase-0 evidence: consent[marketing] is an OPTIONAL marketing opt-in, not
+ *  legal consent. Classify conservatively: only explicit legal wording maps
+ *  to LEGAL_CONSENT/REQUIRED_ACKNOWLEDGEMENT; everything else is optional or
+ *  unknown (unknown → review). */
+export function classifyConsent(providerFieldId: string, label: string): ConsentClassification {
+  const t = `${providerFieldId} ${label}`.toLowerCase();
+  if (/marketing|future job opportunities|contact me|job alerts|newsletter/.test(t)) return 'OPTIONAL_MARKETING';
+  if (/communication|updates about your application|interview updates/.test(t)) return 'OPTIONAL_COMMUNICATION';
+  if (/acknowledg|privacy|terms of use|terms and conditions|data processing|consent to|declare|background check|candidate agreement|agree to the/.test(t)) return 'LEGAL_CONSENT';
+  if (/required acknowledgement|acknowledge receipt/.test(t)) return 'REQUIRED_ACKNOWLEDGEMENT';
+  return 'UNKNOWN_CONSENT';
+}
+
 export interface ConsentApproval {
-  fieldId: string;
-  legalText: string;
-  legalTextHash: string;
-  approvedByUser: boolean;
+  providerFieldId: string;
+  classification: ConsentClassification;
+  legalTextHash?: string;
+  selectedValue: boolean | string;
   approvedAt: string;
 }
 
 export interface ApplicationApproval {
   id: string;
+  userId: string;
   planId: string;
+  packageId: string;
   planFingerprint: string;
   packageSnapshotHash: string;
   requirementsFingerprint: string;
   resumeArtifactHash: string;
   mappedFieldsHash: string;
   consents: ConsentApproval[];
+  status: 'ACTIVE' | 'REVOKED';
   approvedAt: string;
+  createdAt: string;
 }
 
 // ── Execution attempt ────────────────────────────────────────────────────
@@ -40,12 +73,21 @@ export type AttemptStatus =
   | 'PENDING_APPROVAL'
   | 'APPROVED'
   | 'PREPARING'
+  | 'READY_FOR_DRY_RUN'
+  | 'MANUAL_ACTION_REQUIRED'
+  | 'BLOCKED'
+  | 'CANCELLED'
+  // Future transport states — Phase 1 MUST NEVER enter these.
   | 'SUBMITTING'
   | 'SUBMITTED'
   | 'FAILED'
-  | 'MANUAL_ACTION_REQUIRED'
-  | 'SUCCESS_UNCONFIRMED'
-  | 'CANCELLED';
+  | 'SUCCESS_UNCONFIRMED';
+
+/** States the Phase-1 runtime may actually enter. */
+export const PHASE1_ENTERABLE_STATES: AttemptStatus[] = [
+  'PENDING_APPROVAL', 'APPROVED', 'PREPARING', 'READY_FOR_DRY_RUN',
+  'MANUAL_ACTION_REQUIRED', 'BLOCKED', 'CANCELLED',
+];
 
 export interface ApplicationAttempt {
   id: string;
@@ -54,6 +96,7 @@ export interface ApplicationAttempt {
   packageId: string;
   provider: string;
   externalJobId: string;
+  executionKey: string;
   planFingerprint: string;
   packageSnapshotHash: string;
   requirementsFingerprint: string;
@@ -77,6 +120,39 @@ export interface ProviderExecutionContext {
   volatileTransport: Record<string, string>; // hidden metadata, tokens — memory only
   inspectedAt: string;
   adapterVersion: string;
+}
+
+// ── Multipart dry-run payload (normalized, no bytes in preview) ──────────
+
+export type TransportClassification = 'REQUIRED' | 'OPTIONAL' | 'TRACKING' | 'UNKNOWN';
+
+export interface MultipartTextPart {
+  kind: 'TEXT';
+  name: string;
+  value: string;
+  classification: TransportClassification;
+  semantic: boolean; // affects payloadFingerprint
+}
+
+export interface MultipartFilePart {
+  kind: 'FILE';
+  name: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  sha256: string;
+  artifactReference: string;
+}
+
+export type MultipartPart = MultipartTextPart | MultipartFilePart;
+
+export interface MultipartPayload {
+  target: string;
+  method: 'POST';
+  parts: MultipartPart[];
+  captcha: { present: boolean; provider?: string; requiredForSubmission: boolean };
+  omittedTracking: string[];
+  executionEligible: boolean;
 }
 
 // ── Verification / receipt ───────────────────────────────────────────────
@@ -172,14 +248,17 @@ export interface ExecutionFailure {
 
 export const EXECUTION_TRANSITIONS: Record<AttemptStatus, AttemptStatus[]> = {
   PENDING_APPROVAL: ['APPROVED', 'CANCELLED'],
-  APPROVED: ['PREPARING', 'CANCELLED', 'FAILED'],
-  PREPARING: ['SUBMITTING', 'FAILED', 'MANUAL_ACTION_REQUIRED', 'CANCELLED'],
+  APPROVED: ['PREPARING', 'CANCELLED', 'BLOCKED'],
+  PREPARING: ['READY_FOR_DRY_RUN', 'SUBMITTING', 'MANUAL_ACTION_REQUIRED', 'BLOCKED', 'CANCELLED'],
+  READY_FOR_DRY_RUN: ['SUBMITTING', 'CANCELLED', 'MANUAL_ACTION_REQUIRED'],
+  MANUAL_ACTION_REQUIRED: ['PENDING_APPROVAL', 'BLOCKED', 'CANCELLED'],
+  BLOCKED: ['CANCELLED'],
+  CANCELLED: [],
+  // Future transport states — modeled, never entered in Phase 1.
   SUBMITTING: ['SUBMITTED', 'SUCCESS_UNCONFIRMED', 'FAILED', 'MANUAL_ACTION_REQUIRED'],
-  SUBMITTED: [],                       // terminal
-  SUCCESS_UNCONFIRMED: [],             // terminal — never auto-resubmit
-  FAILED: ['MANUAL_ACTION_REQUIRED'],  // user may re-approach manually
-  MANUAL_ACTION_REQUIRED: ['PENDING_APPROVAL'], // new approval cycle only
-  CANCELLED: [],                       // terminal
+  SUBMITTED: [],
+  SUCCESS_UNCONFIRMED: [],
+  FAILED: ['MANUAL_ACTION_REQUIRED'],
 };
 
 export function canTransition(from: AttemptStatus, to: AttemptStatus): boolean {
@@ -187,6 +266,13 @@ export function canTransition(from: AttemptStatus, to: AttemptStatus): boolean {
 }
 
 export const TERMINAL_STATES: AttemptStatus[] = ['SUBMITTED', 'SUCCESS_UNCONFIRMED', 'CANCELLED'];
+
+/** Phase-1 guard: mutation states must never be entered by the runtime. */
+export function assertPhase1Transition(from: AttemptStatus, to: AttemptStatus): void {
+  if (!PHASE1_ENTERABLE_STATES.includes(to)) {
+    throw new Error(`Phase 1 forbids entering state ${to} (from ${from}).`);
+  }
+}
 
 export function isTerminal(s: AttemptStatus): boolean {
   return TERMINAL_STATES.includes(s);
@@ -222,15 +308,19 @@ export function isApprovalValid(
     approval.requirementsFingerprint === current.requirementsFingerprint &&
     approval.resumeArtifactHash === current.resumeArtifactHash &&
     approval.mappedFieldsHash === current.mappedFieldsHash &&
-    approval.consents.length > 0 &&
-    approval.consents.every((c) => c.approvedByUser && c.legalTextHash.length === 64)
+    approval.consents.every((c) => c.selectedValue === true && (c.classification === 'OPTIONAL_MARKETING' || c.classification === 'OPTIONAL_COMMUNICATION' || (c.legalTextHash?.length ?? 0) === 64))
   );
 }
 
 /** A consent approval is bound to the exact legal text: if the text (or its
  *  hash) changes, the old approval no longer applies. */
-export function consentCovers(approval: ConsentApproval, fieldId: string, legalTextHash: string): boolean {
-  return approval.fieldId === fieldId && approval.legalTextHash === legalTextHash && approval.approvedByUser;
+export function consentCovers(approval: ConsentApproval, providerFieldId: string, legalTextHash: string): boolean {
+  return approval.providerFieldId === providerFieldId && approval.legalTextHash === legalTextHash && approval.selectedValue === true;
+}
+
+/** OPTIONAL_MARKETING/OPTIONAL_COMMUNICATION never block execution. */
+export function consentBlocksExecution(classification: ConsentClassification): boolean {
+  return classification === 'LEGAL_CONSENT' || classification === 'REQUIRED_ACKNOWLEDGEMENT' || classification === 'UNKNOWN_CONSENT';
 }
 
 // ── Integrity gate (pure) ────────────────────────────────────────────────

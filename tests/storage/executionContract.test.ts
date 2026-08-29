@@ -3,17 +3,18 @@
 import { describe, it, expect } from 'vitest';
 import {
   canTransition, isTerminal, recoverFromCrash, retryClass, isApprovalValid,
-  consentCovers, integrityGate,
+  consentCovers, integrityGate, assertPhase1Transition, classifyConsent,
+  consentBlocksExecution, PHASE1_ENTERABLE_STATES,
 } from '../../server/applicationEngine/executionContract.js';
 import type { ApplicationApproval, ConsentApproval } from '../../server/applicationEngine/executionContract.js';
 
 const H64 = 'a'.repeat(64);
 
 const approval: ApplicationApproval = {
-  id: 'ap1', planId: 'p1', planFingerprint: 'pf1', packageSnapshotHash: 'sh1',
+  id: 'ap1', userId: 'u1', planId: 'p1', packageId: 'pk1', planFingerprint: 'pf1', packageSnapshotHash: 'sh1',
   requirementsFingerprint: 'rf1', resumeArtifactHash: 'rh1', mappedFieldsHash: 'mf1',
-  consents: [{ fieldId: 'consent[marketing]', legalText: 'Yes, contact me', legalTextHash: H64, approvedByUser: true, approvedAt: '2026-01-01' }],
-  approvedAt: '2026-01-01',
+  consents: [{ providerFieldId: 'consent[marketing]', classification: 'OPTIONAL_MARKETING' as const, legalTextHash: H64, selectedValue: true, approvedAt: '2026-01-01' }],
+  status: 'ACTIVE', approvedAt: '2026-01-01', createdAt: '2026-01-01',
 };
 
 describe('Execution state machine', () => {
@@ -32,6 +33,12 @@ describe('Execution state machine', () => {
   it('SUBMITTED is terminal; never returns to SUBMITTING', () => {
     expect(canTransition('SUBMITTED', 'SUBMITTING')).toBe(false);
     expect(isTerminal('SUBMITTED')).toBe(true);
+  });
+
+  it('Phase-1 runtime guard forbids entering mutation states', () => {
+    expect(() => assertPhase1Transition('PREPARING', 'SUBMITTING')).toThrow(/forbids/);
+    expect(() => assertPhase1Transition('READY_FOR_DRY_RUN', 'SUBMITTING')).toThrow(/forbids/);
+    for (const s of PHASE1_ENTERABLE_STATES) expect(() => assertPhase1Transition('APPROVED', s)).not.toThrow();
   });
 
   it('SUBMITTING → ambiguous outcomes only', () => {
@@ -88,11 +95,29 @@ describe('Approval binding', () => {
   });
 
   it('consent approval binds to exact legal text hash', () => {
-    const c: ConsentApproval = { fieldId: 'consent[marketing]', legalText: 'Yes, contact me', legalTextHash: H64, approvedByUser: true, approvedAt: '2026-01-01' };
+    const c: ConsentApproval = { providerFieldId: 'consent[marketing]', classification: 'OPTIONAL_MARKETING' as const, legalTextHash: H64, selectedValue: true, approvedAt: '2026-01-01' };
     expect(consentCovers(c, 'consent[marketing]', H64)).toBe(true);
     expect(consentCovers(c, 'consent[marketing]', 'b'.repeat(64))).toBe(false); // text changed
     expect(consentCovers(c, 'other-field', H64)).toBe(false);
-    expect(consentCovers({ ...c, approvedByUser: false }, 'consent[marketing]', H64)).toBe(false);
+    expect(consentCovers({ ...c, selectedValue: false }, 'consent[marketing]', H64)).toBe(false);
+  });
+});
+
+describe('Consent classification (Phase-0 evidence: marketing opt-in is NOT legal consent)', () => {
+  it('marketing opt-in → OPTIONAL_MARKETING, never blocking', () => {
+    expect(classifyConsent('consent[marketing]', 'Yes, contact me about future job opportunities')).toBe('OPTIONAL_MARKETING');
+    expect(classifyConsent('consent[marketing]', 'May we contact you about future roles?')).toBe('OPTIONAL_MARKETING');
+    expect(consentBlocksExecution('OPTIONAL_MARKETING')).toBe(false);
+  });
+  it('legal/acknowledgement wording → blocking, text-hash-bound', () => {
+    expect(classifyConsent('consent[legal]', 'I acknowledge the privacy policy and terms of use')).toBe('LEGAL_CONSENT');
+    expect(classifyConsent('consent[legal]', 'I agree to the data processing notice')).toBe('LEGAL_CONSENT');
+    expect(consentBlocksExecution('LEGAL_CONSENT')).toBe(true);
+    expect(consentBlocksExecution('REQUIRED_ACKNOWLEDGEMENT')).toBe(true);
+  });
+  it('unknown consent → review (blocking, conservative)', () => {
+    expect(classifyConsent('consent[x]', 'Weird consent question')).toBe('UNKNOWN_CONSENT');
+    expect(consentBlocksExecution('UNKNOWN_CONSENT')).toBe(true);
   });
 });
 

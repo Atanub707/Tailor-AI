@@ -3,13 +3,14 @@
 // HARD SAFETY: never auto-mapped, never inferred, never auto-accepted.
 
 import type { ApplicationField } from './contract.js';
+import { classifyConsent } from './executionContract.js';
 import type { ApplicationPackage } from '../applicationPackage/packageModel.js';
 import type { MappedField } from './contract.js';
 
 export interface MappingResult {
   mapped: MappedField[];
   unresolved: Array<{ providerFieldId: string; label: string; required: boolean; reason: string }>;
-  consent: Array<{ providerFieldId: string; label: string; required: boolean; status: 'REQUIRES_REVIEW' }>;
+  consent: Array<{ providerFieldId: string; label: string; required: boolean; status: 'REQUIRES_REVIEW'; classification: import('./executionContract.js').ConsentClassification }>;
   manual: Array<{ providerFieldId: string; label: string; required: boolean; reason: string }>;
   files: Array<{ kind: 'RESUME' | 'COVER_LETTER' | 'OTHER'; artifactSha?: string }>;
 }
@@ -112,7 +113,7 @@ export function mapRequirements(pkg: ApplicationPackage, fields: ApplicationFiel
     }
     // HARD SAFETY: consent fields are never auto-accepted.
     if (isConsent(f.type, f.category)) {
-      consent.push({ providerFieldId: f.providerFieldId, label: f.label, required: f.required, status: 'REQUIRES_REVIEW' });
+      consent.push({ providerFieldId: f.providerFieldId, label: f.label, required: f.required, status: 'REQUIRES_REVIEW', classification: classifyConsent(f.providerFieldId, f.label) });
       continue;
     }
 

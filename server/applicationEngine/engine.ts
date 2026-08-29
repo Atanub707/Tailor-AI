@@ -7,6 +7,7 @@ import type { ApplicationPackage } from '../applicationPackage/packageModel.js';
 import type { ApplicationInspectionAdapter } from './fixtureAdapter.js';
 import { targetFromJob, FixtureInspectionAdapter } from './fixtureAdapter.js';
 import { LeverInspectionAdapter, InspectionFailure } from './leverInspector.js';
+import { consentBlocksExecution } from './executionContract.js';
 import { mapRequirements } from './mapper.js';
 import {
   createPlanId, getLatestPlanForPackage, getPlanById, nextPlanRevision, planFingerprint, storePlan,
@@ -133,9 +134,12 @@ async function adapterInspect(adapter: ApplicationInspectionAdapter, target: Ret
 
 /** Deterministic plan status with precedence UNSUPPORTED > NEEDS_REVIEW >
  *  NEEDS_INPUT > READY_TO_SUBMIT. */
-export function computeStatus(mapping: { unresolved: Array<{ required: boolean }>; consent: unknown[]; manual: unknown[] }): PlanStatus {
+export function computeStatus(mapping: { unresolved: Array<{ required: boolean }>; consent: Array<{ classification?: string }>; manual: unknown[] }): PlanStatus {
   const requiredUnresolved = mapping.unresolved.filter((u) => u.required);
-  if (mapping.manual.length > 0 || mapping.consent.length > 0) return 'NEEDS_REVIEW';
+  // Phase-1 calibration: OPTIONAL_MARKETING/OPTIONAL_COMMUNICATION opt-ins are
+  // NOT legal consent and never block readiness (Phase-0 evidence).
+  const blockingConsent = mapping.consent.filter((c) => consentBlocksExecution(c.classification as any));
+  if (mapping.manual.length > 0 || blockingConsent.length > 0) return 'NEEDS_REVIEW';
   if (requiredUnresolved.length > 0) return 'NEEDS_INPUT';
   return 'READY_TO_SUBMIT';
 }
