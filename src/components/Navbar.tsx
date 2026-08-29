@@ -97,10 +97,9 @@ export const Navbar: React.FC<NavbarProps> = ({
     fn();
   };
 
-  const closeDrawerAnd = (fn: () => void) => () => {
-    setDrawerOpen(false);
-    fn();
-  };
+  // Keep the drawer open after navigation so users can shift between
+  // screens quickly (it closes only via backdrop, Escape, or the X).
+  const navigateFromDrawer = (fn: () => void) => () => fn();
 
   const ddItemCls =
     'flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg border-none bg-transparent cursor-pointer font-inherit text-[13px] font-semibold text-slate-700 text-left transition-colors duration-150 hover:bg-[var(--color-brand-soft)] hover:text-[var(--color-brand)]';
@@ -265,18 +264,18 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Drawer nav */}
         <nav className="flex-1 overflow-y-auto px-3 py-2">
           <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--color-faint)' }}>Main</div>
-          <DrawerItem {...navItems[0]} onNavigate={closeDrawerAnd} />
+          <DrawerItem {...navItems[0]} onNavigate={navigateFromDrawer} />
           <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--color-faint)' }}>Workspace</div>
           {workspaceItems.map((item) => (
-            <DrawerItem key={item.label} {...item} onNavigate={closeDrawerAnd} />
+            <DrawerItem key={item.label} {...item} onNavigate={navigateFromDrawer} />
           ))}
           <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--color-faint)' }}>Prepare</div>
           {prepareItems.map((item) => (
-            <DrawerItem key={item.label} {...item} onNavigate={closeDrawerAnd} />
+            <DrawerItem key={item.label} {...item} onNavigate={navigateFromDrawer} />
           ))}
           <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--color-faint)' }}>System</div>
           {systemItems.map((item) => (
-            <DrawerItem key={item.label} {...item} onNavigate={closeDrawerAnd} />
+            <DrawerItem key={item.label} {...item} onNavigate={navigateFromDrawer} />
           ))}
         </nav>
 
