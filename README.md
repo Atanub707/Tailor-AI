@@ -90,6 +90,13 @@ The installer is **idempotent**: checks/installs Docker Desktop, starts the engi
 
 **Easy way (v1.8+):** the app checks for updates itself — when a new version is released, a banner appears in the app with an **Update & Restart** button. One click, done.
 
+**Manual way** (same result, manual — clone-based installs):
+
+```bash
+git pull origin main          # fetch the latest release code
+docker compose up -d --build  # rebuild + restart the app (no data loss)
+```
+
 **Script way** (same result, manual):
 
 ```powershell

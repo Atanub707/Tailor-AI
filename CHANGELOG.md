@@ -1,5 +1,33 @@
 # Changelog
 
+## v2.2.0 (2026-08-29)
+
+### ✨ Application Automation
+- Added **Browser Companion** application assistance: the extension pairs with your local Tailor AI, opens the exact employer application page, verifies it, validates the whole form before filling anything, and fills only approved answers.
+- Added guided application support for **Lever, Greenhouse, and Ashby**.
+- Added **exact tailored-resume attachment** — the immutable package-bound PDF, never regenerated.
+- Added **human checkpoints** for CAPTCHA and verification steps — Tailor AI never solves CAPTCHAs; you complete security steps on the real page.
+- Final provider submission remains **user-triggered**; Tailor AI tracks confirmation and reports Applied / Check Submission honestly.
+
+### 🔐 Application Security
+- Added an **encrypted local credential vault** (AES-256-GCM, local key, ciphertext only).
+- Added a dedicated **Application Password** for future ATS account creation — never your email or banking password.
+- **Existing ATS passwords are never stored** by Tailor AI.
+- Browser Companion secrets remain local and short-lived.
+
+### 📬 Application Tracking
+- Added application status intelligence foundation: Gmail and Microsoft mailbox connector architecture, plus deterministic recognition of confirmation, assessment, interview, rejection, and offer emails.
+- Email data remains local (metadata only, no bodies).
+
+### 🛡️ Safety & Privacy
+- No automatic CAPTCHA solving.
+- No proxy email identity; mail stays in your real inbox.
+- No centralized applicant-data storage.
+- No automatic use of OTP or MFA codes.
+
+### 🏢 Providers
+Application-assist providers: **Lever · Greenhouse · Ashby**.
+
 ## v2.1.1 (2026-08-27)
 
 ### 🐛 Fix: search no longer hides previous jobs
