@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { IdentificationBadge, SlidersHorizontal, FileText, SignOut, CaretDown, GlobeSimple, Question, Tray, ChatCircleDots, PaperPlaneTilt, UserCircle, SuitcaseSimple, List, House } from '@phosphor-icons/react';
+import { SignOut, CaretDown, Question, List } from '@phosphor-icons/react';
+import { NAV_GROUPS, NAV_ITEMS, activeNavId } from '../navigation';
 
 interface NavbarProps {
   onOpenHome: () => void;
@@ -106,26 +107,34 @@ export const Navbar: React.FC<NavbarProps> = ({
   const ddIconCls =
     'w-8 h-8 rounded-lg bg-[#F1F5F9] border border-[var(--color-hairline)] flex items-center justify-center text-[var(--color-faint)] shrink-0';
 
-  // Hamburger navigation — everything that used to live in the app bar.
-  const navItems: Array<{
-    label: string; icon: React.ComponentType<{ size?: number; weight?: string; style?: React.CSSProperties }>;
-    onClick: () => void; active: boolean; hint?: string; badge?: number; color?: string;
-  }> = [
-    { label: 'Home', icon: House, onClick: onOpenHome, active: pathname === '/', color: 'var(--color-brand)' },
-    { label: 'Applications', icon: SuitcaseSimple, onClick: () => onOpenApplications?.(), active: pathname === '/applications' || pathname.startsWith('/applications/'), badge: applicationsBadge, color: 'var(--color-brand)' },
-    { label: 'Applicant Profile', icon: UserCircle, onClick: () => onOpenApplicantProfile?.(), active: pathname === '/applicant-profile', color: 'var(--color-brand)' },
-    { label: 'Master CV', icon: IdentificationBadge, onClick: onOpenMasterCv, active: pathname === '/master-cv', color: 'var(--color-brand)' },
-    { label: 'Recruiters', icon: Tray, onClick: () => onOpenRecruiters?.(), active: pathname === '/recruiters', badge: recruiterBadge, color: 'var(--color-cta)' },
-    { label: 'Job Portals', icon: GlobeSimple, onClick: () => onOpenJobPortals?.(), active: pathname === '/job-portals', hint: '190+', color: 'var(--color-brand)' },
-    { label: 'LinkedIn Posts', icon: PaperPlaneTilt, onClick: () => onOpenLinkedInPosts?.(), active: pathname === '/linkedin-posts', color: '#7C3AED' },
-    { label: 'AI Interview', icon: ChatCircleDots, onClick: () => onOpenChat?.(), active: pathname === '/ai-interview', color: '#7C3AED' },
-    { label: 'Manual JD', icon: FileText, onClick: onOpenManualJd, active: pathname === '/manual-jd', hint: '⌘J', color: 'var(--color-brand)' },
-    { label: 'Settings', icon: SlidersHorizontal, onClick: onOpenSettings, active: pathname === '/settings', hint: '⌘,', color: 'var(--color-brand)' },
-  ];
-
-  const libraryItems = navItems.slice(0, 2);
-  const profileItems = navItems.slice(2, 4);
-  const toolsItems = navItems.slice(4);
+  // Hamburger navigation — one config (src/navigation.ts) drives items,
+  // grouping, and active states.
+  const navHandlers: Record<string, () => void> = {
+    home: onOpenHome,
+    applications: () => onOpenApplications?.(),
+    'applicant-profile': () => onOpenApplicantProfile?.(),
+    'master-cv': onOpenMasterCv,
+    recruiters: () => onOpenRecruiters?.(),
+    'job-portals': () => onOpenJobPortals?.(),
+    'linkedin-posts': () => onOpenLinkedInPosts?.(),
+    'ai-interview': () => onOpenChat?.(),
+    'manual-jd': onOpenManualJd,
+    settings: onOpenSettings,
+  };
+  const badges: Record<string, number> = { applications: applicationsBadge, recruiters: recruiterBadge };
+  const activeId = activeNavId(pathname);
+  const itemsByGroup = (group: string) => NAV_ITEMS.filter((i) => i.group === group).map((item) => ({
+    label: item.label,
+    icon: item.icon,
+    onClick: navHandlers[item.id],
+    active: activeId === item.id,
+    hint: item.hint,
+    badge: item.badgeKey ? badges[item.badgeKey] ?? 0 : undefined,
+    color: item.id === 'recruiters' ? 'var(--color-cta)' : item.id === 'ai-interview' || item.id === 'linkedin-posts' ? '#7C3AED' : 'var(--color-brand)',
+  }));
+  const libraryItems = itemsByGroup('library');
+  const profileItems = itemsByGroup('profile');
+  const toolsItems = itemsByGroup('tools');
 
   return (
     <header className="sticky top-0 z-30 bg-white" style={{ borderBottom: '1px solid var(--color-hairline)' }}>
@@ -143,7 +152,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             <List size={19} weight="bold" />
           </button>
           <div className="flex items-center gap-4 min-w-0">
-            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-[13px] flex items-center justify-center text-white font-extrabold text-[21px] tracking-tight" style={{ background: 'var(--color-brand)' }}>
+            <button onClick={onOpenHome} title="Go to Home" aria-label="Go to Home" className="flex items-center gap-4 min-w-0 cursor-pointer bg-transparent border-none text-left" style={{ fontFamily: 'inherit' }}>
+            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-[13px] flex items-center justify-center text-white font-extrabold text-[21px] tracking-tight shrink-0" style={{ background: 'var(--color-brand)' }}>
               T
             </div>
             <div className="flex flex-col justify-center leading-none min-w-0">
@@ -162,7 +172,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                   Atanu
                 </a>
               </div>
-            </div>
+              </div>
+            </button>
           </div>
         </div>
 
@@ -263,18 +274,17 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Drawer nav */}
         <nav className="flex-1 overflow-y-auto px-3 py-2">
-          <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--color-faint)' }}>Library</div>
-          {libraryItems.map((item) => (
-            <DrawerItem key={item.label} {...item} onNavigate={navigateFromDrawer} />
-          ))}
-          <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--color-faint)' }}>Profile</div>
-          {profileItems.map((item) => (
-            <DrawerItem key={item.label} {...item} onNavigate={navigateFromDrawer} />
-          ))}
-          <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--color-faint)' }}>Tools</div>
-          {toolsItems.map((item) => (
-            <DrawerItem key={item.label} {...item} onNavigate={navigateFromDrawer} />
-          ))}
+          {NAV_GROUPS.map((group) => {
+            const items = group.id === 'library' ? libraryItems : group.id === 'profile' ? profileItems : toolsItems;
+            return (
+              <React.Fragment key={group.id}>
+                <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--color-faint)' }}>{group.label}</div>
+                {items.map((item) => (
+                  <DrawerItem key={item.label} {...item} onNavigate={navigateFromDrawer} />
+                ))}
+              </React.Fragment>
+            );
+          })}
         </nav>
 
         {/* Drawer footer */}
