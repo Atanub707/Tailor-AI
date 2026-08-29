@@ -35,6 +35,8 @@ const STATUS_TONE: Record<string, string> = {
 };
 const DEFAULT_TONE = 'bg-slate-50 text-slate-700 border-slate-200';
 
+const providerLabel = (p: string) => (p === 'lever' ? 'Lever' : p === 'greenhouse' ? 'Greenhouse' : p === 'ashby' ? 'Ashby' : 'the employer site');
+
 const timeAgo = (iso: string) => {
   const ms = Date.now() - new Date(iso).getTime();
   const m = Math.floor(ms / 60000);
@@ -198,16 +200,16 @@ export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: ()
       </button>;
     }
     if (row.availableActions.includes('REVIEW_AND_SUBMIT')) {
-      return <button onClick={() => void continueOnLever(row)} disabled={busy} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-emerald-600 text-white hover:opacity-90 disabled:opacity-50">Review &amp; Submit on Lever</button>;
+      return <button onClick={() => void continueOnLever(row)} disabled={busy} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-emerald-600 text-white hover:opacity-90 disabled:opacity-50">{`Review & Submit on ${providerLabel(row.provider)}`}</button>;
     }
     if (row.availableActions.includes('CONTINUE_PROVIDER')) {
       if (companionPaired === true) {
         return <button onClick={() => void continueInBrowser(row)} disabled={busy} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-50">Continue in Browser</button>;
       }
-      return <button onClick={() => void continueOnLever(row)} disabled={busy} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-50">Continue on Lever</button>;
+      return <button onClick={() => void continueOnLever(row)} disabled={busy} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-50">{`Continue on ${providerLabel(row.provider)}`}</button>;
     }
     if (row.availableActions.includes('REOPEN_PROVIDER')) {
-      return <button onClick={() => void continueOnLever(row)} disabled={busy} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-50">Open Lever Again</button>;
+      return <button onClick={() => void continueOnLever(row)} disabled={busy} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-50">{`Open ${providerLabel(row.provider)} Again`}</button>;
     }
     return <button onClick={() => void openDetails(row)} className="px-3 py-1.5 rounded-md text-xs font-medium bg-white border border-[var(--color-hairline)] text-[var(--color-muted)] hover:bg-[var(--color-brand-soft)]">View</button>;
   };

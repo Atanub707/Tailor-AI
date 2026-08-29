@@ -6,6 +6,12 @@ const PROTOCOL_VERSION = 1;
 
 const LOG = (...args) => { console.log('[companion]', ...args); };
 
+// Secret isolation: pairing secret readable only by trusted extension
+// contexts (never content scripts). Ignored on browsers without support.
+if (chrome.storage?.local?.setAccessLevel) {
+  chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }).catch(() => {});
+}
+
 async function localFetch(path, init = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,

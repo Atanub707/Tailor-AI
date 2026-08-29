@@ -16,7 +16,7 @@ import { transitionAttempt } from '../applicationEngine/executionEngine.js';
 import { getPlanById } from '../applicationEngine/engine.js';
 import { getApproval } from '../applicationEngine/executionStore.js';
 import { getPackageById } from '../applicationPackage/packageStore.js';
-import { verifiedLeverActionUrl } from '../applicationExperience/applicationService.js';
+import { verifiedProviderActionUrl } from './browserProviderAdapter.js';
 import { appendEvent } from '../applicationExperience/applicationEvents.js';
 import { sha256 } from '../applicationEngine/contract.js';
 import { readPdfArtifact, sha256Bytes } from '../applicationPackage/artifactStore.js';
@@ -110,8 +110,8 @@ export function createCompanionSession(db: Database, userId: string, attemptId: 
   const pkg = getPackageById(userId, attempt.packageId);
   const approval = getApproval(db, userId, attempt.approvalId);
   if (!plan || !pkg || !approval) throw new CompanionError('BINDINGS_MISSING', 'Application bindings are incomplete.');
-  const canonicalUrl = verifiedLeverActionUrl(plan.target.applyUrl, plan.target.externalJobId);
-  if (!canonicalUrl) throw new CompanionError('INVALID_TARGET', 'Application target is not a verified Lever URL.');
+  const canonicalUrl = verifiedProviderActionUrl(attempt.provider, plan.target.applyUrl, plan.target.externalJobId);
+  if (!canonicalUrl) throw new CompanionError('INVALID_TARGET', 'Application target is not a verified provider URL.');
   const existing = getActiveSessionForAttempt(db, attemptId);
   if (existing) {
     if (new Date(existing.expiresAt).getTime() > Date.now()) {

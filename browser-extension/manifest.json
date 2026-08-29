@@ -6,6 +6,9 @@
   "permissions": ["storage"],
   "host_permissions": [
     "https://jobs.lever.co/*",
+    "https://boards.greenhouse.io/*",
+    "https://job-boards.greenhouse.io/*",
+    "https://jobs.ashbyhq.com/*",
     "http://127.0.0.1:3000/*"
   ],
   "optional_host_permissions": [
@@ -16,6 +19,18 @@
     {
       "matches": ["https://jobs.lever.co/*"],
       "js": ["content/lever.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": ["https://boards.greenhouse.io/*", "https://job-boards.greenhouse.io/*"],
+      "js": ["content/greenhouse.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": ["https://jobs.ashbyhq.com/*"],
+      "js": ["content/ashby.js"],
       "run_at": "document_idle",
       "all_frames": false
     },
