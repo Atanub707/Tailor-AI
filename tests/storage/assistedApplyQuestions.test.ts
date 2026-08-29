@@ -183,9 +183,9 @@ describe('UI wiring guards', () => {
   it('Applications drawer renders Questions to Answer + Review/Approve panels', () => {
     const scr = fs.readFileSync(path.join(process.cwd(), 'src/components/ApplicationsScreen.tsx'), 'utf8');
     expect(scr).toContain('Questions to Answer');
-    expect(scr).toContain('Save &amp; Continue');
+    expect(scr).toContain('Save & Continue');
     expect(scr).toContain('Review before continuing');
-    expect(scr).toContain('Approve &amp; Continue');
+    expect(scr).toContain('Approve & Continue');
     expect(scr).toContain('requiredQuestions');
     expect(scr).toContain('needsApproval');
     expect(scr).toContain('/api/submission-plans/${details.planId}/answers');
