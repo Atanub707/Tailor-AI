@@ -12,6 +12,7 @@ import { JobPortalsScreen } from './components/JobPortalsScreen';
 import { RecruitersScreen } from './components/RecruitersScreen';
 import { AiSystemScreen } from './components/AiSystemScreen';
 import { LinkedInPostsScreen } from './components/LinkedInPostsScreen';
+import ApplicationsScreen from './components/ApplicationsScreen';
 import { OnboardingTour, startTour } from './components/OnboardingTour';
 import { LoginScreen } from './components/LoginScreen';
 import { Job, JobState, MasterCv, AppConfig, JobSource, TemplateId } from './types';
@@ -33,10 +34,11 @@ export default function App() {
   const isJobPortalsOpen = pathname === '/job-portals';
   const isAiSystemOpen = pathname === '/ai-interview';
   const isLinkedInPostsOpen = pathname === '/linkedin-posts';
+  const isApplicationsOpen = pathname === '/applications';
 
   // Unknown paths (stale bookmarks, typos) land on the dashboard instead of
   // a blank screen. Done BEFORE any screen renders.
-  const knownPaths = ['/', '/settings', '/recruiters', '/master-cv', '/applicant-profile', '/manual-jd', '/job-portals', '/ai-interview', '/linkedin-posts'];
+  const knownPaths = ['/', '/settings', '/recruiters', '/master-cv', '/applicant-profile', '/manual-jd', '/job-portals', '/ai-interview', '/linkedin-posts', '/applications'];
   if (!knownPaths.includes(pathname)) return <Navigate to="/" replace />;
 
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -44,6 +46,16 @@ export default function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [currentUser, setCurrentUser] = useState<{ id: string; email: string; name: string; isGuest: boolean } | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [applicationBadge, setApplicationBadge] = useState(0);
+  React.useEffect(() => {
+    if (!currentUser) return;
+    let alive = true;
+    fetch('/api/applications?filter=action')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && d) setApplicationBadge(d.counts.action ?? 0); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [currentUser, pathname]);
 
   // Active filters and views
   const [activeStateTab, setActiveStateTab] = useState<'all' | JobState>('all');
@@ -562,6 +574,8 @@ export default function App() {
             }}
             onOpenChat={() => navigate('/ai-interview')}
             onOpenLinkedInPosts={() => navigate('/linkedin-posts')}
+            onOpenApplications={() => navigate('/applications')}
+            applicationsBadge={applicationBadge}
             recruiterBadge={recruiterBadge}
             installedVersion={installedVersion}
             onTour={startTour}
@@ -691,6 +705,7 @@ export default function App() {
           {/* AI Interview */}
           {isAiSystemOpen && <AiSystemScreen onClose={goHome} />}
           {isLinkedInPostsOpen && <LinkedInPostsScreen onClose={goHome} />}
+          {isApplicationsOpen && <ApplicationsScreen onBackToJobs={goHome} />}
         </>
       )}
     </div>

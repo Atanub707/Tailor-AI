@@ -57,6 +57,11 @@ export function storeApproval(db: Database, approval: ApplicationApproval): void
     .run(approval.id, approval.userId, approval.planId, approval.packageId, JSON.stringify(approval), approval.createdAt);
 }
 
+export function getApprovalsByPlan(db: Database, userId: string, planId: string): ApplicationApproval[] {
+  const rows = db.prepare('SELECT data FROM application_approvals WHERE user_id = ? AND plan_id = ? ORDER BY created_at DESC').all(userId, planId) as any[];
+  return rows.map((r) => JSON.parse(r.data));
+}
+
 export function getApproval(db: Database, userId: string, approvalId: string): ApplicationApproval | null {
   const row = db.prepare('SELECT data FROM application_approvals WHERE id = ? AND user_id = ?').get(approvalId, userId) as any;
   return row ? JSON.parse(row.data) : null;
@@ -99,6 +104,11 @@ export function getAttempt(db: Database, userId: string, attemptId: string): App
 export function getAttemptsByExecutionKey(db: Database, executionKey: string): ApplicationAttempt[] {
   const rows = db.prepare('SELECT * FROM application_attempts WHERE execution_key = ?').all(executionKey) as any[];
   return rows.map(attemptFromRow);
+}
+
+export function updateAttemptFailure(db: Database, userId: string, attemptId: string, failure: { kind: string; message?: string; retryClass?: string; occurredAt?: string }): void {
+  db.prepare('UPDATE application_attempts SET failure_json = ?, updated_at = ? WHERE id = ? AND user_id = ?')
+    .run(JSON.stringify({ ...failure, occurredAt: failure.occurredAt ?? new Date().toISOString(), retryClass: failure.retryClass ?? 'MANUAL_ONLY' }), new Date().toISOString(), attemptId, userId);
 }
 
 export function updateAttemptStatus(db: Database, userId: string, attemptId: string, status: AttemptStatus): void {

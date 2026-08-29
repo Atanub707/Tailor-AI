@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { IdentificationBadge, SlidersHorizontal, FileText, SignOut, CaretDown, GlobeSimple, Question, Tray, ChatCircleDots, PaperPlaneTilt, UserCircle } from '@phosphor-icons/react';
+import { IdentificationBadge, SlidersHorizontal, FileText, SignOut, CaretDown, GlobeSimple, Question, Tray, ChatCircleDots, PaperPlaneTilt, UserCircle, SuitcaseSimple } from '@phosphor-icons/react';
 
 interface NavbarProps {
   onOpenMasterCv: () => void;
@@ -10,6 +10,8 @@ interface NavbarProps {
   onOpenRecruiters?: () => void;
   onOpenChat?: () => void;
   onOpenLinkedInPosts?: () => void;
+  onOpenApplications?: () => void;
+  applicationsBadge?: number;
   onTour?: () => void;
   recruiterBadge?: number;
   user?: { id: string; email: string; name: string; isGuest: boolean } | null;
@@ -26,6 +28,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenRecruiters,
   onOpenChat,
   onOpenLinkedInPosts,
+  onOpenApplications,
+  applicationsBadge = 0,
   onTour,
   recruiterBadge = 0,
   user,
@@ -143,6 +147,21 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
 
           <button
+            onClick={() => onOpenApplications?.()}
+            className="relative hidden sm:inline-flex items-center gap-2 px-3.5 py-2 rounded-[10px] text-[12.5px] font-semibold border border-[var(--color-hairline)] bg-white transition-colors cursor-pointer hover:bg-[var(--color-brand-soft)] hover:border-[var(--color-brand-line)]"
+            title="Applications you are applying to"
+            style={{ color: 'var(--color-muted)' }}
+          >
+            <SuitcaseSimple size={15} weight="duotone" style={{ color: 'var(--color-brand)' }} />
+            Applications
+            {applicationsBadge > 0 && (
+              <span className="absolute -top-2 -right-2 min-w-[17px] h-[17px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center">
+                {applicationsBadge > 99 ? '99+' : applicationsBadge}
+              </span>
+            )}
+          </button>
+
+          <button
             onClick={() => onOpenRecruiters?.()}
             className="relative hidden sm:inline-flex items-center gap-2 px-3.5 py-2 rounded-[10px] text-[12.5px] font-semibold border border-[var(--color-hairline)] bg-white transition-colors cursor-pointer hover:bg-[var(--color-cta-soft)] hover:border-[var(--color-cta-line)]"
             title="HR & recruiting emails found in job descriptions"
@@ -199,6 +218,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <div className="px-2.5 pt-1.5 pb-0.5 text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-faint)' }}>
                   Workspace
                 </div>
+                <button role="menuitem" onClick={closeAnd(() => onOpenApplications?.())} className={ddItemCls}>
+                  <span className={ddIconCls}><SuitcaseSimple size={16} weight="duotone" /></span>
+                  Applications
+                  {applicationsBadge > 0 && <span className="ml-auto min-w-[18px] px-1 h-[18px] rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center">{applicationsBadge > 99 ? '99+' : applicationsBadge}</span>}
+                </button>
                 <button role="menuitem" onClick={closeAnd(onOpenMasterCv)} className={ddItemCls}>
                   <span className={ddIconCls}><IdentificationBadge size={16} weight="duotone" /></span>
                   Master Candidate CV
