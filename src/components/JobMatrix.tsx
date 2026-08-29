@@ -1,5 +1,4 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Job, JobState, JobSource } from '../types';
 import { formatTimeAgoSemantic } from '../lib/dateUtils';
 import { getValidJobUrl } from '../lib/jobUrlUtils';
@@ -49,6 +48,8 @@ interface JobMatrixProps {
   onDeleteJob: (jobId: string) => Promise<void>;
   onUpdateStatus: (jobId: string, state: JobState) => Promise<void>;
   onClearAll: () => Promise<void>;
+  onReviewApplication?: (applicationId: string) => void;
+  reviewNonce?: number;
   loadingJobIds: Set<string>;
   scoreMessages: Record<string, string[]>;
   tailorMessages: Record<string, string[]>;
@@ -86,6 +87,8 @@ const JobCard = React.memo(function JobCard({
   onTailorJob,
   onDeleteJob,
   onUpdateStatus,
+  onReviewApplication,
+  reviewNonce,
 }: {
   job: Job;
   scoreMsg: string[] | null;
@@ -97,6 +100,8 @@ const JobCard = React.memo(function JobCard({
   onTailorJob: (jobId: string) => Promise<void>;
   onDeleteJob: (jobId: string) => Promise<void>;
   onUpdateStatus: (jobId: string, state: JobState) => Promise<void>;
+  onReviewApplication?: (applicationId: string) => void;
+  reviewNonce?: number;
 }) {
   const timeAgoStr = formatTimeAgoSemantic(job.postedDate, job.postedDateSemantics);
   const isScoreLoading = scoreMsg !== null;
@@ -131,15 +136,16 @@ const JobCard = React.memo(function JobCard({
     finally { setFitLoading(false); }
   };
 
-  // Apply: orchestrate the existing preparation workflow, then hand over to
-  // the application's own detail screen via the router (no page reload).
+  // Apply: orchestrate preparation in place — the job list stays put and
+  // the card shows the application status inline. The detail drawer (with
+  // questions/review/approve) opens on demand via Review — no redirect.
   // Final provider submission stays user-triggered.
-  const navigate = useNavigate();
   const [applying, setApplying] = React.useState(false);
   const [applyError, setApplyError] = React.useState('');
   const [applyStage, setApplyStage] = React.useState<'idle' | 'preparing' | 'tailoring'>('idle');
   const [tailorVersion, setTailorVersion] = React.useState<number | null>(null);
   const [tailorChecked, setTailorChecked] = React.useState(false);
+  const [appRow, setAppRow] = React.useState<{ applicationId: string; userStatus: string } | null>(null);
   React.useEffect(() => {
     let alive = true;
     fetch(`/api/jobs/${job.id}/tailor-v2/latest`)
@@ -148,6 +154,20 @@ const JobCard = React.memo(function JobCard({
       .catch(() => { if (alive) setTailorChecked(true); });
     return () => { alive = false; };
   }, [job.id]);
+  // Refresh the inline application status whenever the drawer changes it.
+  React.useEffect(() => {
+    if (!appRow) return;
+    let alive = true;
+    fetch('/api/applications')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!alive || !d) return;
+        const found = (d.applications || []).find((x: { applicationId: string }) => x.applicationId === appRow.applicationId);
+        if (found) setAppRow({ applicationId: found.applicationId, userStatus: found.userStatus });
+      })
+      .catch(() => { /* keep last known status */ });
+    return () => { alive = false; };
+  }, [appRow?.applicationId, reviewNonce]);
   const apply = async () => {
     if (applying) return; // double-click guard
     setApplying(true);
@@ -182,7 +202,19 @@ const JobCard = React.memo(function JobCard({
       } else if (d.cvSource === 'MASTER_CV') {
         setApplyError('No tailored CV for this job yet — Master CV attached. You can tailor it later from Job Details.');
       }
-      navigate(`/applications/${d.application?.applicationId || d.package?.id || job.id}`);
+      // Stay on the list — track the prepared application for the inline chip.
+      const appId = d.application?.applicationId || d.package?.id;
+      if (appId) {
+        const listRes = await fetch('/api/applications');
+        if (listRes.ok) {
+          const ld = await listRes.json();
+          const found = (ld.applications || []).find((x: { applicationId: string }) => x.applicationId === appId);
+          if (found) setAppRow({ applicationId: found.applicationId, userStatus: found.userStatus });
+          else setAppRow({ applicationId: appId, userStatus: 'PREPARING' });
+        } else {
+          setAppRow({ applicationId: appId, userStatus: 'PREPARING' });
+        }
+      }
     } catch (err: any) {
       alert(`Could not prepare the application. ${String(err?.message || 'Please try again.')}`);
     } finally {
@@ -190,6 +222,9 @@ const JobCard = React.memo(function JobCard({
       setApplyStage('idle');
       setApplying(false);
     }
+  };
+  const openReview = () => {
+    if (appRow && onReviewApplication) onReviewApplication(appRow.applicationId);
   };
 
   const FIT_GRADE_COLOR: Record<string, string> = { Excellent: 'text-emerald-700', Strong: 'text-emerald-700', Good: 'text-amber-700', Partial: 'text-orange-700', Weak: 'text-red-700' };
@@ -362,7 +397,7 @@ const JobCard = React.memo(function JobCard({
           </div>
         )}
 
-        {/* Apply — primary */}
+        {/* Apply — primary. Stays on the list; status shows inline. */}
         <button
           type="button"
           onClick={() => void apply()}
@@ -373,6 +408,24 @@ const JobCard = React.memo(function JobCard({
             ? applyStage === 'tailoring' ? 'Tailoring CV…' : 'Preparing…'
             : tailorVersion ? `Apply (Tailored CV v${tailorVersion})` : 'Apply'}
         </button>
+
+        {/* Review — opens the application detail drawer on this page */}
+        {appRow && onReviewApplication && (
+          <button
+            type="button"
+            onClick={openReview}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold text-white bg-[var(--color-brand)] hover:opacity-90 transition-colors cursor-pointer min-h-[38px]"
+          >
+            Review
+          </button>
+        )}
+
+        {/* Inline application status chip */}
+        {appRow && (
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${(appRow.userStatus === 'ACTION_REQUIRED' ? 'bg-amber-50 text-amber-800 border-amber-200' : appRow.userStatus === 'APPLIED' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : appRow.userStatus === 'PREPARING' ? 'bg-slate-50 text-slate-700 border-slate-200' : 'bg-sky-50 text-sky-800 border-sky-200')}`} data-qa="inline-app-status">
+            {appRow.userStatus === 'ACTION_REQUIRED' ? '⚠ ' : ''}{appRow.userStatus === 'PREPARING' ? 'Preparing' : appRow.userStatus === 'READY' ? 'Ready' : appRow.userStatus === 'APPLIED' ? '✓ Applied' : appRow.userStatus === 'WAITING_FOR_YOU' ? 'Waiting for you' : appRow.userStatus === 'READY_TO_SUBMIT' ? 'Ready to submit' : appRow.userStatus === 'MANUAL_REQUIRED' ? 'Manual' : appRow.userStatus === 'CHECK_SUBMISSION' ? 'Check submission' : appRow.userStatus}
+          </span>
+        )}
 
         {/* Mark as applied */}
         <button
@@ -416,6 +469,8 @@ export const JobMatrix: React.FC<JobMatrixProps> = ({
   onDeleteJob,
   onUpdateStatus,
   onClearAll,
+  onReviewApplication,
+  reviewNonce,
   scoreMessages,
   tailorMessages,
 }) => {
@@ -630,6 +685,8 @@ export const JobMatrix: React.FC<JobMatrixProps> = ({
                 onTailorJob={onTailorJob}
                 onDeleteJob={onDeleteJob}
                 onUpdateStatus={onUpdateStatus}
+                onReviewApplication={onReviewApplication}
+                reviewNonce={reviewNonce}
               />
             );
           })}

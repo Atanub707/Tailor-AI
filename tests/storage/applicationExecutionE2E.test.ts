@@ -84,13 +84,13 @@ afterAll(() => {
 const CARD = fs.readFileSync(path.join(process.cwd(), 'src/components/JobMatrix.tsx'), 'utf8');
 const APP = fs.readFileSync(path.join(process.cwd(), 'src/App.tsx'), 'utf8');
 const SCREEN = fs.readFileSync(path.join(process.cwd(), 'src/components/ApplicationsScreen.tsx'), 'utf8');
+const DRAWER = fs.readFileSync(path.join(process.cwd(), 'src/components/ApplicationDrawer.tsx'), 'utf8');
 const SERVER = fs.readFileSync(path.join(process.cwd(), 'server.ts'), 'utf8');
 
-describe('Apply handoff — no page reload', () => {
-  it('Apply uses the router, never a hard navigation', () => {
-    expect(CARD).toContain("import { useNavigate } from 'react-router-dom'");
-    expect(CARD).toContain('navigate(');
-    expect(CARD).not.toContain("window.location.href = '/applications'");
+describe('Apply stays on the job list — inline status, no redirect', () => {
+  it('Apply never navigates or hard-reloads — the list stays put', () => {
+    expect(CARD).not.toContain('useNavigate');
+    expect(CARD).not.toContain('navigate(');
     expect(CARD).not.toContain('window.location');
   });
 
@@ -106,9 +106,12 @@ describe('Apply handoff — no page reload', () => {
     expect(CARD).toContain('Please try again.');
   });
 
-  it('Apply navigates to the canonical application route', () => {
-    expect(CARD).toContain('`/applications/${d.application?.applicationId || d.package?.id || job.id}`');
-    expect(APP).toContain("pathname.startsWith('/applications/')");
+  it('Apply opens the detail drawer on demand via Review, never a route change', () => {
+    expect(CARD).toContain('onReviewApplication');
+    expect(CARD).toContain('Review');
+    expect(CARD).toContain('inline-app-status');
+    expect(APP).toContain('onReviewApplication={(applicationId) => setReviewApplicationId(applicationId)}');
+    expect(APP).toContain('<ApplicationDrawer');
     expect(APP).toContain('initialApplicationId={applicationDetailId}');
   });
 });
@@ -172,14 +175,15 @@ describe('Unsupported provider — Manual application required, never Failed', (
 });
 
 describe('Application Detail — refresh recovery surface', () => {
-  it('the details endpoint exposes events for the timeline and the drawer renders them', () => {
-    expect(SCREEN).toContain('Recent activity');
-    expect(SCREEN).toContain('EVENT_LABEL');
+  it('the details endpoint exposes events and the shared drawer renders them', () => {
+    expect(DRAWER).toContain('Recent activity');
+    expect(DRAWER).toContain('EVENT_LABEL');
     expect(SCREEN).toContain('initialApplicationId');
     expect(SCREEN).toContain("rows.find((r) => r.applicationId === initialApplicationId)");
-    expect(SCREEN).toContain('Open original application');
-    expect(SCREEN).toContain('Mark as applied');
-    expect(SCREEN).toContain('Manual application required');
+    expect(DRAWER).toContain('Open original application');
+    expect(DRAWER).toContain('Mark as applied');
+    const ui = fs.readFileSync(path.join(process.cwd(), 'src/components/applicationUi.ts'), 'utf8');
+    expect(ui).toContain('Manual application required');
   });
 
   it('the mark-applied endpoint exists server-side', () => {
@@ -240,9 +244,8 @@ describe('Easy Flow — auto-tailor on Apply, deterministic CV attachment', () =
   });
 
   it('Questions drawer surfaces Auto-filled from profile strip', () => {
-    const scr = fs.readFileSync(path.join(process.cwd(), 'src/components/ApplicationsScreen.tsx'), 'utf8');
-    expect(scr).toContain('Auto-filled from your profile');
-    expect(scr).toContain('autoFilled');
+    expect(DRAWER).toContain('Auto-filled from your profile');
+    expect(DRAWER).toContain('autoFilled');
   });
 });
 
@@ -255,8 +258,7 @@ describe('Attached CV transparency — the drawer names the exact resume', () =>
     expect(details.resumeVersion).toBe(1);
   });
   it('drawer renders the attached-CV badge with source', () => {
-    const scr = fs.readFileSync(path.join(process.cwd(), 'src/components/ApplicationsScreen.tsx'), 'utf8');
-    expect(scr).toContain('Attached CV');
-    expect(scr).toContain('resumeSource');
+    expect(DRAWER).toContain('Attached CV');
+    expect(DRAWER).toContain('resumeSource');
   });
 });

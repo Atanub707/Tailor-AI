@@ -14,6 +14,7 @@ import { RecruitersScreen } from './components/RecruitersScreen';
 import { AiSystemScreen } from './components/AiSystemScreen';
 import { LinkedInPostsScreen } from './components/LinkedInPostsScreen';
 import ApplicationsScreen from './components/ApplicationsScreen';
+import ApplicationDrawer from './components/ApplicationDrawer';
 import { OnboardingTour, startTour } from './components/OnboardingTour';
 import { LoginScreen } from './components/LoginScreen';
 import { Job, JobState, MasterCv, AppConfig, JobSource, TemplateId } from './types';
@@ -70,6 +71,8 @@ export default function App() {
   // search context (searchId → search_jobs → jobs). null = the full library.
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [selectedJobTab, setSelectedJobTab] = useState<'details' | 'gap' | 'tailored'>('details');
+  const [reviewApplicationId, setReviewApplicationId] = useState<string | null>(null);
+  const [reviewNonce, setReviewNonce] = useState(0);
 
   // Drawers and Modals — visibility comes from the URL above; these hold
   // transient payloads only.
@@ -660,6 +663,8 @@ export default function App() {
               onTailorJob={handleTailorJob}
               onDeleteJob={handleDeleteJob}
               onUpdateStatus={handleUpdateStatus}
+              onReviewApplication={(applicationId) => setReviewApplicationId(applicationId)}
+              reviewNonce={reviewNonce}
               onClearAll={handleClearAll}
               loadingJobIds={loadingJobIds}
               scoreMessages={scoreMessages}
@@ -732,6 +737,13 @@ export default function App() {
           {isAiSystemOpen && <AiSystemScreen onClose={goHome} />}
           {isLinkedInPostsOpen && <LinkedInPostsScreen onClose={goHome} />}
           {isApplicationsOpen && <ApplicationsScreen onBackToJobs={goHome} initialApplicationId={applicationDetailId} />}
+
+          {/* Application Detail drawer over the Home job list (Review) */}
+          <ApplicationDrawer
+            applicationId={reviewApplicationId}
+            onClose={() => setReviewApplicationId(null)}
+            onChanged={() => setReviewNonce((n) => n + 1)}
+          />
         </NavigationProvider>
       )}
     </div>

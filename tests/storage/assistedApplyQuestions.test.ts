@@ -182,8 +182,8 @@ describe('Approval — gated on readiness, never submits', () => {
 });
 
 describe('UI wiring guards', () => {
-  it('Applications drawer renders Questions to Answer + Review/Approve panels', () => {
-    const scr = fs.readFileSync(path.join(process.cwd(), 'src/components/ApplicationsScreen.tsx'), 'utf8');
+  it('the shared Application drawer renders Questions to Answer + Review/Approve panels', () => {
+    const scr = fs.readFileSync(path.join(process.cwd(), 'src/components/ApplicationDrawer.tsx'), 'utf8');
     expect(scr).toContain('Questions to Answer');
     expect(scr).toContain('Save & Continue');
     expect(scr).toContain('Review before continuing');
