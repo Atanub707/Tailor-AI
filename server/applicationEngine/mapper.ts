@@ -35,6 +35,10 @@ const ALIAS_TO_CANONICAL: Array<{ aliases: string[]; canonical: string }> = [
   { aliases: ['will you now or in the future require sponsorship', 'requires sponsorship', 'visa sponsorship', 'do you require sponsorship'], canonical: 'requiresSponsorship' },
   { aliases: ['notice period'], canonical: 'noticePeriod' },
   { aliases: ['expected salary', 'salary expectation', 'desired salary'], canonical: 'targetSalary' },
+  { aliases: ['how did you hear about', 'how did you find out about', 'where did you hear about', 'how did you learn about', 'referral source', 'source of referral'], canonical: 'referralSource' },
+  { aliases: ['relatives', 'friends or relatives', 'any relatives', 'do you have any relatives', 'currently work at'], canonical: 'hasReferralsAtCompany' },
+  { aliases: ['availability for on-site work', 'available for on-site', 'willing to work on-site', 'on-site work at the', 'onsite availability', 'work on site'], canonical: 'onsiteAvailability' },
+  { aliases: ['accessibility for the selection process', 'accessibility needs', 'accessibility accommodation', 'require any type of accessibility', 'disability accommodation'], canonical: 'accessibilityNeeds' },
   { aliases: ['resume', 'resume/cv', 'cv'], canonical: 'resume' },
   { aliases: ['cover letter'], canonical: 'coverLetter' },
 ];
@@ -42,7 +46,10 @@ const ALIAS_TO_CANONICAL: Array<{ aliases: string[]; canonical: string }> = [
 function aliasKey(label: string): string | undefined {
   const l = String(label || '').toLowerCase().trim().replace(/\s+/g, ' ');
   for (const e of ALIAS_TO_CANONICAL) {
-    if (e.aliases.some((a) => l === a || l.startsWith(a))) return e.canonical;
+    // Exact or prefix match for every alias; multi-word aliases (3+ words)
+    // additionally match anywhere in the label — deterministic phrase
+    // containment, never fuzzy single-keyword matching.
+    if (e.aliases.some((a) => l === a || l.startsWith(a) || (a.split(/\s+/).length >= 3 && l.includes(a)))) return e.canonical;
   }
   return undefined;
 }
@@ -177,6 +184,10 @@ export function mapRequirements(pkg: ApplicationPackage, fields: ApplicationFiel
         }
         value = option;
       }
+    } else if (typeof value === 'boolean') {
+      // Deterministic: a boolean canonical answer written into a free-text
+      // field becomes the literal "Yes"/"No" — never raw true/false.
+      value = value ? 'Yes' : 'No';
     }
 
     const method = f.normalizedKey === canonical ? 'EXACT' : canonical ? 'ALIAS' : 'DETERMINISTIC';

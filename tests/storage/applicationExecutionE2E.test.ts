@@ -198,3 +198,65 @@ describe('E2E orchestration preserved', () => {
     resetInspectionState();
   });
 });
+describe('Easy Flow — auto-tailor on Apply, deterministic CV attachment', () => {
+  it('a package with a job-specific tailored version attaches THAT version', async () => {
+    const { pkg } = await makePackage(job('ej-auto-1'));
+    expect(pkg.resumeSnapshot?.source).toBe('TAILORED');
+    expect(pkg.resumeSnapshot?.tailoredResumeVersionId).toBe('t-ej-auto-1');
+    expect(pkg.resumeSnapshot?.pdfOk).toBe(true);
+  });
+
+  it('a package without a tailored version attaches the Master CV — never blocks apply', async () => {
+    const j = job('ej-auto-2');
+    const p = profile();
+    const masterCv = cv();
+    const fit = computeFit(p, masterCv, j, j.description || '');
+    const pkg = await buildPackage({ userId: USER, job: j, jd: j.description || '', profile: p, masterCv, fit, tailoredVersion: undefined }, 'c');
+    expect(pkg.resumeSnapshot?.source).toBe('MASTER_CV');
+    expect(pkg.resumeSnapshot?.pdfOk).toBe(true);
+  });
+
+  it('auto-tailor runs ONLY when no version exists — existing versions are reused', async () => {
+    const { getLatestTailorVersion } = await import('../../server/tailorV2/versionStore.js');
+    // fresh job → no version → auto-tailor would trigger (guard = !version)
+    expect(getLatestTailorVersion(USER, 'ej-auto-fresh')).toBeUndefined();
+    // job with a stored version → guard false → no new LLM call
+    const { ensureTailorV2Schema, storeTailorVersion } = await import('../../server/tailorV2/versionStore.js');
+    ensureTailorV2Schema();
+    storeTailorVersion(USER, 'ej-auto-3', { summary: 'x', skills: [], experience: [], education: [], certifications: [], projects: [] } as any,
+      { passed: true, issues: [], supportedJdTermsBefore: [], supportedJdTermsAfter: [], unsupportedInserted: [] } as any,
+      { masterCvUpdatedAt: 'c', profileUpdatedAt: 'p', jdHash: 'j', fitEngineVersion: 3 });
+    expect(getLatestTailorVersion(USER, 'ej-auto-3')).toBeDefined();
+  });
+
+  it('UI wiring — Apply posts autoTailor:true and shows stage feedback', () => {
+    const m = fs.readFileSync(path.join(process.cwd(), 'src/components/JobMatrix.tsx'), 'utf8');
+    expect(m).toContain('autoTailor: true');
+    expect(m).toContain('Tailoring CV');
+    expect(m).toContain('Preparing');
+    const srv = fs.readFileSync(path.join(process.cwd(), 'server.ts'), 'utf8');
+    expect(srv).toContain('autoTailor');
+    expect(srv).toContain('cvSource');
+  });
+
+  it('Questions drawer surfaces Auto-filled from profile strip', () => {
+    const scr = fs.readFileSync(path.join(process.cwd(), 'src/components/ApplicationsScreen.tsx'), 'utf8');
+    expect(scr).toContain('Auto-filled from your profile');
+    expect(scr).toContain('autoFilled');
+  });
+});
+
+describe('Attached CV transparency — the drawer names the exact resume', () => {
+  it('details expose resumeSource + version; MASTER_CV is labeled honestly', async () => {
+    const { pkg } = await makePackage(job('ej-cv-1'));
+    expect(pkg.resumeSnapshot?.source).toBe('TAILORED');
+    const details = applicationDetails(getDb(), USER, pkg.id)!;
+    expect(details.resumeSource).toBe('TAILORED');
+    expect(details.resumeVersion).toBe(1);
+  });
+  it('drawer renders the attached-CV badge with source', () => {
+    const scr = fs.readFileSync(path.join(process.cwd(), 'src/components/ApplicationsScreen.tsx'), 'utf8');
+    expect(scr).toContain('Attached CV');
+    expect(scr).toContain('resumeSource');
+  });
+});

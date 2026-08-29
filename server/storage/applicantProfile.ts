@@ -70,6 +70,9 @@ function normalizeCanonical(p: ApplicantProfile): ApplicantProfile {
       reasonForChange: legacy.reasonForChange ?? undefined,
       whyInterestedDefault: legacy.whyInterestedDefault ?? undefined,
       preferredContactMethod: legacy.preferredContactMethod ?? undefined,
+      referralSource: legacy.referralSource ?? undefined,
+      hasReferralsAtCompany: legacy.hasReferralsAtCompany ?? undefined,
+      onsiteAvailability: legacy.onsiteAvailability ?? undefined,
     },
   };
   // legacy.yearsOfExperience is intentionally NOT migrated (STEP 5: Fit
@@ -168,6 +171,17 @@ export function validateApplicantProfile(p: ApplicantProfile): { ok: boolean; er
   }
   if (!validOptionalString(p.personal?.firstName) || !validOptionalString(p.personal?.lastName) || !validOptionalString(p.personal?.preferredName)) {
     errors.push('Names are too long.');
+  }
+  const REFERRAL_OPTIONS = ['LinkedIn', 'Job board', 'Company website', 'Referral', 'Other'];
+  const referral = p.applicationDefaults?.referralSource;
+  if (referral !== undefined && referral !== null && referral !== '' && !REFERRAL_OPTIONS.includes(referral)) {
+    errors.push('Referral source must be one of LinkedIn, Job board, Company website, Referral, Other.');
+  }
+  for (const [label, v] of [
+    ['hasReferralsAtCompany', p.applicationDefaults?.hasReferralsAtCompany],
+    ['onsiteAvailability', p.applicationDefaults?.onsiteAvailability],
+  ] as const) {
+    if (v !== undefined && v !== null && !['yes', 'no', 'unknown'].includes(v)) errors.push(`${label} must be yes, no or unknown.`);
   }
   return { ok: errors.length === 0, errors };
 }

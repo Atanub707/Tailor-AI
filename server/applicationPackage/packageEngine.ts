@@ -132,6 +132,7 @@ export async function buildPackage(input: BuildPackageInput, masterCvUpdatedAt: 
       const reRead = readPdfArtifact(art.sha256);
       const pdfOk = sha256Bytes(reRead) === art.sha256;
       pkg.resumeSnapshot = {
+        source: 'TAILORED',
         tailoredResumeVersionId: input.tailoredVersion.id,
         resumeUserId: input.tailoredVersion.userId,
         resumeJobId: input.tailoredVersion.jobId,
@@ -146,6 +147,7 @@ export async function buildPackage(input: BuildPackageInput, masterCvUpdatedAt: 
       };
     } else {
       pkg.resumeSnapshot = {
+        source: 'TAILORED',
         tailoredResumeVersionId: input.tailoredVersion.id,
         resumeUserId: input.tailoredVersion.userId,
         resumeJobId: input.tailoredVersion.jobId,

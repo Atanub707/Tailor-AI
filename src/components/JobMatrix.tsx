@@ -137,12 +137,33 @@ const JobCard = React.memo(function JobCard({
   const navigate = useNavigate();
   const [applying, setApplying] = React.useState(false);
   const [applyError, setApplyError] = React.useState('');
+  const [applyStage, setApplyStage] = React.useState<'idle' | 'preparing' | 'tailoring'>('idle');
+  const [tailorVersion, setTailorVersion] = React.useState<number | null>(null);
+  const [tailorChecked, setTailorChecked] = React.useState(false);
+  React.useEffect(() => {
+    let alive = true;
+    fetch(`/api/jobs/${job.id}/tailor-v2/latest`)
+      .then((r) => (r.ok ? r.json() : { version: null }))
+      .then((d) => { if (alive) { setTailorVersion(d.version ?? null); setTailorChecked(true); } })
+      .catch(() => { if (alive) setTailorChecked(true); });
+    return () => { alive = false; };
+  }, [job.id]);
   const apply = async () => {
     if (applying) return; // double-click guard
     setApplying(true);
+    setApplyStage('preparing');
     setApplyError('');
+    // No job-specific tailored CV yet → the server auto-generates one; show
+    // the honest stage once the request is clearly past instant work.
+    const slowTailorTimer = window.setTimeout(() => {
+      setApplyStage((s) => (s === 'preparing' ? 'tailoring' : s));
+    }, 900);
     try {
-      const res = await fetch(`/api/jobs/${job.id}/application-package`, { method: 'POST' });
+      const res = await fetch(`/api/jobs/${job.id}/application-package`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoTailor: true }),
+      });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         const msg = d.error || 'Could not prepare the application.';
@@ -155,10 +176,20 @@ const JobCard = React.memo(function JobCard({
         return;
       }
       const d = await res.json().catch(() => ({}));
+      if (d.tailorVersion && typeof d.tailorVersion === 'number') setTailorVersion(d.tailorVersion);
+      if (d.autoTailorError) {
+        setApplyError(`Could not tailor a CV for this job — Master CV will be attached instead. ${d.autoTailorError}`);
+      } else if (d.cvSource === 'MASTER_CV') {
+        setApplyError('No tailored CV for this job yet — Master CV attached. You can tailor it later from Job Details.');
+      }
       navigate(`/applications/${d.application?.applicationId || d.package?.id || job.id}`);
     } catch (err: any) {
       alert(`Could not prepare the application. ${String(err?.message || 'Please try again.')}`);
-    } finally { setApplying(false); }
+    } finally {
+      window.clearTimeout(slowTailorTimer);
+      setApplyStage('idle');
+      setApplying(false);
+    }
   };
 
   const FIT_GRADE_COLOR: Record<string, string> = { Excellent: 'text-emerald-700', Strong: 'text-emerald-700', Good: 'text-amber-700', Partial: 'text-orange-700', Weak: 'text-red-700' };
@@ -338,7 +369,9 @@ const JobCard = React.memo(function JobCard({
           disabled={applying}
           className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-[var(--color-cta)] hover:bg-[#047857] transition-colors cursor-pointer disabled:opacity-60 min-h-[38px]"
         >
-          {applying ? 'Preparing…' : 'Apply'}
+          {applying
+            ? applyStage === 'tailoring' ? 'Tailoring CV…' : 'Preparing…'
+            : tailorVersion ? `Apply (Tailored CV v${tailorVersion})` : 'Apply'}
         </button>
 
         {/* Mark as applied */}

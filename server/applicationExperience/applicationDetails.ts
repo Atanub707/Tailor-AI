@@ -17,11 +17,14 @@ export interface ApplicationDetails {
   planId?: string;
   requiredQuestions: Array<{ providerFieldId: string; label: string; required: boolean; type: string; options: string[]; reason: string }>;
   optionalOmittedCount: number;
+  autoFilled: Array<{ label: string; value: string }>;
   consentReviewCount: number;
   consentFields: Array<{ providerFieldId: string; label: string; classification: string }>;
   reviewGroups: Array<{ title: string; items: Array<{ label: string; value: string; source: string }> }>;
   needsApproval: boolean;
   resume: { artifactHash: string; downloadUrl: string } | null;
+  resumeSource: 'TAILORED' | 'MASTER_CV' | null;
+  resumeVersion: number | null;
   lastUpdated: string;
   events: Array<{ eventType: string; reasonCode?: string | null; createdAt: string; metadata: Record<string, string> }>;
 }
@@ -46,6 +49,10 @@ export function applicationDetails(db: Database, userId: string, applicationId: 
     .filter((d) => d.required && d.category !== 'EEO' && d.category !== 'CONSENT' && d.type !== 'FILE')
     .map((d) => ({ providerFieldId: d.providerFieldId, label: d.label, required: d.required, type: d.type || 'TEXT', options: d.options || [], reason: d.reason }));
   const optionalOmitted = (plan?.unresolvedDetails || []).filter((d) => !d.required);
+  const AUTO_FILL_KEYS = new Set(['referralSource', 'hasReferralsAtCompany', 'onsiteAvailability', 'accessibilityNeeds']);
+  const autoFilled = (plan?.mappedFields || [])
+    .filter((m) => AUTO_FILL_KEYS.has(m.canonicalKey ?? '') && m.value !== null && m.value !== undefined)
+    .map((m) => ({ label: m.label || m.canonicalKey || m.providerFieldId, value: Array.isArray(m.value) ? m.value.join(', ') : String(m.value) }));
   const mappedForReview = (plan?.mappedFields || [])
     .filter((m) => m.value !== null && m.value !== undefined)
     .map((m) => ({ label: m.label || m.canonicalKey || m.providerFieldId, value: Array.isArray(m.value) ? m.value.join(', ') : String(m.value), source: m.source }));
@@ -80,6 +87,7 @@ export function applicationDetails(db: Database, userId: string, applicationId: 
     planId,
     requiredQuestions,
     optionalOmittedCount: optionalOmitted.length,
+    autoFilled,
     reviewGroups,
     consentFields,
     needsApproval: plan && plan.status === 'READY_TO_SUBMIT' ? !getApprovalsByPlan(db, userId, plan.id).some((a) => a.status === 'ACTIVE') : false,
@@ -91,6 +99,8 @@ export function applicationDetails(db: Database, userId: string, applicationId: 
     resume: pkg.resumeSnapshot?.pdfHash
       ? { artifactHash: pkg.resumeSnapshot.pdfHash, downloadUrl: `/api/application-packages/${pkg.id}/resume.pdf` }
       : null,
+    resumeSource: pkg.resumeSnapshot?.source ?? null,
+    resumeVersion: pkg.resumeSnapshot?.version ?? null,
     lastUpdated: attempt?.updatedAt ?? plan?.updatedAt ?? pkg.updatedAt,
     events: allEvents.slice(0, 8).map((e) => ({ eventType: e.eventType, reasonCode: e.reasonCode, createdAt: e.createdAt, metadata: e.metadata ?? {} })),
   };

@@ -68,6 +68,8 @@ beforeAll(async () => {
   ensureApplicantProfileSchema();
   ensurePlanSchema();
   ensureExecutionSchema(getDb());
+  const { ensureEventSchema } = await import('../../server/applicationExperience/applicationEvents.js');
+  ensureEventSchema(getDb());
   await ensureTailorVersion();
 });
 
@@ -194,5 +196,82 @@ describe('UI wiring guards', () => {
   it('planStore persists repeated saves idempotently (UPSERT)', () => {
     const store = fs.readFileSync(path.join(process.cwd(), 'server/applicationEngine/planStore.ts'), 'utf8');
     expect(store).toContain('ON CONFLICT(id) DO UPDATE');
+  });
+});
+
+describe('Auto-fill from Application Defaults + Sensitive — deterministic only', () => {
+  it('referral source / relatives / on-site defaults resolve to canonical answers', () => {
+    const p = profileWith((x: any) => {
+      x.applicationDefaults = { referralSource: 'LinkedIn', hasReferralsAtCompany: 'no', onsiteAvailability: 'yes' };
+    });
+    const a = resolveDeterministicAnswers(cv(), p, leverJob());
+    expect(a.find((x) => x.key === 'referralSource')?.value).toBe('LinkedIn');
+    expect(a.find((x) => x.key === 'hasReferralsAtCompany')?.value).toBe(false);
+    expect(a.find((x) => x.key === 'onsiteAvailability')?.value).toBe(true);
+    expect(a.find((x) => x.key === 'referralSource')?.source).toBe('PROFILE');
+  });
+
+  it('unset defaults stay MISSING — never guessed', () => {
+    const a = resolveDeterministicAnswers(cv(), profileWith(() => {}), leverJob());
+    expect(a.find((x) => x.key === 'referralSource')?.status).toBe('MISSING');
+    expect(a.find((x) => x.key === 'hasReferralsAtCompany')?.status).toBe('MISSING');
+    expect(a.find((x) => x.key === 'onsiteAvailability')?.status).toBe('MISSING');
+  });
+
+  it('accessibility needs resolve ONLY when Sensitive opt-in is enabled AND stated', () => {
+    const off = resolveDeterministicAnswers(cv(), profileWith(() => {}), leverJob());
+    expect(off.find((x) => x.key === 'accessibilityNeeds')?.status).toBe('MISSING');
+    const enabledNoStatus = resolveDeterministicAnswers(cv(), profileWith((x: any) => { x.optionalSensitive = { enabled: true }; }), leverJob());
+    expect(enabledNoStatus.find((x) => x.key === 'accessibilityNeeds')?.status).toBe('MISSING');
+    const stated = resolveDeterministicAnswers(cv(), profileWith((x: any) => { x.optionalSensitive = { enabled: true, disabilityStatus: 'None' }; }), leverJob());
+    expect(stated.find((x) => x.key === 'accessibilityNeeds')?.value).toBe('None');
+  });
+});
+
+describe('CI&T-style form — auto-mapped from profile defaults', () => {
+  const CI_AND_FIELDS = [
+    { providerFieldId: 'f_how_hear', label: 'How did you hear about our job opening?', type: 'SINGLE_SELECT', required: true, category: 'CUSTOM', options: ['LinkedIn', 'Job board', 'Company website', 'Referral', 'Other'] },
+    { providerFieldId: 'f_relatives', label: 'Do you have any relatives (such as parents, siblings, in-laws, spouses, or children, stepchildren, stepfather/stepmother, son-in-law/daughter-in-law), close friends, or acquaintances (with whom you have a significant and ongoing relationship) who currently work at CI&T?', type: 'BOOLEAN', required: true, category: 'CUSTOM' },
+    { providerFieldId: 'f_onsite', label: 'Do you have availability for on-site work at the Campinas office (Brazil) every day?', type: 'BOOLEAN', required: true, category: 'CUSTOM' },
+    { providerFieldId: 'f_accessibility', label: 'Do you require any type of accessibility for the selection process and/or in your daily life?', type: 'TEXT', required: false, category: 'CUSTOM' },
+  ] as any;
+
+  it('the four CI&T-style questions map deterministically and surface as auto-filled', async () => {
+    const profile = profileWith((x: any) => {
+      x.applicationDefaults = { referralSource: 'LinkedIn', hasReferralsAtCompany: 'no', onsiteAvailability: 'no' };
+      x.optionalSensitive = { enabled: true, disabilityStatus: 'None' };
+    });
+    const pkg = await makePackage(profile);
+    const { FixtureInspectionAdapter } = await import('../../server/applicationEngine/fixtureAdapter.js');
+    const fAdapter = new FixtureInspectionAdapter() as any;
+    fAdapter.inspect = async () => ({ provider: 'lever', target: {} as any, fields: CI_AND_FIELDS, discoveredAt: new Date().toISOString(), fingerprint: requirementsFingerprint('lever', 'jobs.lever.co/veo/lever-qa/apply', CI_AND_FIELDS), providerMetadata: {} });
+    const { plan } = await createPlan({ userId: USER, mode: 'fixture', pkg, job: leverJob(), adapter: fAdapter, artifactOk: true });
+    const mapped = (plan.mappedFields as any[]).filter((m) => ['referralSource', 'hasReferralsAtCompany', 'onsiteAvailability', 'accessibilityNeeds'].includes(m.canonicalKey));
+    expect(mapped.map((m) => m.canonicalKey).sort()).toEqual(['accessibilityNeeds', 'hasReferralsAtCompany', 'onsiteAvailability', 'referralSource']);
+    expect(plan.unresolvedDetails.filter((d: any) => ['f_how_hear', 'f_relatives', 'f_onsite', 'f_accessibility'].includes(d.providerFieldId)).length).toBe(0);
+    // deterministic values
+    expect(mapped.find((m) => m.canonicalKey === 'referralSource')?.value).toBe('LinkedIn');
+    expect(mapped.find((m) => m.canonicalKey === 'hasReferralsAtCompany')?.value).toBe('No');
+    expect(mapped.find((m) => m.canonicalKey === 'onsiteAvailability')?.value).toBe('No');
+    expect(mapped.find((m) => m.canonicalKey === 'accessibilityNeeds')?.value).toBe('None');
+    // details surface them under autoFilled for the drawer strip
+    const details = applicationDetails(getDb(), USER, pkg.id)!;
+    expect(details.autoFilled.map((f: any) => f.label).sort()).toEqual([
+      'Do you have any relatives (such as parents, siblings, in-laws, spouses, or children, stepchildren, stepfather/stepmother, son-in-law/daughter-in-law), close friends, or acquaintances (with whom you have a significant and ongoing relationship) who currently work at CI&T?',
+      'Do you have availability for on-site work at the Campinas office (Brazil) every day?',
+      'Do you require any type of accessibility for the selection process and/or in your daily life?',
+      'How did you hear about our job opening?',
+    ].sort());
+    expect(details.requiredQuestions.filter((q: any) => ['f_how_hear', 'f_relatives', 'f_onsite', 'f_accessibility'].includes(q.providerFieldId)).length).toBe(0);
+  });
+
+  it('without defaults the same form stays a manual question set', async () => {
+    const pkg = await makePackage(profileWith(() => {}));
+    const { FixtureInspectionAdapter } = await import('../../server/applicationEngine/fixtureAdapter.js');
+    const fAdapter = new FixtureInspectionAdapter() as any;
+    fAdapter.inspect = async () => ({ provider: 'lever', target: {} as any, fields: CI_AND_FIELDS, discoveredAt: new Date().toISOString(), fingerprint: requirementsFingerprint('lever', 'jobs.lever.co/veo/lever-qa/apply', CI_AND_FIELDS), providerMetadata: {} });
+    const { plan } = await createPlan({ userId: USER, mode: 'fixture', pkg, job: leverJob(), adapter: fAdapter, artifactOk: true });
+    expect(plan.mappedFields.filter((m: any) => ['referralSource', 'hasReferralsAtCompany', 'onsiteAvailability', 'accessibilityNeeds'].includes(m.canonicalKey)).length).toBe(0);
+    expect(plan.unresolvedDetails.filter((d: any) => ['f_how_hear', 'f_relatives', 'f_onsite', 'f_accessibility'].includes(d.providerFieldId)).length).toBe(4);
   });
 });

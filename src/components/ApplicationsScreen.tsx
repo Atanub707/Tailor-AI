@@ -453,6 +453,31 @@ export default function ApplicationsScreen({ onBackToJobs, initialApplicationId 
               </div>
             )}
 
+            {/* ── Attached CV badge ── */}
+            {details && details.resumeSource && (
+              <div className={`mt-3 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold border ${details.resumeSource === 'TAILORED' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-slate-50 border-slate-200 text-[var(--color-muted)]'}`} data-qa="attached-cv-badge">
+                {details.resumeSource === 'TAILORED'
+                  ? `Attached CV: Tailored for this job · v${details.resumeVersion ?? 1}`
+                  : 'Attached CV: Master CV (no tailored version yet — tailor it from Job Details)'}
+              </div>
+            )}
+
+            {/* ── Auto-filled from profile ── */}
+            {details && details.autoFilled && details.autoFilled.length > 0 && (
+              <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/50 p-3.5" data-qa="autofilled-panel">
+                <div className="text-sm font-black text-[var(--color-ink)]">Auto-filled from your profile</div>
+                <p className="mt-0.5 text-xs text-[var(--color-muted)]">These were answered automatically from your Candidate Profile — review them below before you approve.</p>
+                <div className="mt-2 space-y-1.5">
+                  {details.autoFilled.map((f) => (
+                    <div key={f.label} className="flex items-start justify-between gap-3 rounded-lg bg-white border border-emerald-100 px-2.5 py-1.5">
+                      <span className="text-[12px] text-[var(--color-muted)]">{f.label}</span>
+                      <span className="text-[12px] font-bold text-[var(--color-ink)] text-right">{f.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* ── Questions to Answer ── */}
             {details && details.requiredQuestions && details.requiredQuestions.length > 0 && (
               <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/40 p-3.5" data-qa="questions-panel">

@@ -3071,21 +3071,43 @@ const sanitizeAttemptDryRun = (a: any) => ({
       const job = getJobById(req.params.id);
       if (!job) return res.status(404).json({ error: 'Job not found.' });
       const ctx = await packageContext(userId, job);
+      // EASY FLOW: auto-tailor on Apply — when no job-specific Tailor V2 CV
+      // exists yet, generate one before building the package so the attached
+      // resume is always the tailored CV. One LLM call per job (the version
+      // store caches it forever). Never blocks apply: on failure we fall back
+      // to the Master CV and report cvSource so the UI can say so.
+      let tailored = ctx.tailored;
+      let autoTailored = false;
+      let autoTailorError: string | undefined;
+      if (req.body?.autoTailor === true && !tailored) {
+        try {
+          const { runTailorV2 } = await import('./server/tailorV2/tailorV2Engine.js');
+          const { jdHash } = await import('./server/fit/fitCache.js');
+          const result = await runTailorV2(
+            userId, ctx.masterCv, ctx.profile, ctx.fullJob, ctx.jd, ctx.fit,
+            { masterCvUpdatedAt: ctx.deps.getMasterCvUpdatedAt(userId), profileUpdatedAt: ctx.profile.updatedAt, jdHash: jdHash(ctx.jd), fitEngineVersion: ctx.fit.version }
+          );
+          tailored = ctx.deps.getLatestTailorVersion(userId, job.id) ?? tailored;
+          autoTailored = Boolean(result?.version);
+        } catch (tailorErr: any) {
+          autoTailorError = String(tailorErr?.message || 'Tailor V2 failed.').slice(0, 160);
+        }
+      }
       const { buildPackage, computePackageKeys } = await import('./server/applicationPackage/packageEngine.js');
       const { getLatestPackage, storePackage, packageInputFingerprint } = await import('./server/applicationPackage/packageStore.js');
       const latest = getLatestPackage(userId, job.id);
-      const keys = computePackageKeys({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredVersion: ctx.tailored });
+      const keys = computePackageKeys({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredVersion: tailored });
       keys.masterCvUpdatedAt = ctx.deps.getMasterCvUpdatedAt(userId);
       const fp = packageInputFingerprint(keys);
       // Reuse only a READY package — a DRAFT one (missing prerequisites at
       // build time) is rebuilt so current engine policy applies.
       if (latest && latest.status === 'READY' && latest.inputFingerprint === fp) {
-        res.json({ package: latest, reused: true });
+        res.json({ package: latest, reused: true, cvSource: latest.resumeSnapshot?.source ?? null, autoTailored, autoTailorError, tailorVersion: tailored?.version ?? null });
         return;
       }
-      const pkg = await buildPackage({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredVersion: ctx.tailored }, ctx.deps.getMasterCvUpdatedAt(userId));
+      const pkg = await buildPackage({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredVersion: tailored }, ctx.deps.getMasterCvUpdatedAt(userId));
       storePackage(pkg);
-      res.json({ package: pkg, reused: false });
+      res.json({ package: pkg, reused: false, cvSource: pkg.resumeSnapshot?.source ?? null, autoTailored, autoTailorError, tailorVersion: tailored?.version ?? null });
     } catch (err: any) {
       res.status(500).json({ error: String(err?.message || 'Package preparation failed.').slice(0, 300) });
     }

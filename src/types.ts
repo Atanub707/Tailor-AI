@@ -280,6 +280,9 @@ export interface ApplicantProfile {
     reasonForChange?: string;
     whyInterestedDefault?: string;
     preferredContactMethod?: string;
+    referralSource?: string;
+    hasReferralsAtCompany?: TriState;
+    onsiteAvailability?: TriState;
   };
   optionalSensitive: {
     enabled?: boolean;
