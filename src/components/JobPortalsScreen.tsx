@@ -153,7 +153,7 @@ export const JobPortalsScreen: React.FC<JobPortalsScreenProps> = ({ isOpen, onCl
   };
 
   return (
-    <div className="fixed inset-0 z-40 bg-[#F7F8FA] text-[var(--color-ink)] flex flex-col">
+    <div className="h-[calc(100vh-74px)] bg-[#F7F8FA] text-[var(--color-ink)] flex flex-col">
       {/* Header */}
       <div className="relative px-6 py-3.5 border-b border-[var(--color-hairline)] bg-white/90 backdrop-blur-md flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">

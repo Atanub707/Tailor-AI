@@ -145,7 +145,7 @@ export const ApplicantProfileScreen: React.FC<ApplicantProfileScreenProps> = ({ 
   const p = profile;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-[var(--color-canvas)]">
+    <div className="h-[calc(100vh-74px)] overflow-y-auto bg-[var(--color-canvas)]">
       <div className="sticky top-0 z-10 border-b border-[var(--color-border)] bg-[var(--color-canvas)]/95 backdrop-blur">
         <div className="max-w-3xl mx-auto px-6 py-4 flex items-center gap-4">
           <div className="flex-1">

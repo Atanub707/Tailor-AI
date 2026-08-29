@@ -647,7 +647,7 @@ export const ManualJdScreen: React.FC<ManualJdScreenProps> = ({ isOpen, onClose,
   };
 
   return (
-    <div className="fixed inset-0 z-40 bg-[#FAFAF9] text-[var(--color-muted)] flex flex-col font-sans">
+    <div className="h-[calc(100vh-74px)] bg-[#FAFAF9] text-[var(--color-muted)] flex flex-col font-sans">
       {/* Page header — title left, compact segmented stages center, actions right */}
       <header className="px-4 sm:px-5 py-2.5 border-b border-[var(--color-hairline)] bg-white flex items-center gap-3 shrink-0">
         <div className="flex items-center gap-2.5 min-w-0">

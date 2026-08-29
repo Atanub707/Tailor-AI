@@ -208,7 +208,7 @@ export const MasterCvScreen: React.FC<MasterCvScreenProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-40 bg-white text-[var(--color-ink)] flex">
+    <div className="h-[calc(100vh-74px)] bg-white text-[var(--color-ink)] flex">
       {/* LEFT: EDITOR */}
       <div className="w-[46%] min-w-[420px] border-r border-[var(--color-hairline)] flex flex-col bg-white">
         {/* Header */}
@@ -436,7 +436,7 @@ export const MasterCvScreen: React.FC<MasterCvScreenProps> = ({
 
       {/* Result view: professional redesign */}
       {aiState === 'result' && compressResult && (
-        <div className="fixed inset-0 z-50 bg-[#F7F8FA] flex flex-col">
+        <div className="fixed inset-0 z-20 bg-[#F7F8FA] flex flex-col">
           {/* Sticky header */}
           <div className="px-6 py-3.5 border-b border-[var(--color-hairline)] bg-white flex items-center justify-between shrink-0">
             <div className="flex items-center gap-3.5 min-w-0">
