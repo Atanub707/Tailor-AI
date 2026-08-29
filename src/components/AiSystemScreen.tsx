@@ -374,7 +374,7 @@ export const AiSystemScreen: React.FC<{ onClose: () => void }> = ({ onClose }) =
           --sh-sm:0 1px 2px rgba(15,23,42,.04), 0 1px 3px rgba(15,23,42,.06);
           --sh-md:0 4px 14px -6px rgba(15,23,42,.09), 0 2px 6px -3px rgba(15,23,42,.06);
           --sh-lg:0 24px 55px -20px rgba(15,23,42,.25);
-          position:fixed; inset:0; z-index:55; background:#F7F8FA; color:var(--ink);
+          position:relative; height:calc(100vh - 74px); background:#F7F8FA; color:var(--ink);
           display:flex; flex-direction:column; font-family:'Plus Jakarta Sans',system-ui,-apple-system,sans-serif;}
         :focus-visible{outline:2.5px solid var(--brand); outline-offset:2px; border-radius:8px;}
         *{box-sizing:border-box;}

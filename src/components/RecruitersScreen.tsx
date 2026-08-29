@@ -743,7 +743,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
           --blue-border: var(--color-brand-line); --linkedin: #0A66C2; --green: #059669; --green-soft: var(--color-cta-soft); --green-border: var(--color-cta-line);
           --amber: #D97706; --amber-soft: #FFFBEB; --amber-border: #FDE68A; --red: var(--color-danger);
           --shadow: 0 1px 3px rgba(15,23,42,.06);
-          position: fixed; inset: 0; z-index: 60; background: var(--bg); color: var(--text);
+          position: relative; height: calc(100vh - 74px); background: var(--bg); color: var(--text);
           display: flex; flex-direction: column; font-family: 'Inter', system-ui, -apple-system, sans-serif;
           -webkit-font-smoothing: antialiased;
         }

@@ -101,6 +101,20 @@ describe('App shell — Navbar above every screen, no overlay screens', () => {
       const topLevel = src.slice(0, 1200);
       expect(topLevel).not.toMatch(/fixed inset-0 z-(3[0-9]|4[0-9]|5[0-9])/);
     }
+    // Same guard for the CSS-defined screens: Settings, Recruiters, LinkedIn Posts, AI Interview.
+    for (const file of ['SettingsModal.tsx', 'RecruitersScreen.tsx', 'LinkedInPostsScreen.tsx', 'AiSystemScreen.tsx']) {
+      const src = fs.readFileSync(path.join(process.cwd(), 'src/components', file), 'utf8');
+      expect(src).not.toMatch(/position:fixed;? ?inset:0;? z-index:(3[0-9]|4[0-9]|5[0-9]|6[0-9])/);
+    }
+  });
+
+  it('the onboarding tour is opt-in — its overlay must never auto-hijack navigation', () => {
+    const tour = fs.readFileSync(path.join(process.cwd(), 'src/components/OnboardingTour.tsx'), 'utf8');
+    // No auto-start: the tour effect must not call startTour on login.
+    expect(tour).not.toMatch(/if \(!shouldShowTour\(\)\) return;[\s\S]*startTour\(\)/);
+    expect(tour).toContain('OPT-IN ONLY');
+    // Tour steps target the current UI: the hamburger trigger, not dead selectors.
+    expect(tour).toContain('button[aria-label="Open menu"]');
   });
 });
 

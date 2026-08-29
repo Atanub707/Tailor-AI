@@ -3,8 +3,9 @@ import { driver } from 'driver.js';
 import 'driver.js/dist/driver.css';
 
 // Guided onboarding tour — highlights real UI elements via CSS selectors
-// (driver.js spotlight + tooltips). Runs automatically on the first login,
-// and can be replayed any time from the account menu / Settings.
+// (driver.js spotlight + tooltips). OPT-IN ONLY (account menu → Take a
+// tour): the tour overlay must never hijack navigation, so it never
+// auto-starts on login.
 
 const TOUR_FLAG = 'tailor_tour_seen_v1';
 
@@ -17,7 +18,7 @@ export function startTour(): void {
         element: '#input-scrape-keywords',
         popover: {
           title: 'Search jobs from 19 sources',
-          description: 'Type a role (e.g. "DevOps Engineer") and press <b>Search Jobs</b> — live postings come in from LinkedIn, Indeed, Naukri, Glassdoor, Upwork and more.',
+          description: 'Type a role (e.g. "DevOps Engineer") and press <b>Search Jobs</b> — live postings come in from LinkedIn, Indeed, Naukri, Glassdoor, Greenhouse, Lever, Ashby and more.',
           side: 'bottom',
         },
       },
@@ -38,25 +39,25 @@ export function startTour(): void {
         },
       },
       {
-        element: 'button[title*="recruiting emails"]',
+        element: 'button[aria-label="Open menu"]',
         popover: {
-          title: 'Recruiters, automatically found',
-          description: 'Recruiter names, emails, phones and LinkedIn profiles are extracted from every job description — and you can send them cold emails from your own mailbox.',
+          title: 'Navigate with the menu',
+          description: 'The hamburger menu is available on every screen. It holds <b>Home</b>, <b>Applications</b>, your <b>Applicant Profile</b> and <b>Master CV</b>, plus <b>Recruiters</b>, <b>Job Portals</b>, <b>LinkedIn Posts</b>, <b>AI Interview</b>, <b>Manual JD</b> and <b>Settings</b>.',
           side: 'bottom',
         },
       },
       {
-        element: 'button[aria-haspopup="menu"]',
+        element: 'button[aria-label="Open menu"]',
         popover: {
           title: 'Everything lives here',
-          description: 'The account menu holds your <b>Master Candidate CV</b>, <b>Manual JD</b> (paste any job description → instant ATS analysis + tailored CV), <b>Settings</b> (LLM, Apify, SMTP keys) and more.',
+          description: 'After this step, open the menu and explore: Home is your job library, Applications tracks every application you start, and the Profile section keeps your identity and resume in one place.',
           side: 'bottom',
         },
       },
       {
         popover: {
           title: 'You are set 🎉',
-          description: 'Score any job against your CV, tailor it in one click, download ATS-safe PDFs in your template — and take the tour again anytime from Settings.',
+          description: 'Match any job against your CV, tailor it in one click, apply with the Browser Companion — and replay this tour anytime from the account menu (Take a tour).',
           side: 'top',
         },
       },
@@ -70,20 +71,12 @@ function shouldShowTour(): boolean {
   return localStorage.getItem(TOUR_FLAG) !== '1';
 }
 
-// Auto-run once after the app shell is ready (post-login).
-export const OnboardingTour: React.FC<{ ready?: boolean }> = ({ ready = false }) => {
-  const started = useRef(false);
-  useEffect(() => {
-    if (!ready) return; // wait for the logged-in UI (search bar) to exist
-    if (started.current) return;
-    if (!shouldShowTour()) return;
-    started.current = true;
-    const t = setTimeout(() => {
-      if (document.getElementById('input-scrape-keywords')) {
-        startTour();
-      }
-    }, 900);
-    return () => clearTimeout(t);
-  }, [ready]);
+// OPT-IN ONLY: the tour is launched exclusively from the account menu
+// (Take a tour). It never auto-starts — the driver.js overlay would dim
+// the global navigation and block every screen until dismissed.
+export const OnboardingTour: React.FC<{ ready?: boolean }> = () => {
   return null;
 };
+
+// Keep the helper available (no-op auto-start) for API compatibility.
+export { shouldShowTour };

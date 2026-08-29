@@ -343,7 +343,7 @@ export const LinkedInPostsScreen: React.FC<{ onClose: () => void }> = ({ onClose
       </div>
 
       <style>{`
-        .lp-screen{position:fixed; inset:0; z-index:55; background:#F7F8FA; color:#0F172A; display:flex; flex-direction:column;
+        .lp-screen{position:relative; height:calc(100vh - 74px); background:#F7F8FA; color:#0F172A; display:flex; flex-direction:column;
           font-family:'Plus Jakarta Sans',system-ui,-apple-system,sans-serif;}
         .lp-hdr{display:flex; align-items:center; gap:13px; padding:0 28px; height:64px; border-bottom:1px solid #E2E8F0;
           background:rgba(255,255,255,.82); backdrop-filter:blur(12px); flex-shrink:0;}
