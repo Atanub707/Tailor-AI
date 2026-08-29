@@ -740,17 +740,25 @@ async function startServer() {
     }
   });
 
-  app.get('/api/profile', (req, res) => {
+  app.get('/api/profile', async (req, res) => {
     try {
       const userId = getCurrentUserId();
       if (!userId) return res.status(401).json({ error: 'Not signed in.' });
-      res.json({ profile: getCandidateProfile() });
+      const { getApplicantProfile: loadCanonical, saveApplicantProfile: saveCanonical, migrateLegacyCandidateProfile } = await import('./server/storage/applicantProfile.js');
+      const legacy = getCandidateProfile();
+      let canonical = loadCanonical(userId);
+      const migration = canonical ? migrateLegacyCandidateProfile(canonical, legacy) : { migrated: false, conflicts: {} as Record<string, string> };
+      if (migration.migrated && canonical) {
+        saveCanonical(canonical, userId);
+        canonical = loadCanonical(userId);
+      }
+      res.json({ profile: canonical, conflicts: migration.conflicts });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  app.put('/api/profile', (req, res) => {
+  app.put('/api/profile', async (req, res) => {
     try {
       const userId = getCurrentUserId();
       if (!userId) return res.status(401).json({ error: 'Not signed in.' });
@@ -775,8 +783,39 @@ async function startServer() {
         needsSponsorship: bool(p.needsSponsorship), languages: arr(p.languages),
         preferredCompanySize: str(p.preferredCompanySize), recruiterNote: str(p.recruiterNote),
       };
-      saveCandidateProfile(clean);
-      res.json({ success: true, profile: getCandidateProfile() });
+      // CANONICAL write-through: legacy CandidateProfile store is no longer an
+      // independently editable source — the profile PATCH route writes the
+      // canonical applicant_profile (keep the legacy store untouched for
+      // backward-compatible reads during the deprecation window).
+      const { saveApplicantProfile: saveCanonical, getApplicantProfile: loadCanonical, defaultApplicantProfile } = await import('./server/storage/applicantProfile.js');
+      let canonical = loadCanonical(userId);
+      if (!canonical) canonical = defaultApplicantProfile();
+      const applyStr = (k: string, v: string) => {
+        if (v === undefined) return;
+        const key = k === 'noticePeriod' ? 'noticePeriod' : k === 'availableFrom' ? 'earliestStartDate' : k;
+        if (key === 'earliestStartDate' || key === 'jobSearchStatus' || key === 'preferredCompanySize' || key === 'recruiterNote' || key === 'salaryCurrency') {
+          (canonical as any).preferences = { ...(canonical as any).preferences, [key]: v };
+        }
+      };
+      (canonical as any).preferences = { ...(canonical as any).preferences };
+      if (clean.noticePeriod) (canonical as any).preferences.noticePeriod = clean.noticePeriod;
+      if (clean.availableFrom) (canonical as any).preferences.earliestStartDate = clean.availableFrom;
+      if (clean.jobSearchStatus) (canonical as any).preferences.jobSearchStatus = clean.jobSearchStatus;
+      if (clean.preferredCompanySize) (canonical as any).preferences.preferredCompanySize = clean.preferredCompanySize;
+      if (clean.recruiterNote) (canonical as any).preferences.recruiterNote = clean.recruiterNote;
+      if (clean.salaryCurrency) (canonical as any).preferences.salaryCurrency = clean.salaryCurrency;
+      if (clean.currentSalary) (canonical as any).preferences.currentSalary = Number(clean.currentSalary) || undefined;
+      if (clean.expectedSalaryMin) (canonical as any).preferences.minimumSalary = Number(clean.expectedSalaryMin) || undefined;
+      if (clean.expectedSalaryMax) (canonical as any).preferences.targetSalary = Number(clean.expectedSalaryMax) || undefined;
+      if (clean.willingToTravelPct) (canonical as any).preferences.travelPercentage = Number(clean.willingToTravelPct) || undefined;
+      if (clean.languages && clean.languages.length) (canonical as any).preferences.languages = clean.languages;
+      if (clean.preferredLocations && clean.preferredLocations.length) (canonical as any).locationPrefs = { ...(canonical as any).locationPrefs, preferredLocations: clean.preferredLocations };
+      if (clean.employmentTypes && clean.employmentTypes.length) (canonical as any).preferences.preferredEmploymentTypes = clean.employmentTypes;
+      if (clean.willingToRelocate && clean.willingToRelocate !== 'no') (canonical as any).locationPrefs = { ...(canonical as any).locationPrefs, willingToRelocate: clean.willingToRelocate };
+      if (clean.needsSponsorship !== undefined && clean.needsSponsorship !== null) (canonical as any).workAuthorization = { ...(canonical as any).workAuthorization, requiresSponsorship: clean.needsSponsorship ? 'yes' : 'no' };
+      if (clean.workAuthorization) (canonical as any).workAuthorization = { ...(canonical as any).workAuthorization, country: clean.workAuthorization };
+      saveCanonical(canonical, userId);
+      res.json({ success: true, profile: loadCanonical(userId) });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -1991,8 +2030,10 @@ Return valid JSON only — NO markdown, NO code fences:
         return;
       }
       const masterCv = getMasterCv();
-      const profile = getCandidateProfile();
-      const profileText = buildProfileText(profile);
+      const legacy = getCandidateProfile();
+      const { getApplicantProfile: loadCanonicalProfile } = await import('./server/storage/applicantProfile.js');
+      const profile = loadCanonicalProfile(getCurrentUserId());
+      const profileText = buildProfileText(profile, masterCv, legacy);
       const job = contact?.sourceJobId ? getJobById(contact.sourceJobId) : undefined;
       // Manual emails (no contact): derive a greeting from the address if it
       // looks like a personal name, otherwise fall back to "there".

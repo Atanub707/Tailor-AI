@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { HamburgerTrigger } from '../navigation';
-import { ProfileSections } from './ProfileSections';
-import type { ApplicantProfile } from '../types';
+import { CandidateProfilePanel } from './CandidateProfilePanel';
 import { AppConfig, LlmProvider } from '../types';
 import { ArrowLeft, User, UserCircle, LockKey, PlugsConnected, Brain, RocketLaunch, EnvelopeSimple, ShieldCheck, Key, Database, CheckCircle, CaretRight, Warning, Pulse, Check, Eye, EyeSlash, ArrowSquareOut, Info, GlobeSimple } from '@phosphor-icons/react';
 import { RECOVERY_QUESTIONS } from '../constants/recoveryQuestions';
@@ -134,7 +133,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [testMsg, setTestMsg] = useState('');
   const [savedToast, setSavedToast] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [activePanel, setActivePanel] = useState<'account' | 'security' | 'integration' | 'profile'>('account');
+  const [activePanel, setActivePanel] = useState<'candidate' | 'security' | 'integration'>('candidate');
   const [activeItab, setActiveItab] = useState<'llm' | 'apify' | 'email'>('llm');
   const [companionPaired, setCompanionPaired] = useState<boolean | null>(null);
   const [appPasswordConfigured, setAppPasswordConfigured] = useState(false);
@@ -420,8 +419,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const isGuest = !!user?.isGuest;
 
   const panels = [
-    { id: 'profile' as const, label: 'Application Profile', icon: UserCircle },
-    { id: 'account' as const, label: 'Account', icon: User },
+    { id: 'candidate' as const, label: 'Candidate Profile', icon: UserCircle },
     { id: 'security' as const, label: 'Security', icon: LockKey },
     { id: 'integration' as const, label: 'Integrations', icon: PlugsConnected, count: 3 },
   ];
@@ -470,256 +468,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <main className="st-content">
 
           {/* ═══ ACCOUNT ═══ */}
-          {activePanel === 'profile' && (
-            <ProfilePanel />
+          {activePanel === 'candidate' && (
+            <CandidateProfilePanel user={user} />
           )}
 
-          {activePanel === 'account' && (
-            <section className="st-panel" aria-label="Account settings">
-              <div className="st-phead"><h2>Account</h2><p>Your profile, contact details and matching preferences.</p></div>
-
-              <div className="st-card">
-                <div className="st-card-head">
-                  <div className="st-avatar">{initials}</div>
-                  <div className="st-t">
-                    <b>{user?.name || 'Local user'}</b>
-                    <span className="st-d">{user?.email || '—'}{!isGuest && user ? ' · Registered account' : isGuest ? ' · Guest session' : ''}</span>
-                  </div>
-                  <div className="st-spacer" />
-                  <span className="st-tag green"><CheckCircle size={12} weight="bold" /> {isGuest ? 'Guest' : 'Registered'}</span>
-                </div>
-                <div className="st-card-body">
-                  <label className="st-flabel" htmlFor="st-fname">Profile</label>
-                  <div className="st-row">
-                    <div className="st-lbl"><label htmlFor="st-fname"><b>Full name</b><span>Managed in Settings → Application Profile — one source of truth.</span></label></div>
-                    <input className={inputCls} id="st-fname" type="text" value={user?.name || ''} disabled />
-                  </div>
-                  <div className="st-row">
-                    <div className="st-lbl"><label htmlFor="st-femail"><b>Email address</b><span>Login identifier — cannot be changed.</span></label></div>
-                    <input className={inputCls} id="st-femail" type="text" value={user?.email || ''} disabled />
-                  </div>
-                  <div className="st-row">
-                    <div className="st-lbl"><b>Profile details</b><span>Location, phone, portfolio URL and your full CV live in the Master CV screen.</span></div>
-                    {onOpenMasterCv && (
-                      <button className="st-btn sm" onClick={() => { onClose(); onOpenMasterCv?.(); }}><ArrowSquareOut size={14} weight="bold" /> Open Master CV</button>
-                    )}
-                  </div>
-                  <label className="st-flabel" htmlFor="st-fmin">Matching preferences</label>
-                  <div className="st-row">
-                    <div className="st-lbl"><label htmlFor="st-fmin"><b>Auto-tailor minimum</b><span>Minimum match % to tailor automatically.</span></label></div>
-                    <input className={smallCls} id="st-fmin" type="text" value={formData.thresholds.minMatchForTailor}
-                      onChange={(e) => setFormDataTouched({ ...formData, thresholds: { ...formData.thresholds, minMatchForTailor: Number(e.target.value) || 0 } })} />
-                  </div>
-                  <div className="st-row">
-                    <div className="st-lbl"><label htmlFor="st-fblock"><b>Early block</b><span>Scores below this are blocked from tailoring.</span></label></div>
-                    <input className={smallCls} id="st-fblock" type="text" value={formData.thresholds.earlyBlockThreshold}
-                      onChange={(e) => setFormDataTouched({ ...formData, thresholds: { ...formData.thresholds, earlyBlockThreshold: Number(e.target.value) || 0 } })} />
-                  </div>
-                </div>
-              </div>
-
-              {candidateProfile && (
-                <div className="stp-card" style={{ marginTop: 18 }}>
-                  <div className="stp-card-title">Job Preferences</div>
-                  <p className="stp-card-sub">Extra details for the AI — used alongside your CV when drafting cold emails and matching jobs. Nothing here goes on your CV.</p>
-
-                  <div className="stp-grid2">
-                    <div className="stp-field">
-                      <label className="stp-label">Work mode preference</label>
-                      <div className="stp-chips">
-                        {['remote', 'onsite', 'hybrid', 'flexible'].map((m) => (
-                          <button key={m} type="button" className={`stp-chip ${candidateProfile.workModes.includes(m) ? 'on' : ''}`}
-                            onClick={() => setCandidateProfile((p) => p && { ...p, workModes: p.workModes.includes(m) ? p.workModes.filter((x) => x !== m) : [...p.workModes, m] })}>
-                            {m[0].toUpperCase() + m.slice(1)}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Preferred locations</label>
-                      <div className="stp-locbox">
-                        {candidateProfile.preferredLocations.map((loc) => (
-                          <span key={loc} className="stp-loc-chip">
-                            {loc}
-                            <button type="button" className="stp-loc-x" aria-label={`Remove ${loc}`} onClick={() => removePreferredLocation(loc)}>×</button>
-                          </span>
-                        ))}
-                        <input
-                          list="profile-locations"
-                          className="stp-loc-input"
-                          placeholder={candidateProfile.preferredLocations.length ? 'Add another (type & pick or press Enter)…' : 'Type to search locations — e.g. Kolkata, Remote…'}
-                          value={profileLocDraft}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            if (profileLocOptions.includes(v)) { addPreferredLocation(v); } else { onProfileLocationInput(v); }
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') { e.preventDefault(); addPreferredLocation(profileLocDraft); }
-                          }}
-                        />
-                      </div>
-                      <datalist id="profile-locations">{profileLocOptions.map((o) => <option key={o} value={o} />)}</datalist>
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Notice period</label>
-                      <select className="stp-input" value={candidateProfile.noticePeriod}
-                        onChange={(e) => setCandidateProfile((p) => p && { ...p, noticePeriod: e.target.value })}>
-                        <option value="">Not set</option>
-                        <option>Immediate</option>
-                        <option>15 days</option>
-                        <option>30 days</option>
-                        <option>45 days</option>
-                        <option>60 days</option>
-                        <option>90 days</option>
-                        <option>Serving notice</option>
-                      </select>
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Available from</label>
-                      <input type="date" className="stp-input" value={candidateProfile.availableFrom}
-                        onChange={(e) => setCandidateProfile((p) => p && { ...p, availableFrom: e.target.value })} />
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Employment type preference</label>
-                      <div className="stp-chips">
-                        {['full-time', 'part-time', 'contract', 'freelance'].map((m) => (
-                          <button key={m} type="button" className={`stp-chip ${candidateProfile.employmentTypes.includes(m) ? 'on' : ''}`}
-                            onClick={() => setCandidateProfile((p) => p && { ...p, employmentTypes: p.employmentTypes.includes(m) ? p.employmentTypes.filter((x) => x !== m) : [...p.employmentTypes, m] })}>
-                            {m === 'full-time' ? 'Full-time' : m[0].toUpperCase() + m.slice(1)}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Years of experience</label>
-                      <input className="stp-input" placeholder="e.g. 4+ years" value={candidateProfile.yearsExperience}
-                        onChange={(e) => setCandidateProfile((p) => p && { ...p, yearsExperience: e.target.value })} />
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Current role / company</label>
-                      <input className="stp-input" placeholder="e.g. Senior DevSecOps Engineer @ Human Managed" value={`${candidateProfile.currentRole}${candidateProfile.currentRole && candidateProfile.currentCompany ? ' @ ' : ''}${candidateProfile.currentCompany}`}
-                        onChange={(e) => {
-                          const [role, company] = e.target.value.split(' @ ');
-                          setCandidateProfile((p) => p && { ...p, currentRole: (role || '').trim(), currentCompany: (company || '').trim() });
-                        }} />
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Job search status</label>
-                      <select className="stp-input" value={candidateProfile.jobSearchStatus}
-                        onChange={(e) => setCandidateProfile((p) => p && { ...p, jobSearchStatus: e.target.value })}>
-                        <option value="">Not set</option>
-                        <option>Actively looking</option>
-                        <option>Open to opportunities</option>
-                        <option>Not looking</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="stp-section-title" style={{ marginTop: 16 }}>Compensation (kept private — used by the AI for matching, never sent in cold emails)</div>
-                  <div className="stp-grid2">
-                    <div className="stp-field">
-                      <label className="stp-label">Current salary</label>
-                      <input className="stp-input" placeholder="e.g. 14,00,000" value={candidateProfile.currentSalary}
-                        onChange={(e) => setCandidateProfile((p) => p && { ...p, currentSalary: e.target.value })} />
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Expected salary (min – max)</label>
-                      <div className="stp-inline">
-                        <input className="stp-input" placeholder="Min" value={candidateProfile.expectedSalaryMin}
-                          onChange={(e) => setCandidateProfile((p) => p && { ...p, expectedSalaryMin: e.target.value })} />
-                        <input className="stp-input" placeholder="Max" value={candidateProfile.expectedSalaryMax}
-                          onChange={(e) => setCandidateProfile((p) => p && { ...p, expectedSalaryMax: e.target.value })} />
-                      </div>
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Currency</label>
-                      <select className="stp-input" value={candidateProfile.salaryCurrency}
-                        onChange={(e) => setCandidateProfile((p) => p && { ...p, salaryCurrency: e.target.value })}>
-                        <option value="">Not set</option>
-                        {ALL_CURRENCIES.map((c) => (
-                          <option key={c.code} value={c.code}>{c.code} — {c.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Work authorization</label>
-                      <select className="stp-input" value={candidateProfile.workAuthorization}
-                        onChange={(e) => setCandidateProfile((p) => p && { ...p, workAuthorization: e.target.value })}>
-                        <option value="">Not set</option>
-                        <option>Citizen</option><option>Permanent resident</option><option>Work visa</option><option>Student visa</option><option>Open to sponsorship</option>
-                      </select>
-                    </div>
-                    <div className="stp-field stp-check">
-                      <label className="stp-check-label">
-                        <input type="checkbox" checked={candidateProfile.needsSponsorship}
-                          onChange={(e) => setCandidateProfile((p) => p && { ...p, needsSponsorship: e.target.checked })} />
-                        I need visa sponsorship
-                      </label>
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Willing to relocate</label>
-                      <div className="stp-chips">
-                        {(['yes', 'no', 'certain-cities'] as const).map((m) => (
-                          <button key={m} type="button" className={`stp-chip ${candidateProfile.willingToRelocate === m ? 'on' : ''}`}
-                            onClick={() => setCandidateProfile((p) => p && { ...p, willingToRelocate: m })}>
-                            {m === 'certain-cities' ? 'Certain cities' : m[0].toUpperCase() + m.slice(1)}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Willing to travel (%)</label>
-                      <input className="stp-input" placeholder="e.g. 25" value={candidateProfile.willingToTravelPct}
-                        onChange={(e) => setCandidateProfile((p) => p && { ...p, willingToTravelPct: e.target.value })} />
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Languages</label>
-                      <div className="stp-locbox">
-                        {candidateProfile.languages.map((lang) => (
-                          <span key={lang} className="stp-loc-chip">
-                            {lang}
-                            <button type="button" className="stp-loc-x" aria-label={`Remove ${lang}`} onClick={() => removePreferredLanguage(lang)}>×</button>
-                          </span>
-                        ))}
-                        <input
-                          list="profile-languages"
-                          className="stp-loc-input"
-                          placeholder={candidateProfile.languages.length ? 'Add another (type & pick or press Enter)…' : 'Type to search languages — e.g. English…'}
-                          value={profileLangDraft}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            if (profileLangOptions.includes(v)) { addPreferredLanguage(v); } else { onProfileLanguageInput(v); }
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') { e.preventDefault(); addPreferredLanguage(profileLangDraft); }
-                          }}
-                        />
-                      </div>
-                      <datalist id="profile-languages">{profileLangOptions.map((o) => <option key={o} value={o} />)}</datalist>
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Preferred company size</label>
-                      <select className="stp-input" value={candidateProfile.preferredCompanySize}
-                        onChange={(e) => setCandidateProfile((p) => p && { ...p, preferredCompanySize: e.target.value })}>
-                        <option value="">Not set</option>
-                        <option>Startup (1–50)</option><option>Mid-size (51–500)</option><option>Large (500+)</option><option>Any</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="stp-field" style={{ marginTop: 16 }}>
-                    <label className="stp-label">Anything else a recruiter should know</label>
-                    <textarea className="stp-input" rows={3} placeholder="e.g. Open to contract-to-hire, prefer teams with on-call rotation, relocating to Bangalore in Jan…"
-                      value={candidateProfile.recruiterNote}
-                      onChange={(e) => setCandidateProfile((p) => p && { ...p, recruiterNote: e.target.value })} />
-                  </div>
-                  <p className="stp-hint">Job preferences are saved with the main <b>Save changes</b> button.</p>
-                </div>
-              )}
-            </section>
-          )}
-
-          {/* ═══ SECURITY ═══ */}
           {activePanel === 'security' && (
             <section className="st-panel" aria-label="Security settings">
               <div className="st-phead"><h2>Security</h2><p>Recovery options and privacy for your local account.</p></div>
@@ -1295,64 +1047,3 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     </div>
   );
 };
-
-
-// ── Application Profile panel (canonical applicant data, one source of truth) ──
-function ProfilePanel() {
-  const [profile, setProfile] = React.useState<ApplicantProfile | null>(null);
-  const [saveState, setSaveState] = React.useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
-  const [errorMsg, setErrorMsg] = React.useState('');
-
-  React.useEffect(() => {
-    fetch('/api/applicant-profile')
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('load failed'))))
-      .then((p) => setProfile(p))
-      .catch((e) => { setSaveState('error'); setErrorMsg(String(e?.message || 'Failed to load profile.')); });
-  }, []);
-
-  const update = (fn: (p: ApplicantProfile) => ApplicantProfile) => {
-    setProfile((prev) => (prev ? fn(prev) : prev));
-    setSaveState('idle');
-  };
-
-  const save = async () => {
-    if (!profile) return;
-    setSaveState('saving'); setErrorMsg('');
-    try {
-      const res = await fetch('/api/applicant-profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(profile) });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Save failed.'); }
-      const d = await res.json();
-      setProfile(d.profile);
-      setSaveState('saved');
-      setTimeout(() => setSaveState((s2) => (s2 === 'saved' ? 'idle' : s2)), 2500);
-    } catch (e: any) {
-      setSaveState('error'); setErrorMsg(String(e?.message || 'Save failed.'));
-    }
-  };
-
-  return (
-    <section className="st-panel" aria-label="Application Profile">
-      <div className="st-phead"><h2>Application Profile</h2><p>Your reusable application identity — one source of truth for Auto-Apply, Tailor and Applications. Never auto-inferred.</p></div>
-      <div className="st-note-box">Your Master CV remains the source for professional history (experience, education, skills). This profile holds reusable identity and preference facts.</div>
-      {!profile ? (
-        <div className="text-sm text-[var(--color-faint)]">Loading profile…</div>
-      ) : (
-        <>
-          <ProfileSections profile={profile} update={update} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
-            <button
-              onClick={() => void save()}
-              disabled={saveState === 'saving'}
-              className="st-btn"
-              style={{ background: 'var(--st-primary)', color: '#fff', fontWeight: 800, padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer' }}
-            >
-              {saveState === 'saving' ? 'Saving…' : 'Save profile'}
-            </button>
-            {saveState === 'saved' && <span className="text-xs font-semibold" style={{ color: '#059669' }}>Saved.</span>}
-            {saveState === 'error' && <span className="text-xs font-semibold" style={{ color: '#DC2626' }}>{errorMsg}</span>}
-          </div>
-        </>
-      )}
-    </section>
-  );
-}

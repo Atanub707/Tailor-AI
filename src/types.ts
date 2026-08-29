@@ -262,6 +262,12 @@ export interface ApplicantProfile {
     preferredIndustries?: string[];
     excludedIndustries?: string[];
     excludedCompanies?: string[];
+    // Job-Preferences (previously CandidateProfile-only) — canonical here.
+    jobSearchStatus?: string;
+    preferredCompanySize?: string;
+    recruiterNote?: string;
+    languages?: string[];
+    willingToRelocatePref?: TriState;
   };
   experience: ProfileExperience[];
   education: ProfileEducation[];

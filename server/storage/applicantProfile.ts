@@ -186,3 +186,68 @@ export function parseCvDate(raw: string | undefined): string | undefined {
 export function isCvDateCurrent(raw: string | undefined): boolean {
   return /present|current|now/i.test(String(raw || ''));
 }
+
+/** One-time, idempotent migration from the legacy CandidateProfile store into
+ *  the canonical applicant_profile. Rule: only fill EMPTY canonical fields
+ *  from the legacy store; never overwrite; record genuine conflicts once. */
+export function migrateLegacyCandidateProfile(profile: ApplicantProfile, legacy: any): { migrated: boolean; conflicts: Record<string, string>; merged: ApplicantProfile } {
+  const conflicts: Record<string, string> = {};
+  const prefs = profile.preferences || {};
+
+  const adopt = (key: string, canonicalValue: unknown, legacyValue: unknown) => {
+    if (legacyValue === undefined || legacyValue === null || legacyValue === '' || (Array.isArray(legacyValue) && legacyValue.length === 0)) return false; // CASE 1
+    if (canonicalValue !== undefined && canonicalValue !== null && canonicalValue !== '' && !(Array.isArray(canonicalValue) && canonicalValue.length === 0)) {
+      // CASE 5 — both populated & different: do NOT silently overwrite
+      if (JSON.stringify(canonicalValue) !== JSON.stringify(legacyValue)) conflicts[key] = String(legacyValue);
+      return false;
+    }
+    // CASE 2/3 — canonical empty → adopt legacy
+    return true;
+  };
+
+  const apply = (fn: (next: any) => void) => { fn(prefs); };
+  const changes: any = {};
+
+  if (adopt('noticePeriod', prefs.noticePeriod, legacy.noticePeriod)) changes.noticePeriod = legacy.noticePeriod;
+  if (adopt('earliestStartDate', prefs.earliestStartDate, legacy.availableFrom)) changes.earliestStartDate = legacy.availableFrom;
+  if (adopt('minimumSalary', prefs.minimumSalary, legacy.expectedSalaryMin ? Number(legacy.expectedSalaryMin) : undefined)) changes.minimumSalary = legacy.expectedSalaryMin ? Number(legacy.expectedSalaryMin) : undefined;
+  if (adopt('targetSalary', prefs.targetSalary, legacy.expectedSalaryMax ? Number(legacy.expectedSalaryMax) : undefined)) changes.targetSalary = legacy.expectedSalaryMax ? Number(legacy.expectedSalaryMax) : undefined;
+  if (adopt('salaryCurrency', prefs.salaryCurrency, legacy.salaryCurrency)) changes.salaryCurrency = legacy.salaryCurrency;
+  if (adopt('currentSalary', prefs.currentSalary, legacy.currentSalary ? Number(legacy.currentSalary) : undefined)) changes.currentSalary = legacy.currentSalary ? Number(legacy.currentSalary) : undefined;
+  // Authorization / sponsorship / relocation (explicit values only)
+  if (adopt('authorizedToWork', profile.workAuthorization?.authorizedToWork, legacy.workAuthorization || undefined)) {
+    if (legacy.workAuthorization) changes.authorizedToWork = legacy.workAuthorization;
+  }
+  if (adopt('requiresSponsorship', profile.workAuthorization?.requiresSponsorship, legacy.needsSponsorship === true ? 'yes' : legacy.needsSponsorship === false ? 'no' : undefined)) {
+    if (legacy.needsSponsorship !== undefined) changes.requiresSponsorship = legacy.needsSponsorship ? 'yes' : 'no';
+  }
+  if (adopt('willingToRelocate', profile.locationPrefs?.willingToRelocate, legacy.willingToRelocate || undefined)) {
+    if (legacy.willingToRelocate) changes.willingToRelocate = legacy.willingToRelocate;
+  }
+  // Job-preference lists
+  if (adopt('preferredLocations', profile.locationPrefs?.preferredLocations, legacy.preferredLocations)) changes.preferredLocations = legacy.preferredLocations;
+  if (adopt('preferredEmploymentTypes', prefs.preferredEmploymentTypes, legacy.employmentTypes)) changes.preferredEmploymentTypes = legacy.employmentTypes;
+  if (adopt('desiredTitles', prefs.desiredTitles, legacy.desiredRolesOfInterest ?? [])) changes.desiredTitles = undefined; // only if legacy has none
+  if (adopt('jobSearchStatus', prefs.jobSearchStatus, legacy.jobSearchStatus)) changes.jobSearchStatus = legacy.jobSearchStatus;
+  if (adopt('preferredCompanySize', prefs.preferredCompanySize, legacy.preferredCompanySize)) changes.preferredCompanySize = legacy.preferredCompanySize;
+  if (adopt('travelPercentage', prefs.travelPercentage, legacy.willingToTravelPct ? Number(legacy.willingToTravelPct) : undefined)) changes.travelPercentage = legacy.willingToTravelPct ? Number(legacy.willingToTravelPct) : undefined;
+  if (adopt('languages', prefs.languages, legacy.languages)) changes.languages = legacy.languages;
+  if (adopt('recruiterNote', prefs.recruiterNote, legacy.recruiterNote)) changes.recruiterNote = legacy.recruiterNote;
+
+  if (Object.keys(changes).length === 0) return { migrated: false, conflicts, merged: profile };
+
+  const next = {
+    ...profile,
+    preferences: { ...prefs },
+  };
+  for (const [k, v] of Object.entries(changes)) {
+    if (['authorizedToWork', 'requiresSponsorship', 'willingToRelocate', 'preferredLocations'].includes(k)) {
+      if (k === 'preferredLocations') next.locationPrefs = { ...next.locationPrefs, preferredLocations: v as string[] };
+      else if (k === 'authorizedToWork' || k === 'requiresSponsorship') next.workAuthorization = { ...next.workAuthorization, [k]: v };
+      else if (k === 'willingToRelocate') next.locationPrefs = { ...next.locationPrefs, willingToRelocate: v as any };
+    } else {
+      next.preferences = { ...next.preferences, [k]: v };
+    }
+  }
+  return { migrated: true, conflicts, merged: next };
+}

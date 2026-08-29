@@ -154,11 +154,15 @@ describe('Profile consolidation', () => {
     expect(NAV).not.toContain("id: 'applicant-profile'");
     expect(APP).toContain("pathname === '/applicant-profile') return <Navigate to=\"/settings\" replace");
     const settings = fs.readFileSync(path.join(process.cwd(), 'src/components/SettingsModal.tsx'), 'utf8');
-    expect(settings).toContain("label: 'Application Profile'");
-    expect(settings).toContain('ProfileSections');
-    expect(settings).toContain('ProfilePanel');
-    const profileSections = fs.readFileSync(path.join(process.cwd(), 'src/components/ProfileSections.tsx'), 'utf8');
-    expect(profileSections).toContain('export function ProfileSections');
+    expect(settings).toContain("label: 'Candidate Profile'");
+    expect(settings).toContain('CandidateProfilePanel');
+    expect(settings).not.toContain("label: 'Application Profile'");
+    expect(settings).not.toContain("label: 'Account'");
+    const panel = fs.readFileSync(path.join(process.cwd(), 'src/components/CandidateProfilePanel.tsx'), 'utf8');
+    expect(panel).toContain('Application Email');
+    expect(panel).toContain('Sign-in Email');
+    expect(panel).toContain('Save Candidate Profile');
+    expect(settings).not.toContain('Auto-tailor minimum');
   });
 });
 
