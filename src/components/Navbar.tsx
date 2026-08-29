@@ -112,13 +112,21 @@ export const Navbar: React.FC<NavbarProps> = ({
     label: string; icon: React.ComponentType<{ size?: number; weight?: string; style?: React.CSSProperties }>;
     onClick: () => void; active: boolean; hint?: string; badge?: number; color?: string;
   }> = [
-    { label: 'Home', icon: House, onClick: onOpenHome, active: pathname === '/' || pathname === '/settings' ? pathname === '/' : pathname === '/', color: 'var(--color-brand)' },
+    { label: 'Home', icon: House, onClick: onOpenHome, active: pathname === '/', color: 'var(--color-brand)' },
     { label: 'Applications', icon: SuitcaseSimple, onClick: () => onOpenApplications?.(), active: pathname === '/applications' || pathname.startsWith('/applications/'), badge: applicationsBadge, color: 'var(--color-brand)' },
     { label: 'Job Portals', icon: GlobeSimple, onClick: () => onOpenJobPortals?.(), active: pathname === '/job-portals', hint: '190+', color: 'var(--color-brand)' },
     { label: 'LinkedIn Posts', icon: PaperPlaneTilt, onClick: () => onOpenLinkedInPosts?.(), active: pathname === '/linkedin-posts', color: '#7C3AED' },
     { label: 'Recruiters', icon: Tray, onClick: () => onOpenRecruiters?.(), active: pathname === '/recruiters', badge: recruiterBadge, color: 'var(--color-cta)' },
     { label: 'AI Interview', icon: ChatCircleDots, onClick: () => onOpenChat?.(), active: pathname === '/ai-interview', color: '#7C3AED' },
+    { label: 'Master CV', icon: IdentificationBadge, onClick: onOpenMasterCv, active: pathname === '/master-cv', color: 'var(--color-brand)' },
+    { label: 'Applicant Profile', icon: UserCircle, onClick: () => onOpenApplicantProfile?.(), active: pathname === '/applicant-profile', color: 'var(--color-brand)' },
+    { label: 'Manual JD', icon: FileText, onClick: onOpenManualJd, active: pathname === '/manual-jd', hint: '⌘J', color: 'var(--color-brand)' },
+    { label: 'Settings', icon: SlidersHorizontal, onClick: onOpenSettings, active: pathname === '/settings', hint: '⌘,', color: 'var(--color-brand)' },
   ];
+
+  const workspaceItems = navItems.slice(1, 6);
+  const prepareItems = navItems.slice(6, 9);
+  const systemItems = navItems.slice(9);
 
   return (
     <header className="sticky top-0 z-30 bg-white" style={{ borderBottom: '1px solid var(--color-hairline)' }}>
@@ -199,34 +207,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </div>
                 </div>
 
-                {/* Prepare */}
-                <div className="px-2.5 pt-1.5 pb-0.5 text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-faint)' }}>
-                  Prepare
-                </div>
-                <button role="menuitem" onClick={closeAnd(onOpenMasterCv)} className={ddItemCls}>
-                  <span className={ddIconCls}><IdentificationBadge size={16} weight="duotone" /></span>
-                  Master Candidate CV
-                </button>
-                <button role="menuitem" onClick={closeAnd(() => onOpenApplicantProfile?.())} className={ddItemCls}>
-                  <span className={ddIconCls}><UserCircle size={16} weight="duotone" /></span>
-                  Applicant Profile
-                </button>
-                <button role="menuitem" onClick={closeAnd(onOpenManualJd)} className={ddItemCls}>
-                  <span className={ddIconCls}><FileText size={16} weight="duotone" /></span>
-                  Manual JD
-                  <span className="ml-auto text-[10px] font-semibold" style={{ color: 'var(--color-faint)' }}>⌘J</span>
-                </button>
-
-                {/* System */}
-                <div className="px-2.5 pt-2 pb-0.5 text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-faint)' }}>
-                  System
-                </div>
-                <button role="menuitem" onClick={closeAnd(onOpenSettings)} className={ddItemCls}>
-                  <span className={ddIconCls}><SlidersHorizontal size={16} weight="duotone" /></span>
-                  Settings
-                  <span className="ml-auto text-[10px] font-semibold" style={{ color: 'var(--color-faint)' }}>⌘,</span>
-                </button>
-
                 {/* Sign out */}
                 <div className="my-1.5 h-px bg-[var(--color-hairline)]" />
                 <button role="menuitem" onClick={closeAnd(() => onTour?.())} className={ddItemCls}>
@@ -285,23 +265,19 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Drawer nav */}
         <nav className="flex-1 overflow-y-auto px-3 py-2">
           <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--color-faint)' }}>Main</div>
-          {navItems.slice(0, 1).map((item) => (
+          <DrawerItem {...navItems[0]} onNavigate={closeDrawerAnd} />
+          <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--color-faint)' }}>Workspace</div>
+          {workspaceItems.map((item) => (
             <DrawerItem key={item.label} {...item} onNavigate={closeDrawerAnd} />
           ))}
-          <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--color-faint)' }}>Workspace</div>
-          {navItems.slice(1).map((item) => (
+          <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--color-faint)' }}>Prepare</div>
+          {prepareItems.map((item) => (
             <DrawerItem key={item.label} {...item} onNavigate={closeDrawerAnd} />
           ))}
           <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--color-faint)' }}>System</div>
-          <DrawerItem
-            label="Settings"
-            icon={SlidersHorizontal}
-            onClick={onOpenSettings}
-            active={pathname === '/settings'}
-            hint="⌘,"
-            color="var(--color-muted)"
-            onNavigate={closeDrawerAnd}
-          />
+          {systemItems.map((item) => (
+            <DrawerItem key={item.label} {...item} onNavigate={closeDrawerAnd} />
+          ))}
         </nav>
 
         {/* Drawer footer */}
