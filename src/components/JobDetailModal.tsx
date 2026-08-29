@@ -233,7 +233,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
             }`}
           >
             <Zap className="w-3.5 h-3.5 text-[var(--color-brand)]" />
-            <span>ATS Gap Analysis</span>
+            <span>Match Analysis</span>
             {job.matchScore !== undefined && (
               <span className="ml-1 px-1.5 py-0.2 rounded bg-[var(--color-brand-soft)] text-blue-800 font-extrabold text-[10px]">
                 {job.matchScore}%
@@ -250,7 +250,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
             }`}
           >
             <Sparkles className="w-3.5 h-3.5 text-[var(--color-cta)]" />
-            <span>Tailored ATS CV</span>
+            <span>Tailored Resume</span>
             {tailored && (
               <span className="ml-1 px-1.5 py-0.2 rounded bg-[var(--color-cta-soft)] text-emerald-800 font-bold text-[10px]">
                 Ready
@@ -393,7 +393,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
             </div>
           )}
 
-          {/* TAB 2: ATS Gap Analysis */}
+          {/* TAB 2: Match Analysis */}
           {activeTab === 'gap' && (
             <div className="space-y-6">
               {!gap ? (
@@ -417,7 +417,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                   {/* Score Summary Banner */}
                   <div className="p-4 rounded-lg border bg-[#FAFAF9] border-[var(--color-hairline)] flex items-center justify-between">
                     <div>
-                      <span className="text-[var(--color-faint)] uppercase font-bold text-[10px] block">Overall ATS Match Score</span>
+                      <span className="text-[var(--color-faint)] uppercase font-bold text-[10px] block">Overall Match</span>
                       <span className="text-2xl font-black text-[var(--color-ink)]">{gap.matchScore}%</span>
                     </div>
                     <div className="text-right">
@@ -481,7 +481,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
             </div>
           )}
 
-          {/* TAB 3: Tailored ATS CV */}
+          {/* TAB 3: Tailored Resume */}
           {activeTab === 'tailored' && (
             <div className="space-y-6">
               {!tailored ? (
@@ -497,7 +497,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                     className="mt-4 px-4 py-2 bg-[var(--color-ink)] hover:bg-[#14113B] text-white font-semibold text-xs rounded-lg transition-colors inline-flex items-center space-x-2 cursor-pointer"
                   >
                     <Sparkles className="w-3.5 h-3.5 text-[var(--color-cta)]" />
-                    <span>Generate Tailored ATS CV</span>
+                    <span>Tailor Resume</span>
                   </button>
                 </div>
               ) : (
