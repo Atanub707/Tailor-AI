@@ -928,6 +928,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         .stp-input.has-value { border-color: #C7D2FE; }
         .stp-hint-inline { font-size: 10.5px; color: var(--st-faint, #64748B); font-weight: 500; margin-top: 2px; line-height: 1.45; }
         .stp-input:disabled { background: #F1F5F9; color: var(--st-faint, #64748B); cursor: not-allowed; }
+        .stp-pick { display: inline-flex; align-items: center; font-size: 11.5px; font-weight: 700; padding: 7px 14px; border-radius: 999px; background: #fff; color: var(--st-muted, #475569); border: 1.5px solid var(--st-border, #E2E8F0); cursor: pointer; transition: all .15s ease; }
+        .stp-pick:hover:not(.on) { border-color: var(--st-primary, #2563EB); color: var(--st-primary, #2563EB); }
+        .stp-pick.on { background: var(--st-primary, #2563EB); border-color: var(--st-primary, #2563EB); color: #fff; }
+        .stp-switch { width: 38px; height: 22px; border-radius: 99px; background: var(--st-line2, #CBD5E1); position: relative; cursor: pointer; transition: background .15s ease; flex-shrink: 0; border: none; }
+        .stp-switch.on { background: var(--st-cta, #059669); }
+        .stp-switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s ease; }
+        .stp-switch.on::after { left: 19px; }
         .stp-card-title { font-size: 13px; font-weight: 800; color: var(--st-ink, #0F172A); }
         .stp-card-sub { font-size: 11.5px; color: var(--st-faint, #64748B); margin-top: 3px; line-height: 1.55; }
         .stp-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; margin-top: 14px; }
@@ -936,7 +943,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         .stp-label { font-size: 11px; font-weight: 700; color: var(--st-muted, #475569); }
         .stp-input { width: 100%; border: 1.5px solid var(--st-hairline2, #CBD5E1); border-radius: 9px; padding: 8px 11px; font-size: 12.5px; color: var(--st-ink, #0F172A); background: var(--st-card, #fff); outline: none; font-family: inherit; }
         select.stp-input { appearance: none; -webkit-appearance: none; height: 38px; line-height: normal; padding-right: 30px; background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748B' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; background-size: 12px; }
-        .stp-input:focus { border-color: var(--color-brand, #2563EB); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+        .stp-input:focus { border-color: #2563EB; box-shadow: 0 0 0 3.5px rgba(37,99,235,.13); }
         .stp-locbox { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; border: 1.5px solid var(--st-hairline2, #CBD5E1); border-radius: 9px; padding: 6px 8px; background: var(--st-card, #fff); min-height: 38px; }
         .stp-locbox:focus-within { border-color: var(--color-brand, #2563EB); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
         .stp-loc-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; background: var(--color-brand-soft, #EFF6FF); color: var(--color-brand, #2563EB); border: 1px solid var(--color-brand-line, #BFDBFE); border-radius: 999px; padding: 4px 8px 4px 11px; }

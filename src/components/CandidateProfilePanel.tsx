@@ -75,7 +75,6 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
   const personal = p.personal || {};
   const contact = p.contact || {};
 
-  const chip = (v: string, active: boolean) => `stp-chip${active ? ' on' : ''}`;
   const LOC_LABEL: Record<string, string> = { noticePeriod: 'Notice period', earliestStartDate: 'Available from', requiresSponsorship: 'Visa sponsorship', willingToRelocate: 'Willing to relocate', minimumSalary: 'Expected salary min', targetSalary: 'Expected salary max', salaryCurrency: 'Currency' };
   const resolve = (key: string) => {
     const legacy = conflicts[key];
@@ -170,7 +169,7 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
           <label className="stp-label">Work mode preference</label>
           <div className="stp-chips">
             {WORK_MODES.map((m) => (
-              <button key={m.value} type="button" className={chip(m.value, loc.remotePreference === m.value)} onClick={() => update((x) => ({ ...x, locationPrefs: { ...x.locationPrefs, remotePreference: m.value } }))}>
+              <button key={m.value} type="button" className={`stp-pick${loc.remotePreference === m.value ? ' on' : ''}`} onClick={() => update((x) => ({ ...x, locationPrefs: { ...x.locationPrefs, remotePreference: m.value } }))}>
                 {m.label}
               </button>
             ))}
@@ -196,7 +195,7 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
           <label className="stp-label">Employment type preference</label>
           <div className="stp-chips">
             {EMPLOYMENT_TYPES.map((t) => (
-              <button key={t} type="button" className={chip(t, (prefs.preferredEmploymentTypes || []).includes(t))} onClick={() => update((x) => {
+              <button key={t} type="button" className={`stp-pick${(prefs.preferredEmploymentTypes || []).includes(t) ? ' on' : ''}`} onClick={() => update((x) => {
                 const cur = x.preferences.preferredEmploymentTypes || [];
                 return { ...x, preferences: { ...x.preferences, preferredEmploymentTypes: cur.includes(t) ? cur.filter((y) => y !== t) : [...cur, t] } };
               })}>{t}</button>
@@ -296,9 +295,16 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
       <div className="stp-card" style={{ borderColor: '#FED7AA', background: '#FFF7ED' }}>
         <div className="stp-card-title" style={{ color: '#9A3412' }}>Sensitive (optional)</div>
         <div className="stp-field" style={{ marginTop: 10 }}>
-          <div className="toggle-row" style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 12.5, fontWeight: 600, color: 'var(--st-ink)' }}>
-            <input id="sens-enabled2" type="checkbox" checked={p.optionalSensitive?.enabled === true} onChange={(e) => update((x) => ({ ...x, optionalSensitive: { ...x.optionalSensitive, enabled: e.target.checked } }))} />
-            <label htmlFor="sens-enabled2" style={{ cursor: 'pointer' }}>Enable optional sensitive fields (voluntary self-identification)</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 12.5, fontWeight: 600, color: 'var(--st-ink)' }}>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={p.optionalSensitive?.enabled === true}
+              aria-label="Enable optional sensitive fields"
+              className={`stp-switch${p.optionalSensitive?.enabled === true ? ' on' : ''}`}
+              onClick={() => update((x) => ({ ...x, optionalSensitive: { ...x.optionalSensitive, enabled: !(x.optionalSensitive?.enabled === true) } }))}
+            />
+            <span>Enable optional sensitive fields (voluntary self-identification)</span>
           </div>
           <div className="stp-hint-inline">Disabled by default. Never inferred. ATS questions only use these when you explicitly enable them.</div>
         </div>
