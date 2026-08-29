@@ -35,14 +35,26 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
   React.useEffect(() => {
     fetch('/api/profile')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('load failed'))))
-      .then((d) => { setProfile(d.profile); setConflicts(d.conflicts || {}); })
+      .then((d) => { setProfile(d.profile); setConflicts(d.conflicts || {}); setTimeout(() => { firstLoad.current = false; }, 0); })
       .catch((e) => { setSaveState('error'); setErrorMsg(String(e?.message || 'Failed to load profile.')); });
   }, []);
 
+  const skipSave = React.useRef(false);
   const update = (fn: (p: ApplicantProfile) => ApplicantProfile) => {
     setProfile((prev) => (prev ? fn(prev) : prev));
     setSaveState('idle');
+    skipSave.current = false;
   };
+
+  // Auto-save: debounced after every change (typing, chips, selects).
+  React.useEffect(() => {
+    if (!profile || skipSave.current) return;
+    const initial = firstLoad.current;
+    if (initial) return;
+    const timer = setTimeout(() => { void save(); }, 700);
+    return () => clearTimeout(timer);
+  }, [profile]);
+  const firstLoad = React.useRef(true);
 
   const save = async () => {
     if (!profile) return;
@@ -300,12 +312,10 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
         <b>Professional history lives in your Master CV.</b> Your experience, employers, titles, dates, skills, education and certifications belong to the Master CV — this profile holds reusable identity, eligibility and preference facts only.
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
-        <button onClick={() => void save()} disabled={saveState === 'saving'} className="st-btn" style={{ background: 'var(--st-primary)', color: '#fff', fontWeight: 800, padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer' }}>
-          {saveState === 'saving' ? 'Saving…' : 'Save Candidate Profile'}
-        </button>
-        {saveState === 'saved' && <span className="text-xs font-semibold" style={{ color: '#059669' }}>Saved.</span>}
-        {saveState === 'error' && <span className="text-xs font-semibold" style={{ color: '#DC2626' }}>{errorMsg}</span>}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }} aria-live="polite">
+        <span className="text-xs font-semibold" style={{ color: saveState === 'error' ? '#DC2626' : saveState === 'saved' ? '#059669' : 'var(--st-faint)' }}>
+          {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : saveState === 'error' ? errorMsg : 'Changes save automatically'}
+        </span>
       </div>
     </section>
   );

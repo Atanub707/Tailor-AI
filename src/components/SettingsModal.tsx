@@ -6,7 +6,6 @@ import { ArrowLeft, User, UserCircle, LockKey, PlugsConnected, Brain, RocketLaun
 import { RECOVERY_QUESTIONS } from '../constants/recoveryQuestions';
 import { PROVIDER_BASE_URLS as LLM_PRESETS } from '../constants/llmPresets';
 import { APIFY_SOURCES } from '../constants/sources';
-import { searchLocations } from '../lib/locations';
 import { codes as currencyCodes, code as currencyCodeInfo } from 'currency-codes';
 import languagesData from 'languages/languages.json';
 import pkg from '../../package.json';
@@ -22,28 +21,7 @@ const ALL_LANGUAGE_NAMES = (Object.values(languagesData.lang) as [string, string
   .map((v) => v[0])
   .filter(Boolean);
 
-interface CandidateProfile {
-  workModes: string[];
-  preferredLocations: string[];
-  noticePeriod: string;
-  availableFrom: string;
-  employmentTypes: string[];
-  yearsExperience: string;
-  currentRole: string;
-  currentCompany: string;
-  currentSalary: string;
-  expectedSalaryMin: string;
-  expectedSalaryMax: string;
-  salaryCurrency: string;
-  jobSearchStatus: string;
-  willingToRelocate: 'yes' | 'no' | 'certain-cities';
-  willingToTravelPct: string;
-  workAuthorization: string;
-  needsSponsorship: boolean;
-  languages: string[];
-  preferredCompanySize: string;
-  recruiterNote: string;
-}
+
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -219,58 +197,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setCompanionBusy(false);
   };
 
-  // Job preferences (candidate profile)
-  const [candidateProfile, setCandidateProfile] = useState<CandidateProfile | null>(null);
-  const [profileLocOptions, setProfileLocOptions] = useState<string[]>([]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    fetch('/api/profile').then((r) => r.json()).then((d) => setCandidateProfile(d.profile || null)).catch(() => setCandidateProfile(null));
-  }, [isOpen]);
-
-  // Saves the job preferences with the main "Save changes" flow — the
-  // cleaned profile rides along with the config save.
-  const saveCandidateProfileWithConfig = async (): Promise<boolean> => {
-    if (!candidateProfile) return true;
-    const clean = {
-      ...candidateProfile,
-      preferredLocations: candidateProfile.preferredLocations.map((s) => s.trim()).filter(Boolean),
-      languages: candidateProfile.languages.map((s) => s.trim()).filter(Boolean),
-    };
-    const res = await fetch('/api/profile', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profile: clean }),
-    });
-    return res.ok;
-  };
-
-  const [profileLocDraft, setProfileLocDraft] = useState('');
-
-  const onProfileLocationInput = (v: string) => {
-    setProfileLocDraft(v);
-    if (v.trim().length >= 1) {
-      searchLocations(v.trim(), 8).then((list) => setProfileLocOptions(list.map((l) => l.label)));
-    } else {
-      setProfileLocOptions([]);
-    }
-  };
-
-  const addPreferredLocation = (raw: string) => {
-    const loc = raw.trim();
-    if (!loc) return;
-    setCandidateProfile((p) => p && {
-      ...p,
-      preferredLocations: p.preferredLocations.includes(loc) ? p.preferredLocations : [...p.preferredLocations, loc],
-    });
-    setProfileLocDraft('');
-    setProfileLocOptions([]);
-  };
-
-  const removePreferredLocation = (loc: string) => {
-    setCandidateProfile((p) => p && { ...p, preferredLocations: p.preferredLocations.filter((x) => x !== loc) });
-  };
-
   const [profileLangDraft, setProfileLangDraft] = useState('');
   const [profileLangOptions, setProfileLangOptions] = useState<string[]>([]);
 
@@ -285,21 +211,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     } else {
       setProfileLangOptions([]);
     }
-  };
-
-  const addPreferredLanguage = (raw: string) => {
-    const lang = raw.trim();
-    if (!lang) return;
-    setCandidateProfile((p) => p && {
-      ...p,
-      languages: p.languages.includes(lang) ? p.languages : [...p.languages, lang],
-    });
-    setProfileLangDraft('');
-    setProfileLangOptions([]);
-  };
-
-  const removePreferredLanguage = (lang: string) => {
-    setCandidateProfile((p) => p && { ...p, languages: p.languages.filter((x) => x !== lang) });
   };
 
   // Recovery questions (password accounts only)
@@ -343,8 +254,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setSaveError(null);
     try {
       await onSaveConfig(formData);
-      const profileOk = await saveCandidateProfileWithConfig();
-      if (!profileOk) throw new Error('Could not save job preferences.');
       setDirty(false);
       setSavedToast(true);
       setTimeout(() => setSavedToast(false), 2400);
