@@ -99,7 +99,6 @@ const JobCard = React.memo(function JobCard({
   onDeleteJob: (jobId: string) => Promise<void>;
   onUpdateStatus: (jobId: string, state: JobState) => Promise<void>;
 }) {
-  const score = job.matchScore;
   const timeAgoStr = formatTimeAgoSemantic(job.postedDate, job.postedDateSemantics);
   const isScoreLoading = scoreMsg !== null;
   const isTailorLoading = tailorMsg !== null;
@@ -347,7 +346,7 @@ const JobCard = React.memo(function JobCard({
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> {job.state === 'applied' ? 'Unmark applied' : 'Mark as applied'}
               </button>
               <button
-                onClick={() => onDeleteJob(job.id)}
+                onClick={() => { if (window.confirm('Remove this job from your library?')) void onDeleteJob(job.id); }}
                 className="flex items-center gap-2 w-full px-2.5 py-2 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50 cursor-pointer text-left"
               >
                 <Trash2 className="w-3.5 h-3.5" /> Remove job
