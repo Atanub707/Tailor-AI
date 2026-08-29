@@ -35,26 +35,28 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
   React.useEffect(() => {
     fetch('/api/profile')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('load failed'))))
-      .then((d) => { setProfile(d.profile); setConflicts(d.conflicts || {}); setTimeout(() => { firstLoad.current = false; }, 0); })
+      .then((d) => { setProfile(d.profile); setConflicts(d.conflicts || {}); lastSavedJson.current = JSON.stringify(d.profile); setTimeout(() => { firstLoad.current = false; }, 0); })
       .catch((e) => { setSaveState('error'); setErrorMsg(String(e?.message || 'Failed to load profile.')); });
   }, []);
 
-  const skipSave = React.useRef(false);
   const update = (fn: (p: ApplicantProfile) => ApplicantProfile) => {
     setProfile((prev) => (prev ? fn(prev) : prev));
     setSaveState('idle');
-    skipSave.current = false;
   };
 
   // Auto-save: debounced after every change (typing, chips, selects).
+  // lastSavedJson guards against loops: save() echoes the server response
+  // back into state, so skip scheduling when the state matches the last
+  // saved snapshot (prevents endless Saving…/Saved blinking).
+  const lastSavedJson = React.useRef('');
+  const firstLoad = React.useRef(true);
   React.useEffect(() => {
-    if (!profile || skipSave.current) return;
-    const initial = firstLoad.current;
-    if (initial) return;
+    if (!profile) return;
+    if (firstLoad.current) return;
+    if (JSON.stringify(profile) === lastSavedJson.current) return;
     const timer = setTimeout(() => { void save(); }, 700);
     return () => clearTimeout(timer);
   }, [profile]);
-  const firstLoad = React.useRef(true);
 
   const save = async () => {
     if (!profile) return;
@@ -63,6 +65,7 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
       const res = await fetch('/api/applicant-profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(profile) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Save failed.'); }
       const d = await res.json();
+      lastSavedJson.current = JSON.stringify(d.profile);
       setProfile(d.profile);
       setSaveState('saved');
       setConflicts({});
