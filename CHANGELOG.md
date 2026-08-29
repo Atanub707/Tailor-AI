@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.3.0 (2026-08-29)
+
+### 🧭 Job discovery experience
+
+- Simplified job cards around **Match, View, and Apply**.
+- Consolidated Score and Fit into a clearer **Match** experience — a compact `% Match` indicator opens the full match analysis (strengths, gaps, blockers) with no misleading placeholders.
+- Moved secondary actions (open original job, mark as applied, download tailored resume, remove job) into a compact **overflow menu**.
+- Removed internal workflow terminology from normal job cards: `ATS Score`, `Tailor V2`, `Prepare Application`, `Prepare for Application`, standalone `Mark Applied`, and standalone `Delete` are gone from the card surface.
+- **Apply** now acts as the main entry point into Tailor AI's existing application-preparation workflow (package → approval → Browser Companion → human checkpoints → your final submission).
+- Job details now speak product language: **Tailored Resume**, **Tailor Resume**, and **Match Analysis**.
+- Improved responsive behavior for job cards — no nine-button rows, no horizontal scrolling.
+
 ## v2.2.0 (2026-08-29)
 
 ### ✨ Application Automation

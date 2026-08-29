@@ -276,7 +276,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                 {/* Footer */}
                 <div className="mt-1.5 border-t border-[var(--color-hairline)] px-2.5 pt-2 pb-1.5 flex justify-between text-[10.5px]" style={{ color: 'var(--color-faint)' }}>
-                  <span>v{installedVersion || '2.2.0'} · local</span>
+                  <span>v{installedVersion || '2.3.0'} · local</span>
                   <span>Data stays on this machine</span>
                 </div>
               </div>
