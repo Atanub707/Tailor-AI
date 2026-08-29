@@ -961,7 +961,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         .stp-check-label input { accent-color: var(--color-brand, #2563EB); width: 15px; height: 15px; }
         .stp-hint { font-size: 11px; color: var(--st-faint, #64748B); margin-top: 14px; line-height: 1.5; }
         .stp-save-error { font-size: 12px; font-weight: 700; color: var(--st-danger, #DC2626); }
-        @media (max-width: 720px) { .stp-grid2 { grid-template-columns: 1fr; } }
+        .stp-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px 14px; margin-top: 14px; }
+        @media (max-width: 720px) { .stp-grid2, .stp-grid3 { grid-template-columns: 1fr; } }
       `}</style>
     </div>
   );

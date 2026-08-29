@@ -87,7 +87,7 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
           </div>
           <span className="stp-status-tag">{personal.firstName && personal.lastName && personal.email ? 'Complete' : 'Incomplete'}</span>
         </div>
-        <div className="stp-grid">
+        <div className="stp-grid2">
           <div className="stp-field"><label className="stp-label">First name</label><input className="stp-input has-value" value={personal.firstName ?? ''} onChange={(e) => update((x) => ({ ...x, personal: { ...x.personal, firstName: e.target.value } }))} /></div>
           <div className="stp-field"><label className="stp-label">Middle name <span className="stp-opt">Optional</span></label><input className="stp-input" value={personal.middleName ?? ''} onChange={(e) => update((x) => ({ ...x, personal: { ...x.personal, middleName: e.target.value } }))} /></div>
           <div className="stp-field"><label className="stp-label">Last name</label><input className="stp-input has-value" value={personal.lastName ?? ''} onChange={(e) => update((x) => ({ ...x, personal: { ...x.personal, lastName: e.target.value } }))} /></div>
@@ -98,7 +98,7 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
           <input className="stp-input has-value" type="email" value={personal.email ?? ''} onChange={(e) => update((x) => ({ ...x, personal: { ...x.personal, email: e.target.value } }))} />
           <div className="stp-hint-inline">Used when applying to jobs. Different from your Tailor AI sign-in email.</div>
         </div>
-        <div className="stp-grid">
+        <div className="stp-grid2">
           <div className="stp-field"><label className="stp-label">Phone</label><input className="stp-input has-value" value={personal.phone ?? ''} onChange={(e) => update((x) => ({ ...x, personal: { ...x.personal, phone: e.target.value } }))} /></div>
           <div className="stp-field"><label className="stp-label">City</label><input className="stp-input has-value" value={contact.city ?? ''} onChange={(e) => update((x) => ({ ...x, contact: { ...x.contact, city: e.target.value } }))} /></div>
           <div className="stp-field"><label className="stp-label">State / region</label><input className="stp-input" value={contact.state ?? ''} onChange={(e) => update((x) => ({ ...x, contact: { ...x.contact, state: e.target.value } }))} /></div>
@@ -113,7 +113,7 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
           <div><div className="stp-card-title">Professional Links</div></div>
           <span className="stp-status-tag muted">Optional</span>
         </div>
-        <div className="stp-grid">
+        <div className="stp-grid2">
           <div className="stp-field"><label className="stp-label">LinkedIn URL</label><input className="stp-input has-value" value={links.linkedin ?? ''} onChange={(e) => update((x) => ({ ...x, links: { ...x.links, linkedin: e.target.value } }))} /></div>
           <div className="stp-field"><label className="stp-label">GitHub URL</label><input className="stp-input" value={links.github ?? ''} onChange={(e) => update((x) => ({ ...x, links: { ...x.links, github: e.target.value } }))} /></div>
           <div className="stp-field"><label className="stp-label">Portfolio URL <span className="stp-opt">Optional</span></label><input className="stp-input" value={links.portfolio ?? ''} onChange={(e) => update((x) => ({ ...x, links: { ...x.links, portfolio: e.target.value } }))} /></div>
@@ -167,7 +167,7 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
             ))}
           </div>
         </div>
-        <div className="stp-grid">
+        <div className="stp-grid2">
           <div className="stp-field">
             <label className="stp-label">Job search status</label>
             <select className="stp-input" value={prefs.jobSearchStatus ?? ''} onChange={(e) => update((x) => ({ ...x, preferences: { ...x.preferences, jobSearchStatus: e.target.value } }))}>
@@ -202,7 +202,7 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
         <div className="stp-card-head"><div><div className="stp-card-title">Work Eligibility</div>
         <p className="stp-card-sub">Explicit only — never inferred from your CV, location or nationality.</p></div>
         <span className="stp-status-tag muted">{wa.country || wa.authorizedToWork ? 'Set' : 'Unknown'}</span></div>
-        <div className="stp-grid">
+        <div className="stp-grid2">
           <div className="stp-field"><label className="stp-label">Country</label><input className="stp-input has-value" value={wa.country ?? ''} onChange={(e) => update((x) => ({ ...x, workAuthorization: { ...x.workAuthorization, country: e.target.value } }))} /></div>
           <div className="stp-field"><label className="stp-label">Visa / work permit type (optional)</label><input className="stp-input" value={wa.visaType ?? ''} onChange={(e) => update((x) => ({ ...x, workAuthorization: { ...x.workAuthorization, visaType: e.target.value } }))} /></div>
           <div className="stp-field">
@@ -225,7 +225,7 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
       <div className="stp-card">
         <div className="stp-card-head"><div><div className="stp-card-title">Availability</div></div>
         <span className="stp-status-tag muted">{prefs.noticePeriod || prefs.earliestStartDate ? 'Set' : 'Not set'}</span></div>
-        <div className="stp-grid">
+        <div className="stp-grid2">
           <div className="stp-field"><label className="stp-label">Notice period</label><input className="stp-input has-value" placeholder="e.g. 30 days" value={prefs.noticePeriod ?? ''} onChange={(e) => update((x) => ({ ...x, preferences: { ...x.preferences, noticePeriod: e.target.value } }))} /></div>
           <div className="stp-field"><label className="stp-label">Available from</label><input className="stp-input" placeholder="YYYY-MM-DD" value={prefs.earliestStartDate ?? ''} onChange={(e) => update((x) => ({ ...x, preferences: { ...x.preferences, earliestStartDate: e.target.value } }))} /></div>
         </div>
@@ -236,7 +236,7 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
         <div className="stp-card-head"><div><div className="stp-card-title">Compensation</div>
         <p className="stp-card-sub">Kept private — used for matching, never placed into cold emails.</p></div>
         <span className="stp-status-tag muted">Private</span></div>
-        <div className="stp-grid">
+        <div className="stp-grid3">
           <div className="stp-field"><label className="stp-label">Current compensation (optional)</label><input className="stp-input" type="number" value={prefs.currentSalary ?? ''} onChange={(e) => update((x) => ({ ...x, preferences: { ...x.preferences, currentSalary: e.target.value === '' ? undefined : Number(e.target.value) } }))} /></div>
           <div className="stp-field"><label className="stp-label">Expected salary — minimum</label><input className="stp-input has-value" type="number" value={prefs.minimumSalary ?? ''} onChange={(e) => update((x) => ({ ...x, preferences: { ...x.preferences, minimumSalary: e.target.value === '' ? undefined : Number(e.target.value) } }))} /></div>
           <div className="stp-field"><label className="stp-label">Expected salary — maximum</label><input className="stp-input has-value" type="number" value={prefs.targetSalary ?? ''} onChange={(e) => update((x) => ({ ...x, preferences: { ...x.preferences, targetSalary: e.target.value === '' ? undefined : Number(e.target.value) } }))} /></div>
@@ -248,7 +248,7 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
       <div className="stp-card">
         <div className="stp-card-title">Application Defaults</div>
         <p className="stp-card-sub">Reusable free-text answers only. Company-specific questions belong to the application itself.</p>
-        <div className="stp-grid">
+        <div className="stp-grid2">
           <div className="stp-field"><label className="stp-label">Reason for change</label><input className="stp-input" value={p.applicationDefaults?.reasonForChange ?? ''} onChange={(e) => update((x) => ({ ...x, applicationDefaults: { ...x.applicationDefaults, reasonForChange: e.target.value } }))} /></div>
           <div className="stp-field"><label className="stp-label">Generic why interested</label><input className="stp-input" value={p.applicationDefaults?.whyInterestedDefault ?? ''} onChange={(e) => update((x) => ({ ...x, applicationDefaults: { ...x.applicationDefaults, whyInterestedDefault: e.target.value } }))} /></div>
           <div className="stp-field"><label className="stp-label">Preferred contact method</label><input className="stp-input" value={p.applicationDefaults?.preferredContactMethod ?? ''} onChange={(e) => update((x) => ({ ...x, applicationDefaults: { ...x.applicationDefaults, preferredContactMethod: e.target.value } }))} /></div>
@@ -286,7 +286,7 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
       {/* LOGIN & SECURITY (read-only) */}
       <div className="stp-card">
         <div className="stp-card-title">Login &amp; Security</div>
-        <div className="stp-grid">
+        <div className="stp-grid2">
           <div className="stp-field">
             <label className="stp-label">Sign-in Email</label>
             <input className="stp-input" value={user?.email ?? ''} disabled />
