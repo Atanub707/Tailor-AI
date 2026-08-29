@@ -1,5 +1,30 @@
 # Changelog
 
+## v2.4.0 (2026-08-29)
+
+### 🧭 Simpler Job Workflow
+
+- Simplified job cards around **View, Apply**, and a compact secondary menu.
+- Removed duplicate and implementation-specific workflow controls from the card surface.
+- Consolidated resume tailoring behind a single **Tailor Resume** experience — one action, one pipeline, with every claim verified against your Master CV.
+- Removed internal engine terminology from the normal interface.
+- Application preparation now happens behind the main **Apply** workflow — no manual staging steps.
+- Moved low-frequency actions (open original job, mark as applied, download tailored resume, remove job) into the overflow menu; removal now asks for confirmation.
+- Improved job-card responsiveness and action hierarchy.
+
+### Match & Fit
+
+- Clarified the two matching concepts so they are easy to tell apart:
+  - **Candidate Fit** — how well you (profile + CV) suit the job; computed locally and instantly on the job card.
+  - **Resume Match** — how well your resume aligns with the job description; available on demand in Job Details with your own API key.
+- No fake scores: nothing is shown as a percentage until it has actually been calculated.
+
+### Safety
+
+- Existing application safety checkpoints remain unchanged.
+- CAPTCHA, login, MFA, OTP, consent, and required questions remain user-controlled.
+- Final job submission remains user-triggered.
+
 ## v2.3.0 (2026-08-29)
 
 ### 🧭 Job discovery experience
