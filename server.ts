@@ -2396,6 +2396,47 @@ function computePlanStatus(plan: { manualFields: unknown[]; consentFields: unkno
 
   // ── Application Engine V1 (Phase 1) — provider-neutral plans ──────────
   // Prepare-only: inspection + dry-run. NO submission endpoints.
+
+const sanitizeApproval = (a: any) => ({
+  id: a.id, planId: a.planId, packageId: a.packageId, status: a.status,
+  approvedAt: a.approvedAt,
+  resumeArtifactHash: a.resumeArtifactHash,
+  mappedFieldsHash: a.mappedFieldsHash,
+  consents: (a.consents || []).map((c: any) => ({ providerFieldId: c.providerFieldId, classification: c.classification, selectedValue: c.selectedValue })),
+  fingerprintBound: { planFingerprint: a.planFingerprint, packageSnapshotHash: a.packageSnapshotHash, requirementsFingerprint: a.requirementsFingerprint },
+});
+const sanitizeDryRun = (r: any) => {
+  const parts = r.payload?.parts || [];
+  return {
+    attempt: r.attempt ? { id: r.attempt.id, status: r.attempt.status, provider: r.attempt.provider, externalJobId: r.attempt.externalJobId, executionKey: r.attempt.executionKey?.slice(0, 16) } : null,
+    requirementsMatch: r.requirementsMatch,
+    captcha: r.captcha,
+    dryRunAvailable: r.dryRunAvailable,
+    formAutomationEligible: r.formAutomationEligible,
+    submissionTransportEnabled: r.submissionTransportEnabled,
+    executionEligible: r.executionEligible,
+    reason: r.reason ?? null,
+    payload: r.payload ? {
+      target: r.payload.target,
+      method: r.payload.method,
+      textParts: parts.filter((p: any) => p.kind === 'TEXT').map((p: any) => {
+        const sensitive = /password|token|secret|key/i.test(p.name) || p.name.includes('baseTemplate');
+        return { name: p.name, classification: p.classification, semantic: p.semantic, value: sensitive ? '[REDACTED]' : p.value };
+      }),
+      fileParts: parts.filter((p: any) => p.kind === 'FILE').map((p: any) => ({ name: p.name, filename: p.filename, mimeType: p.mimeType, size: p.size, sha256: p.sha256.slice(0, 16) })),
+      omittedTracking: r.payload.omittedTracking,
+      captcha: r.payload.captcha,
+      executionEligible: r.payload.executionEligible,
+    } : null,
+    payloadFingerprint: r.payloadFingerprint,
+  };
+};
+const sanitizeAttemptDryRun = (a: any) => ({
+  id: a.id, status: a.status, provider: a.provider, executionKey: a.executionKey?.slice(0, 16),
+  transportAttemptCount: a.transportAttemptCount, startedAt: a.startedAt, finishedAt: a.finishedAt ?? null,
+  verification: a.verification ?? null, failure: a.failure ? { kind: a.failure.kind, retryClass: a.failure.retryClass } : null,
+});
+
   const engineContext = async (userId: string, packageId: string) => {
     const { getPackageById } = await import('./server/applicationPackage/packageStore.js');
     const { readPdfArtifact } = await import('./server/applicationPackage/artifactStore.js');
@@ -2465,6 +2506,91 @@ function computePlanStatus(plan: { manualFields: unknown[]; consentFields: unkno
 
   // Ordinary unresolved answers (source=USER). Consent/EEO/UNKNOWN remain
   // review-only; READY_TO_SUBMIT plans are frozen (409).
+  // ── Execution (Phase 1): approval + attempt + LOCAL dry-run. No mutation. ──
+  app.post('/api/submission-plans/:planId/approval', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { getPlanById } = await import('./server/applicationEngine/engine.js');
+      const { getPackageById } = await import('./server/applicationPackage/packageStore.js');
+      const { createApproval } = await import('./server/applicationEngine/executionEngine.js');
+      const plan = getPlanById(userId, req.params.planId);
+      if (!plan) return res.status(404).json({ error: 'Plan not found.' });
+      const pkg = getPackageById(userId, plan.packageId);
+      if (!pkg) return res.status(404).json({ error: 'Package not found.' });
+      const body = req.body || {};
+      const consents = Array.isArray(body.consents) ? body.consents : [];
+      const approval = createApproval({ db: getDb(), userId, plan, pkg, consents, marketingOptIn: !!body.marketingOptIn });
+      res.json({ approval: sanitizeApproval(approval) });
+    } catch (err: any) {
+      if (err?.name === 'ExecutionError') return res.status(409).json({ error: err.message, code: err.kind });
+      res.status(500).json({ error: String(err?.message || 'Approval failed.').slice(0, 300) });
+    }
+  });
+
+  app.get('/api/application-approvals/:approvalId', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { getApproval } = await import('./server/applicationEngine/executionStore.js');
+      const approval = getApproval(getDb(), userId, req.params.approvalId);
+      if (!approval) return res.status(404).json({ error: 'Approval not found.' });
+      res.json({ approval: sanitizeApproval(approval) });
+    } catch (err: any) {
+      res.status(500).json({ error: String(err?.message || 'Approval fetch failed.').slice(0, 300) });
+    }
+  });
+
+  // Local-only: fresh GET reinspection + requirements compare + local payload
+  // build. Performs NO ATS submission.
+  app.post('/api/application-approvals/:approvalId/prepare-execution', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { getApproval } = await import('./server/applicationEngine/executionStore.js');
+      const { getPlanById } = await import('./server/applicationEngine/engine.js');
+      const { getPackageById } = await import('./server/applicationPackage/packageStore.js');
+      const { prepareExecution } = await import('./server/applicationEngine/executionEngine.js');
+      const approval = getApproval(getDb(), userId, req.params.approvalId);
+      if (!approval) return res.status(404).json({ error: 'Approval not found.' });
+      const plan = getPlanById(userId, approval.planId);
+      if (!plan) return res.status(404).json({ error: 'Plan not found.' });
+      const pkg = getPackageById(userId, approval.packageId);
+      if (!pkg) return res.status(404).json({ error: 'Package not found.' });
+      const result = await prepareExecution({ db: getDb(), userId, plan, pkg, approval, marketingOptIn: !!req.body?.marketingOptIn, omitTracking: true });
+      res.json({ result: sanitizeDryRun(result) });
+    } catch (err: any) {
+      if (err?.name === 'ExecutionError' || err?.name === 'PayloadBuildError') return res.status(409).json({ error: err.message, code: err.kind || err.reason });
+      res.status(500).json({ error: String(err?.message || 'Preparation failed.').slice(0, 300) });
+    }
+  });
+
+  app.get('/api/application-attempts/:attemptId', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { getAttempt } = await import('./server/applicationEngine/executionStore.js');
+      const attempt = getAttempt(getDb(), userId, req.params.attemptId);
+      if (!attempt) return res.status(404).json({ error: 'Attempt not found.' });
+      res.json({ attempt });
+    } catch (err: any) {
+      res.status(500).json({ error: String(err?.message || 'Attempt fetch failed.').slice(0, 300) });
+    }
+  });
+
+  app.get('/api/application-attempts/:attemptId/dry-run', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { getAttempt } = await import('./server/applicationEngine/executionStore.js');
+      const attempt = getAttempt(getDb(), userId, req.params.attemptId);
+      if (!attempt) return res.status(404).json({ error: 'Attempt not found.' });
+      res.json({ dryRun: sanitizeAttemptDryRun(attempt) });
+    } catch (err: any) {
+      res.status(500).json({ error: String(err?.message || 'Dry-run fetch failed.').slice(0, 300) });
+    }
+  });
+
   app.patch('/api/submission-plans/:planId/answers', async (req, res) => {
     try {
       const userId = getCurrentUserId();

@@ -50,6 +50,9 @@ export interface ApplicationRequirements {
   fields: ApplicationField[];
   discoveredAt: string;
   fingerprint: string;
+  /** Opaque transport metadata (accountId/timezone/baseTemplate/hcaptcha...).
+   *  NEVER applicant truth — excluded from the semantic fingerprint. */
+  providerMetadata?: Record<string, string>;
 }
 
 export type MappingMethod = 'EXACT' | 'ALIAS' | 'DETERMINISTIC' | 'USER' | 'AI_SUGGESTED';
@@ -80,7 +83,7 @@ export interface SubmissionPlan {
   files: Array<{ kind: 'RESUME' | 'COVER_LETTER' | 'OTHER'; artifactSha?: string }>;
   unresolvedFields: string[];
   unresolvedDetails: Array<{ providerFieldId: string; label: string; required: boolean; reason: string }>;
-  consentFields: Array<{ providerFieldId: string; label: string; required: boolean; status: 'REQUIRES_REVIEW' }>;
+  consentFields: Array<{ providerFieldId: string; label: string; required: boolean; status: 'REQUIRES_REVIEW'; classification: import('./executionContract.js').ConsentClassification }>;
   manualFields: Array<{ providerFieldId: string; label: string; required: boolean; reason: string }>;
   status: PlanStatus;
   planFingerprint: string;
@@ -204,12 +207,16 @@ export function classifyEeo(label: string): FieldCategory {
   return 'UNKNOWN';
 }
 
+export function sha256(s: string): string {
+  return createHash('sha256').update(s).digest('hex');
+}
+
 export function requirementsFingerprint(provider: Provider, targetHost: string, fields: ApplicationField[]): string {
   const hasher = createHash;
   const stable = JSON.stringify({
     provider,
     host: targetHost,
-    fields: fields.map((f) => [f.providerFieldId, f.type, f.required, f.normalizedKey ?? '', String(f.options ?? [])].join('|')),
+    fields: fields.map((f) => [f.providerFieldId, f.type, f.required, f.normalizedKey ?? '', f.label ?? '', String(f.options ?? [])].join('|')),
   });
   return hasher('sha256').update(stable).digest('hex').slice(0, 24);
 }
