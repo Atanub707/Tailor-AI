@@ -19,7 +19,8 @@ interface Details {
 const STATUS_LABEL: Record<string, string> = {
   PREPARING: 'Preparing', READY: 'Ready', APPLYING: 'Applying',
   ACTION_REQUIRED: 'Action Required', WAITING_FOR_YOU: 'Waiting for You',
-  APPLIED: 'Applied', CHECK_SUBMISSION: 'Check Submission', FAILED: 'Failed',
+  READY_TO_SUBMIT: 'Ready to Submit', APPLIED: 'Applied',
+  CHECK_SUBMISSION: 'Check Submission', FAILED: 'Failed',
 };
 const STATUS_TONE: Record<string, string> = {
   ACTION_REQUIRED: 'bg-amber-50 text-amber-800 border-amber-200',
@@ -30,8 +31,11 @@ const STATUS_TONE: Record<string, string> = {
   PREPARING: 'bg-slate-50 text-slate-700 border-slate-200',
   READY: 'bg-sky-50 text-sky-800 border-sky-200',
   APPLYING: 'bg-slate-50 text-slate-700 border-slate-200',
+  READY_TO_SUBMIT: 'bg-emerald-50 text-emerald-800 border-emerald-200',
 };
 const DEFAULT_TONE = 'bg-slate-50 text-slate-700 border-slate-200';
+
+const providerLabel = (p: string) => (p === 'lever' ? 'Lever' : p === 'greenhouse' ? 'Greenhouse' : p === 'ashby' ? 'Ashby' : 'the employer site');
 
 const timeAgo = (iso: string) => {
   const ms = Date.now() - new Date(iso).getTime();
@@ -53,9 +57,10 @@ export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: ()
   const [details, setDetails] = React.useState<Details | null>(null);
   const [detailsOpen, setDetailsOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
-  const [startingId, setStartingId] = React.useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [toast, setToast] = React.useState('');
+  const [companionPaired, setCompanionPaired] = React.useState<boolean | null>(null);
+  const [startingId, setStartingId] = React.useState<string | null>(null);
 
   const fetchRows = React.useCallback(async () => {
     try {
@@ -73,6 +78,17 @@ export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: ()
 
   React.useEffect(() => {
     void fetchRows();
+    // Presence handshake — ask the extension bridge once, no spam.
+    const t = setTimeout(() => {
+      window.postMessage({ type: 'TAILOR_PING' }, '*');
+      const onPong = (e: MessageEvent) => {
+        if (e.data?.type !== 'TAILOR_PONG') return;
+        setCompanionPaired(e.data.paired === true);
+        window.removeEventListener('message', onPong);
+      };
+      window.addEventListener('message', onPong);
+    }, 400);
+    return () => clearTimeout(t);
   }, [fetchRows]);
 
   const openDetails = async (row: ApplicationRow) => {
@@ -83,6 +99,33 @@ export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: ()
       const res = await fetch(`/api/applications/${row.applicationId}/details`);
       if (res.ok) setDetails(await res.json().then((d) => d.details));
     } catch { /* details are optional */ }
+  };
+
+  const continueInBrowser = async (row: ApplicationRow) => {
+    if (!row.attemptId) return;
+    setBusy(true);
+    setError('');
+    try {
+      const res = await fetch('/api/browser-companion/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attemptId: row.attemptId }) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Could not start browser assist.'); }
+      const d = await res.json();
+      const started = await new Promise<boolean>((resolve) => {
+        const handler = (e: MessageEvent) => {
+          if (e.data?.type !== 'TAILOR_ASSIST_STARTED') return;
+          window.removeEventListener('message', handler);
+          resolve(e.data.ok === true);
+        };
+        window.addEventListener('message', handler);
+        window.postMessage({ type: 'TAILOR_START_ASSIST', sessionId: d.sessionId }, '*');
+      });
+      if (!started) throw new Error('The extension could not start browser assist. Use Continue on Lever instead.');
+      setToast('Application opened in the browser.');
+      await fetchRows();
+    } catch (e: any) {
+      setError(String(e?.message || 'Could not start browser assist.'));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const continueOnLever = async (row: ApplicationRow) => {
@@ -156,11 +199,17 @@ export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: ()
         {startingId === row.applicationId ? 'Preparing application…' : 'Start Application'}
       </button>;
     }
+    if (row.availableActions.includes('REVIEW_AND_SUBMIT')) {
+      return <button onClick={() => void continueOnLever(row)} disabled={busy} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-emerald-600 text-white hover:opacity-90 disabled:opacity-50">{`Review & Submit on ${providerLabel(row.provider)}`}</button>;
+    }
     if (row.availableActions.includes('CONTINUE_PROVIDER')) {
-      return <button onClick={() => void continueOnLever(row)} disabled={busy} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-50">Continue on Lever</button>;
+      if (companionPaired === true) {
+        return <button onClick={() => void continueInBrowser(row)} disabled={busy} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-50">Continue in Browser</button>;
+      }
+      return <button onClick={() => void continueOnLever(row)} disabled={busy} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-50">{`Continue on ${providerLabel(row.provider)}`}</button>;
     }
     if (row.availableActions.includes('REOPEN_PROVIDER')) {
-      return <button onClick={() => void continueOnLever(row)} disabled={busy} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-50">Open Lever Again</button>;
+      return <button onClick={() => void continueOnLever(row)} disabled={busy} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-50">{`Open ${providerLabel(row.provider)} Again`}</button>;
     }
     return <button onClick={() => void openDetails(row)} className="px-3 py-1.5 rounded-md text-xs font-medium bg-white border border-[var(--color-hairline)] text-[var(--color-muted)] hover:bg-[var(--color-brand-soft)]">View</button>;
   };
@@ -256,6 +305,11 @@ export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: ()
               {selected.availableActions.includes('START_APPLICATION') && (
                 <button onClick={() => void startApplication(selected)} disabled={busy} className="w-full px-3 py-2.5 rounded-lg text-sm font-semibold bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-50">
                   {startingId === selected.applicationId ? 'Preparing application…' : 'Start Application'}
+                </button>
+              )}
+              {selected.availableActions.includes('REVIEW_AND_SUBMIT') && (
+                <button onClick={() => void continueOnLever(selected)} disabled={busy} className="w-full px-3 py-2.5 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:opacity-90 disabled:opacity-50">
+                  Review &amp; Submit on Lever
                 </button>
               )}
               {selected.availableActions.includes('CONTINUE_PROVIDER') && (

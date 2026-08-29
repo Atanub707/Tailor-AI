@@ -9,6 +9,7 @@ export type UserApplicationStatus =
   | 'APPLYING'
   | 'ACTION_REQUIRED'
   | 'WAITING_FOR_YOU'
+  | 'READY_TO_SUBMIT'
   | 'APPLIED'
   | 'CHECK_SUBMISSION'
   | 'FAILED';
@@ -19,6 +20,7 @@ export const USER_STATUS_LABELS: Record<UserApplicationStatus, string> = {
   APPLYING: 'Applying',
   ACTION_REQUIRED: 'Action Required',
   WAITING_FOR_YOU: 'Waiting for You',
+  READY_TO_SUBMIT: 'Ready to Submit',
   APPLIED: 'Applied',
   CHECK_SUBMISSION: 'Check Submission',
   FAILED: 'Failed',
@@ -47,14 +49,31 @@ export interface HumanCheckpoint {
   createdAt?: string;
 }
 
-export type AvailableAction = 'VIEW' | 'START_APPLICATION' | 'CONTINUE_PROVIDER' | 'REOPEN_PROVIDER' | 'CONFIRM_SUBMITTED' | 'RETRY' | 'NONE';
+export type AvailableAction = 'VIEW' | 'START_APPLICATION' | 'CONTINUE_PROVIDER' | 'REOPEN_PROVIDER' | 'CONFIRM_SUBMITTED' | 'REVIEW_AND_SUBMIT' | 'RETRY' | 'NONE';
 
 export type ApplicationEventType =
   | 'APPLICATION_STARTED'
   | 'PROVIDER_HANDOFF'
   | 'USER_CONFIRMED_SUBMITTED'
   | 'SUBMISSION_CONFIRMED'
-  | 'SUBMISSION_UNCONFIRMED';
+  | 'SUBMISSION_UNCONFIRMED'
+  | 'SESSION_OPENED'
+  | 'PAGE_VERIFIED'
+  | 'FORM_DISCOVERED'
+  | 'FORM_CHANGED'
+  | 'FIELDS_FILLED'
+  | 'RESUME_ATTACHED'
+  | 'RESUME_ATTACHMENT_FAILED'
+  | 'CHECKPOINT_CLEARED'
+  | 'READY_FOR_USER_SUBMISSION'
+  | 'HUMAN_ACTION_REQUIRED'
+  | 'SUBMISSION_INITIATED'
+  | 'SUBMISSION_CONFIRMED'
+  | 'SUBMISSION_UNCONFIRMED'
+  | 'SUBMISSION_FAILED'
+  | 'SESSION_EXPIRED'
+  | 'PAGE_IDENTITY_MISMATCH'
+  | 'COMPANION_ERROR';
 
 export interface ApplicationEvent {
   id: string;
@@ -134,10 +153,13 @@ export function mapApplicationStatus(input: {
       case 'MANUAL_ACTION_REQUIRED':
         return hasHandoffEvent ? 'WAITING_FOR_YOU' : 'ACTION_REQUIRED';
       case 'READY_FOR_DRY_RUN':
-        // The form is automation-eligible but NO submission transport exists
-        // in this phase — a user stuck in "Applying" would be untruthful.
-        // Project an actionable manual boundary instead.
+        // Automation-eligible form without transport: actionable manual
+        // boundary (Phase 1 projection).
         return 'ACTION_REQUIRED';
+      case 'READY_FOR_USER_SUBMISSION':
+        return 'READY_TO_SUBMIT';
+      case 'SUBMISSION_OBSERVED':
+        return 'APPLYING';
       case 'BLOCKED':
         return 'FAILED';
       case 'PREPARING':
@@ -173,6 +195,8 @@ export function availableActions(status: UserApplicationStatus, checkpointType?:
       return ['REOPEN_PROVIDER', 'CONFIRM_SUBMITTED'];
     case 'READY':
       return ['START_APPLICATION'];
+    case 'READY_TO_SUBMIT':
+      return ['REVIEW_AND_SUBMIT'];
     case 'APPLIED':
       return ['VIEW'];
     case 'FAILED':

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Tailor AI Browser Companion — Pairing</title>
+  <style>
+    body { font-family: -apple-system, "Segoe UI", sans-serif; max-width: 460px; margin: 40px auto; padding: 0 20px; color: #1e293b; }
+    h1 { font-size: 18px; }
+    p { font-size: 13px; color: #475569; }
+    input { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; box-sizing: border-box; }
+    button { margin-top: 10px; padding: 10px 16px; border: 0; border-radius: 8px; background: #2563eb; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
+    button.secondary { background: #e2e8f0; color: #334155; }
+    #status { margin-top: 14px; font-size: 13px; }
+    .ok { color: #047857; } .err { color: #b91c1c; }
+    code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Tailor AI Browser Companion</h1>
+  <p>Pair this browser with your local Tailor AI instance. Open <b>Browser Companion → Pair Extension</b> in the Tailor AI app to get a one-time pairing code, then paste it below.</p>
+  <p>Everything stays on your machine. This extension never submits applications, never solves CAPTCHAs, and never touches your resume.</p>
+  <input id="code" placeholder="One-time pairing code" autocomplete="off">
+  <br>
+  <button id="pair">Pair</button>
+  <button id="unpair" class="secondary">Unpair</button>
+  <div id="status"></div>
+  <script src="options.js"></script>
+</body>
+</html>
