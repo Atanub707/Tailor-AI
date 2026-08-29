@@ -214,15 +214,7 @@ export const MasterCvScreen: React.FC<MasterCvScreenProps> = ({
         {/* Header */}
         <div className="px-5 py-3.5 border-b border-[var(--color-hairline)] bg-white flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-2">
-            <button
-              onClick={onClose}
-              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-[var(--color-faint)] bg-white hover:bg-[#FAFAF9] border border-[var(--color-hairline)] transition-colors cursor-pointer"
-              title="Back to dashboard"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Back</span>
-            </button>
-            <User className="w-5 h-5 text-[var(--color-muted)] ml-1" />
+            <User className="w-5 h-5 text-[var(--color-muted)]" />
             <div>
               <h2 className="text-sm font-bold text-[var(--color-ink)] leading-tight">Master Candidate CV</h2>
               <div className="flex items-center gap-2 rounded-xl border border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] px-3 py-2 text-[11px] text-[var(--color-brand-strong)] mt-2">
@@ -448,14 +440,6 @@ export const MasterCvScreen: React.FC<MasterCvScreenProps> = ({
           {/* Sticky header */}
           <div className="px-6 py-3.5 border-b border-[var(--color-hairline)] bg-white flex items-center justify-between shrink-0">
             <div className="flex items-center gap-3.5 min-w-0">
-              <button
-                type="button"
-                onClick={() => { setAiState('idle'); setCompressResult(null); }}
-                className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-[var(--color-faint)] bg-white hover:bg-[#FAFAF9] border border-[var(--color-hairline)] transition-colors cursor-pointer"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Back</span>
-              </button>
               <span className="text-sm font-extrabold text-[var(--color-ink)] whitespace-nowrap">AI Compression Result</span>
               <span className="inline-flex items-center gap-1.5 bg-[#FAFAF9] border border-[var(--color-hairline)] rounded-full px-3 py-1">
                 <span className="text-xs font-extrabold text-[var(--color-faint)] line-through">{pagesBefore > 0 ? `${pagesBefore} pages` : '…'}</span>

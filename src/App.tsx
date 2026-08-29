@@ -620,34 +620,7 @@ export default function App() {
             apifyAvailable={!!config?.apify.enabled && !!config?.apify.token}
           />
 
-          {/* Add jobs — quick access to every source (folded screens) */}
-          <div className="flex flex-wrap items-center gap-2 px-1 pt-2">
-            <span className="text-[10.5px] font-bold uppercase tracking-widest text-[var(--color-faint)]">Add jobs:</span>
-            <button
-              onClick={() => navigate('/job-portals')}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-[var(--color-hairline)] bg-white transition-colors cursor-pointer hover:bg-[var(--color-brand-soft)] hover:border-[var(--color-brand-line)]"
-              style={{ color: 'var(--color-muted)' }}
-              title="Browse 190+ job portals worldwide"
-            >
-              Browse 190+ portals
-            </button>
-            <button
-              onClick={() => navigate('/linkedin-posts')}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-[var(--color-hairline)] bg-white transition-colors cursor-pointer hover:bg-[#F5F3FF] hover:border-[#E9D5FF]"
-              style={{ color: 'var(--color-muted)' }}
-              title="Job openings recruiters share as posts (last 24h)"
-            >
-              LinkedIn posts
-            </button>
-            <button
-              onClick={() => navigate('/manual-jd')}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-[var(--color-hairline)] bg-white transition-colors cursor-pointer hover:bg-[var(--color-brand-soft)] hover:border-[var(--color-brand-line)]"
-              style={{ color: 'var(--color-muted)' }}
-              title="Paste a job description (Cmd+J)"
-            >
-              Paste a job description
-            </button>
-          </div>
+
 
           {/* Main Jobs Matrix View */}
           <main>

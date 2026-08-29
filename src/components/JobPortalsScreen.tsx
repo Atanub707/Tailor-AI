@@ -157,13 +157,6 @@ export const JobPortalsScreen: React.FC<JobPortalsScreenProps> = ({ isOpen, onCl
       {/* Header */}
       <div className="relative px-6 py-3.5 border-b border-[var(--color-hairline)] bg-white/90 backdrop-blur-md flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
-          <button
-            onClick={onClose}
-            className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-[var(--color-faint)] bg-white hover:bg-[#FAFAF9] border border-[var(--color-hairline)] transition-colors cursor-pointer"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Back</span>
-          </button>
         </div>
 
         {/* Centered headline */}

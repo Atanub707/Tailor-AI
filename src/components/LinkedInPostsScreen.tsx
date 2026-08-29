@@ -215,14 +215,6 @@ export const LinkedInPostsScreen: React.FC<{ onClose: () => void }> = ({ onClose
   return (
     <div className="lp-screen">
       <header className="lp-hdr">
-        <button
-          onClick={onClose}
-          className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-[var(--color-faint)] bg-white hover:bg-[#FAFAF9] border border-[var(--color-hairline)] transition-colors cursor-pointer"
-          title="Back to dashboard"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          <span>Back</span>
-        </button>
         <div className="lp-hdr-logo"><span className="lp-orb" aria-hidden="true"></span></div>
         <div className="lp-hdr-ttl">
           <b>LinkedIn Posts</b>

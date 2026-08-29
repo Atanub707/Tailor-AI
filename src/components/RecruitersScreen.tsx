@@ -350,7 +350,6 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
     <div className="rc-screen">
       {/* Header */}
       <header className="rc-hdr">
-        <button className="rc-back" onClick={onClose}>← Back</button>
         <div className="rc-ttl">
           <b>Recruiters</b>
           <span>Identity cards — emails, phones & LinkedIn from job descriptions.</span>

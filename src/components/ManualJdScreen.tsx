@@ -651,9 +651,6 @@ export const ManualJdScreen: React.FC<ManualJdScreenProps> = ({ isOpen, onClose,
       {/* Page header — title left, compact segmented stages center, actions right */}
       <header className="px-4 sm:px-5 py-2.5 border-b border-[var(--color-hairline)] bg-white flex items-center gap-3 shrink-0">
         <div className="flex items-center gap-2.5 min-w-0">
-          <button onClick={onClose} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-semibold text-[var(--color-muted)] bg-white border border-[var(--color-hairline)] hover:bg-[#FAFAF9] transition-colors cursor-pointer shrink-0">
-            <ArrowLeft className="w-3.5 h-3.5" /> Back
-          </button>
           <div className="min-w-0">
             <h1 className="text-[13px] font-bold text-[var(--color-ink)] leading-tight">Manual JD</h1>
             <p className="text-[10px] text-[var(--color-faint)] font-medium">Paste a JD — get a tailored CV</p>

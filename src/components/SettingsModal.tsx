@@ -436,7 +436,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     <div className="st-screen">
       {/* ── Header ── */}
       <header className="st-hdr">
-        <button className="st-hbtn" onClick={onClose}><ArrowLeft size={15} weight="bold" /> Back</button>
         <div className="st-ttl">Settings <small>Tailor CV workspace</small></div>
         <div className="st-spacer" />
         <span className={`st-status ${dirty ? 'warn' : ''}`}>
