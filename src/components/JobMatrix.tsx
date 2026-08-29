@@ -383,14 +383,6 @@ const JobCard = React.memo(function JobCard({
           )}
         </div>
 
-        {/* View */}
-        <button
-          onClick={() => onSelectJob(job)}
-          className="px-3.5 py-2 rounded-lg text-xs font-semibold bg-white hover:bg-[var(--color-brand-soft)] border border-[var(--color-hairline)] text-[var(--color-muted)] transition-colors cursor-pointer min-h-[38px]"
-        >
-          View
-        </button>
-
         {applyError && (
           <div className="mt-1.5 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 max-w-[520px]" role="status">
             {applyError}

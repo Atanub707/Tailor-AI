@@ -81,9 +81,10 @@ const CARD = fs.readFileSync(path.join(process.cwd(), 'src/components/JobMatrix.
 const DETAIL = fs.readFileSync(path.join(process.cwd(), 'src/components/JobDetailModal.tsx'), 'utf8');
 
 describe('Job discovery UX — card surface', () => {
-  it('primary journey is Match → View → Apply with direct secondary actions', () => {
+  it('primary journey is Match → Apply (title opens details) with direct secondary actions', () => {
     expect(CARD).toContain('Check match');
-    expect(CARD).toMatch(/View\s*<\/button>/);
+    expect(CARD).not.toMatch(/View\s*<\/button>/);
+    expect(CARD).toContain('onClick={() => onSelectJob(job)}');
     expect(CARD).toMatch(/Apply|Preparing…\s*<\/button>/);
     expect(CARD).toContain('Mark as applied');
     expect(CARD).toContain('Remove job');
