@@ -71,17 +71,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (type === 'TAILOR_ASSIST_EVENT') {
     // Content script → localhost event relay (bearer already stored in
     // chrome.storage.session for this SW instance).
-    const { sessionId, eventType, reasonCode, metadata } = message;
+    const { sessionId, eventType, reasonCode, metadata, clientEventId } = message;
     if (!sessionId || !eventType) { sendResponse({ ok: false, code: 'INVALID_EVENT' }); return; }
     (async () => {
       const s = await chrome.storage.session.get('bearer');
       if (!s.bearer) { sendResponse({ ok: false, code: 'NO_BEARER' }); return; }
       await localFetch(`/sessions/${encodeURIComponent(sessionId)}/events`, {
         method: 'POST',
-        body: JSON.stringify({ type: eventType, reasonCode, metadata }),
+        body: JSON.stringify({ type: eventType, reasonCode, metadata, clientEventId }),
         headers: { Authorization: `Bearer ${s.bearer}` },
       });
       sendResponse({ ok: true });
+    })().catch((e) => sendResponse({ ok: false, code: String(e.message || e) }));
+    return true;
+  }
+
+  if (type === 'LEVER_FETCH_RESUME') {
+    // Fetch the EXACT approved resume bytes from the backend (session
+    // bearer only) and hand ONLY the bytes to the content script.
+    const { sessionId } = message;
+    if (!sessionId) { sendResponse({ ok: false, code: 'NO_SESSION' }); return; }
+    (async () => {
+      const s = await chrome.storage.session.get('bearer');
+      if (!s.bearer) { sendResponse({ ok: false, code: 'NO_BEARER' }); return; }
+      const res = await fetch(`${API_BASE}/sessions/${encodeURIComponent(sessionId)}/resume`, {
+        headers: { Authorization: `Bearer ${s.bearer}` },
+        targetAddressSpace: 'local',
+      });
+      if (!res.ok) { sendResponse({ ok: false, code: 'RESUME_' + res.status }); return; }
+      const bytes = await res.arrayBuffer();
+      const cd = res.headers.get('Content-Disposition') || '';
+      const m = cd.match(/filename="([^"]+)"/);
+      const filename = m ? m[1] : 'resume.pdf';
+      // Route to the tab's content script (the lever page is the only
+      // recipient; bytes never stored).
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab || !tab.id) { sendResponse({ ok: false, code: 'NO_TAB' }); return; }
+      const r = await chrome.tabs.sendMessage(tab.id, { type: 'LEVER_RESUME', sessionId, bytes, filename, mimeType: 'application/pdf' });
+      bytes = null;
+      sendResponse({ ok: !!r && r.ok === true, code: r?.code });
     })().catch((e) => sendResponse({ ok: false, code: String(e.message || e) }));
     return true;
   }

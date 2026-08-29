@@ -209,7 +209,7 @@ describe('Session security', () => {
     const r2 = recordCompanionEvent(getDb(), claimed.token, 'PAGE_VERIFIED'); // idempotent replay
     expect(r2.accepted).toBe(true);
     let e3: any; try { recordCompanionEvent(getDb(), claimed.token, 'SUBMISSION_CONFIRMED'); } catch (e) { e3 = e; }
-    expect(e3?.code).toBe('UNKNOWN_EVENT');
+    expect(e3?.code).toBe('INVALID_EVIDENCE'); // Phase 2: valid event but evidence required
     let e4: any; try { recordCompanionEvent(getDb(), claimed.token, 'ARBITRARY_STRING'); } catch (e) { e4 = e; }
     expect(e4?.code).toBe('UNKNOWN_EVENT');
     const { getEventsForAttempt } = await import('../../server/applicationExperience/applicationEvents.js');

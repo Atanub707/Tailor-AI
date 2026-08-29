@@ -2604,6 +2604,42 @@ const sanitizeAttemptDryRun = (a: any) => ({
       res.status(500).json({ error: String(err?.message || 'Claim failed.').slice(0, 200) });
     }
   });
+  // Extension: EXACT immutable resume bytes (session bearer ONLY; full
+  // artifact validation per request; never served to installSecret).
+  app.get('/api/browser-companion/sessions/:id/resume', async (req, res) => {
+    try {
+      const { serveSessionResume } = await import('./server/browserCompanion/companionService.js');
+      const { assertLoopbackHost } = await import('./server/browserCompanion/companionService.js');
+      assertLoopbackHost(req.headers.host);
+      const token = bearerToken(req);
+      const { bytes, filename } = serveSessionResume(getDb(), token, req.params.id);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.send(bytes);
+    } catch (err: any) {
+      if (err?.name === 'CompanionError') return res.status(403).json({ error: err.message, code: err.code });
+      res.status(500).json({ error: String(err?.message || 'Resume failed.').slice(0, 200) });
+    }
+  });
+  // Web UI: renew a BrowserAssistSession for an attempt (human checkpoints
+  // can outlive the 10-minute session; renewal re-binds everything).
+  app.post('/api/browser-companion/sessions/renew', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { createCompanionSession } = await import('./server/browserCompanion/companionService.js');
+      const { attemptId } = req.body || {};
+      if (!attemptId) return res.status(400).json({ error: 'attemptId required.' });
+      const r = createCompanionSession(getDb(), userId, String(attemptId));
+      res.json(r);
+    } catch (err: any) {
+      if (err?.name === 'CompanionError') return res.status(409).json({ error: err.message, code: err.code });
+      res.status(500).json({ error: String(err?.message || 'Renewal failed.').slice(0, 200) });
+    }
+  });
+
   // Extension: session payload (approved fields only; bearer token)
   app.get('/api/browser-companion/sessions/:id/payload', async (req, res) => {
     try {

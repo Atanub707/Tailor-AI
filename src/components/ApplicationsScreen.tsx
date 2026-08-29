@@ -19,7 +19,8 @@ interface Details {
 const STATUS_LABEL: Record<string, string> = {
   PREPARING: 'Preparing', READY: 'Ready', APPLYING: 'Applying',
   ACTION_REQUIRED: 'Action Required', WAITING_FOR_YOU: 'Waiting for You',
-  APPLIED: 'Applied', CHECK_SUBMISSION: 'Check Submission', FAILED: 'Failed',
+  READY_TO_SUBMIT: 'Ready to Submit', APPLIED: 'Applied',
+  CHECK_SUBMISSION: 'Check Submission', FAILED: 'Failed',
 };
 const STATUS_TONE: Record<string, string> = {
   ACTION_REQUIRED: 'bg-amber-50 text-amber-800 border-amber-200',
@@ -30,6 +31,7 @@ const STATUS_TONE: Record<string, string> = {
   PREPARING: 'bg-slate-50 text-slate-700 border-slate-200',
   READY: 'bg-sky-50 text-sky-800 border-sky-200',
   APPLYING: 'bg-slate-50 text-slate-700 border-slate-200',
+  READY_TO_SUBMIT: 'bg-emerald-50 text-emerald-800 border-emerald-200',
 };
 const DEFAULT_TONE = 'bg-slate-50 text-slate-700 border-slate-200';
 
@@ -195,6 +197,9 @@ export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: ()
         {startingId === row.applicationId ? 'Preparing application…' : 'Start Application'}
       </button>;
     }
+    if (row.availableActions.includes('REVIEW_AND_SUBMIT')) {
+      return <button onClick={() => void continueOnLever(row)} disabled={busy} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-emerald-600 text-white hover:opacity-90 disabled:opacity-50">Review &amp; Submit on Lever</button>;
+    }
     if (row.availableActions.includes('CONTINUE_PROVIDER')) {
       if (companionPaired === true) {
         return <button onClick={() => void continueInBrowser(row)} disabled={busy} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-50">Continue in Browser</button>;
@@ -298,6 +303,11 @@ export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: ()
               {selected.availableActions.includes('START_APPLICATION') && (
                 <button onClick={() => void startApplication(selected)} disabled={busy} className="w-full px-3 py-2.5 rounded-lg text-sm font-semibold bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-50">
                   {startingId === selected.applicationId ? 'Preparing application…' : 'Start Application'}
+                </button>
+              )}
+              {selected.availableActions.includes('REVIEW_AND_SUBMIT') && (
+                <button onClick={() => void continueOnLever(selected)} disabled={busy} className="w-full px-3 py-2.5 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:opacity-90 disabled:opacity-50">
+                  Review &amp; Submit on Lever
                 </button>
               )}
               {selected.availableActions.includes('CONTINUE_PROVIDER') && (
