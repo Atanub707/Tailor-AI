@@ -2411,12 +2411,18 @@ const sanitizeDryRun = (r: any) => {
     attempt: r.attempt ? { id: r.attempt.id, status: r.attempt.status, provider: r.attempt.provider, externalJobId: r.attempt.externalJobId, executionKey: r.attempt.executionKey?.slice(0, 16) } : null,
     requirementsMatch: r.requirementsMatch,
     captcha: r.captcha,
+    dryRunAvailable: r.dryRunAvailable,
+    formAutomationEligible: r.formAutomationEligible,
+    submissionTransportEnabled: r.submissionTransportEnabled,
     executionEligible: r.executionEligible,
     reason: r.reason ?? null,
     payload: r.payload ? {
       target: r.payload.target,
       method: r.payload.method,
-      textParts: parts.filter((p: any) => p.kind === 'TEXT').map((p: any) => ({ name: p.name, classification: p.classification, semantic: p.semantic, value: p.kind === 'TEXT' && /password|token|secret|key/i.test(p.name) ? '[REDACTED]' : p.value })),
+      textParts: parts.filter((p: any) => p.kind === 'TEXT').map((p: any) => {
+        const sensitive = /password|token|secret|key/i.test(p.name) || p.name.includes('baseTemplate');
+        return { name: p.name, classification: p.classification, semantic: p.semantic, value: sensitive ? '[REDACTED]' : p.value };
+      }),
       fileParts: parts.filter((p: any) => p.kind === 'FILE').map((p: any) => ({ name: p.name, filename: p.filename, mimeType: p.mimeType, size: p.size, sha256: p.sha256.slice(0, 16) })),
       omittedTracking: r.payload.omittedTracking,
       captcha: r.payload.captcha,

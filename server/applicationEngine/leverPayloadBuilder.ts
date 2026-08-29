@@ -40,6 +40,17 @@ const STANDARD_NAMES: Array<{ name: string; canonical: string }> = [
   { name: 'urls[Other]', canonical: 'websiteUrl' },
 ];
 
+const MAX_FIELD_NAME_CHARS = 200;
+const SAFE_NAME_RE = /^[A-Za-z0-9_\[\].-]+$/;
+
+function assertSafeFieldName(name: string): void {
+  if (!name || name.length === 0) throw new PayloadBuildError('VALIDATION_FAILED', 'Empty provider field name.');
+  if (name.length > MAX_FIELD_NAME_CHARS) throw new PayloadBuildError('VALIDATION_FAILED', 'Provider field name exceeds size limit.');
+  if (/[\r\n]/.test(name)) throw new PayloadBuildError('VALIDATION_FAILED', 'Provider field name contains CR/LF (header-injection risk).');
+  if (name.includes('"')) throw new PayloadBuildError('VALIDATION_FAILED', 'Provider field name contains a quote character.');
+  if (!SAFE_NAME_RE.test(name)) throw new PayloadBuildError('VALIDATION_FAILED', `Unsafe provider field name: ${name.slice(0, 40)}`);
+}
+
 export class PayloadBuildError extends Error {
   constructor(public readonly reason: string, message: string) {
     super(message);
@@ -83,11 +94,16 @@ export function buildLeverPayload(input: PayloadInput): MultipartPayload {
       if (field.required) throw new PayloadBuildError('VALIDATION_FAILED', `Required field ${s.name} has no mapped answer.`);
       continue; // optional unanswered → omit
     }
-    const value = String(mapped.value ?? '').trim();
-    if (value === '') {
+    if (mapped.value === null || mapped.value === undefined) {
+      if (field.required) throw new PayloadBuildError('VALIDATION_FAILED', `Required field ${s.name} has no mapped answer.`);
+      continue; // optional unanswered → omit (never ''/undefined/null/"null")
+    }
+    const value = String(mapped.value).trim();
+    if (value === '' || value === 'null' || value === 'undefined') {
       if (field.required) throw new PayloadBuildError('VALIDATION_FAILED', `Required field ${s.name} is empty.`);
       continue;
     }
+    assertSafeFieldName(s.name);
     parts.push({ kind: 'TEXT', name: s.name, value, classification: 'REQUIRED', semantic: true });
   }
 
@@ -102,12 +118,20 @@ export function buildLeverPayload(input: PayloadInput): MultipartPayload {
       if (f.required) throw new PayloadBuildError('VALIDATION_FAILED', `Required question ${f.label} unanswered.`);
       continue; // optional unanswered → omit
     }
+    assertSafeFieldName(f.providerFieldId);
     const v = mapped.value;
+    if (v === null || v === undefined) {
+      if (f.required) throw new PayloadBuildError('VALIDATION_FAILED', `Required question ${f.label} unanswered.`);
+      continue;
+    }
     if (Array.isArray(v)) {
       // MULTI_SELECT → repeated key, deterministic order (provider order).
       if (f.required && v.length === 0) throw new PayloadBuildError('VALIDATION_FAILED', `Required multi-select ${f.label} empty.`);
+      const seen = new Set<string>();
       for (const item of v) {
         const text = String(item);
+        if (seen.has(text)) throw new PayloadBuildError('VALIDATION_FAILED', `Duplicate multi-select value "${text}" for ${f.label}.`);
+        seen.add(text);
         if (!optionValid(text, f.options)) throw new PayloadBuildError('VALIDATION_FAILED', `Option "${text}" not valid for ${f.label}.`);
         parts.push({ kind: 'TEXT', name: f.providerFieldId, value: text, classification: 'REQUIRED', semantic: true });
       }
@@ -145,6 +169,8 @@ export function buildLeverPayload(input: PayloadInput): MultipartPayload {
   // Resume — exact immutable package PDF artifact.
   const resumeField = requirements.fields.find((f) => f.providerFieldId === 'resume');
   if (resumeField && resumeField.required) {
+    // Generated filename must be multipart-safe (no CR/LF, quotes, traversal).
+    if (/[\r\n\"\/\\]|\.\./.test(resume.filename)) throw new PayloadBuildError('VALIDATION_FAILED', 'Unsafe resume filename.');
     parts.push({
       kind: 'FILE', name: 'resume', filename: resume.filename, mimeType: resume.mimeType,
       size: resume.size, sha256: resume.sha256, artifactReference: resume.artifactReference,

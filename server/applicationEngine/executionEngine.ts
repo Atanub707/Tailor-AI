@@ -27,25 +27,27 @@ export interface EligibilityInput {
 }
 
 /** Deterministic hash over all submission-semantic content (approval
- *  fingerprint — no timestamps, no transport metadata). */
+ *  fingerprint — no timestamps, no transport metadata). Canonical JSON
+ *  encoding is length-safe: values containing separators/newlines/unicode
+ *  cannot collide (no raw concatenation). */
 export function approvalFingerprint(plan: SubmissionPlan, pkg: ApplicationPackage, consents: ConsentApproval[], mappedFieldsHash: string, resumeArtifactHash: string): string {
-  const consentLine = consents
-    .map((c) => `${c.providerFieldId}:${c.classification}:${c.selectedValue}:${c.legalTextHash ?? ''}`)
-    .sort()
-    .join('|');
-  return sha256([
+  return sha256(JSON.stringify([
     plan.planFingerprint, pkg.snapshotHash, plan.requirementsFingerprint,
-    resumeArtifactHash, mappedFieldsHash, consentLine,
-  ].join('|'));
+    resumeArtifactHash, mappedFieldsHash,
+    consents
+      .map((c) => ({ field: c.providerFieldId, cls: c.classification, val: c.selectedValue, hash: c.legalTextHash ?? '' }))
+      .sort((a, b) => (a.field < b.field ? -1 : a.field > b.field ? 1 : 0)),
+  ]));
 }
 
+/** Canonical mapped-answers hash: sorted by providerFieldId, values via
+ *  JSON.stringify (multi-select arrays keep their semantic order). */
 export function mappedFieldsHash(plan: SubmissionPlan): string {
-  return sha256(
+  return sha256(JSON.stringify(
     plan.mappedFields
-      .map((m) => `${m.providerFieldId}=${JSON.stringify(m.value ?? '')}`)
-      .sort()
-      .join('|'),
-  );
+      .map((m) => ({ field: m.providerFieldId, value: m.value ?? '' }))
+      .sort((a, b) => (a.field < b.field ? -1 : a.field > b.field ? 1 : 0)),
+  ));
 }
 
 /** Execution eligibility gate — hard, structured, NO attempt otherwise. */
@@ -137,6 +139,15 @@ export interface DryRunResult {
   payloadFingerprint: string | null;
   requirementsMatch: boolean;
   captcha: { present: boolean; provider?: string };
+  dryRunAvailable: boolean;
+  /** Can this provider form theoretically be automated under current
+   *  constraints (no CAPTCHA, valid form, all required resolved)? */
+  formAutomationEligible: boolean;
+  /** Does Tailor AI currently have mutation transport enabled? Phase 1:
+   *  ALWAYS false — no submission transport exists. */
+  submissionTransportEnabled: boolean;
+  /** formAutomationEligible AND submissionTransportEnabled AND all gates.
+   *  Phase 1: ALWAYS false (invariant). */
   executionEligible: boolean;
   reason?: string;
 }
@@ -150,24 +161,32 @@ export async function prepareExecution(input: PrepareExecutionInput): Promise<Dr
   const resumeCheck = verifyResumeArtifact(input.pkg);
   if (!resumeCheck.ok) throw new ExecutionError((resumeCheck as any).reason, 'Resume artifact verification failed.');
 
+  // Auditability: create the attempt FIRST (PREPARING), then record the
+  // durable outcome via the central transition validator.
+  const attemptEntry = ensureAttempt(input.db, input.userId, input.plan, input.pkg, input.approval, 'PREPARING');
+  const attemptCreated = attemptEntry.created;
+
   // Fresh read-only GET via the REAL inspector (anti-burst + SSRF-safe).
   let fresh;
   try {
     fresh = await new LeverInspectionAdapter().inspect(input.plan.target);
   } catch (e: any) {
     if (e?.kind === 'PROVIDER_CHALLENGE' || e?.kind === 'FORM_CHANGED') {
-      const attempt = ensureAttempt(input.db, input.userId, input.plan, input.pkg, input.approval, 'MANUAL_ACTION_REQUIRED');
-      return { attempt, payload: null, payloadFingerprint: null, requirementsMatch: false, captcha: { present: true }, executionEligible: false, reason: e.kind };
+      if (attemptCreated) transitionAttempt(input.db, input.userId, attemptEntry.attempt.id, 'MANUAL_ACTION_REQUIRED');
+      const attempt = getAttempt(input.db, input.userId, attemptEntry.attempt.id) ?? attemptEntry.attempt;
+      return { attempt, payload: null, payloadFingerprint: null, requirementsMatch: false, captcha: { present: true }, dryRunAvailable: false, formAutomationEligible: false, submissionTransportEnabled: false, executionEligible: false, reason: e.kind };
     }
-    const attempt = ensureAttempt(input.db, input.userId, input.plan, input.pkg, input.approval, 'BLOCKED');
-    return { attempt, payload: null, payloadFingerprint: null, requirementsMatch: false, captcha: { present: false }, executionEligible: false, reason: e?.kind ?? 'UNKNOWN' };
+    if (attemptCreated) transitionAttempt(input.db, input.userId, attemptEntry.attempt.id, 'BLOCKED');
+    const attempt = getAttempt(input.db, input.userId, attemptEntry.attempt.id) ?? attemptEntry.attempt;
+    return { attempt, payload: null, payloadFingerprint: null, requirementsMatch: false, captcha: { present: false }, dryRunAvailable: false, formAutomationEligible: false, submissionTransportEnabled: false, executionEligible: false, reason: e?.kind ?? 'UNKNOWN' };
   }
 
   const requirementsMatch = fresh.fingerprint === input.plan.requirementsFingerprint;
   const captcha = { present: (fresh as any).captcha?.present === true || (fresh as any).providerMetadata?.hcaptcha !== undefined, provider: 'hCaptcha' };
   if (!requirementsMatch) {
-    const attempt = ensureAttempt(input.db, input.userId, input.plan, input.pkg, input.approval, 'BLOCKED');
-    return { attempt, payload: null, payloadFingerprint: null, requirementsMatch: false, captcha, executionEligible: false, reason: 'FORM_CHANGED' };
+    if (attemptCreated) transitionAttempt(input.db, input.userId, attemptEntry.attempt.id, 'BLOCKED');
+    const attempt = getAttempt(input.db, input.userId, attemptEntry.attempt.id) ?? attemptEntry.attempt;
+    return { attempt, payload: null, payloadFingerprint: null, requirementsMatch: false, captcha, dryRunAvailable: false, formAutomationEligible: false, submissionTransportEnabled: false, executionEligible: false, reason: 'FORM_CHANGED' };
   }
 
   // Build the LOCAL payload (never sent).
@@ -187,27 +206,35 @@ export async function prepareExecution(input: PrepareExecutionInput): Promise<Dr
   const fp = payloadFingerprint(payload);
   payload.executionEligible = false; // Phase 1: never executable
 
-  const attempt = ensureAttempt(input.db, input.userId, input.plan, input.pkg, input.approval,
-    captcha.present ? 'MANUAL_ACTION_REQUIRED' : 'READY_FOR_DRY_RUN');
+  const finalStatus = captcha.present ? 'MANUAL_ACTION_REQUIRED' : 'READY_FOR_DRY_RUN';
+  if (attemptCreated) transitionAttempt(input.db, input.userId, attemptEntry.attempt.id, finalStatus);
+  const attempt = getAttempt(input.db, input.userId, attemptEntry.attempt.id) ?? attemptEntry.attempt;
 
+  // Phase-1 invariant: submission transport does not exist → ALWAYS false.
+  const submissionTransportEnabled = false;
+  const formAutomationEligible = !captcha.present && requirementsMatch;
   return {
     attempt,
     payload,
     payloadFingerprint: fp,
     requirementsMatch: true,
     captcha,
-    executionEligible: false,
+    dryRunAvailable: payload !== null,
+    formAutomationEligible,
+    submissionTransportEnabled,
+    executionEligible: formAutomationEligible && submissionTransportEnabled && false,
     reason: captcha.present ? 'CAPTCHA_REQUIRED' : undefined,
   };
 }
 
-/** Idempotent attempt creation — SQLite unique key is the durable authority. */
-function ensureAttempt(db: Database, userId: string, plan: SubmissionPlan, pkg: ApplicationPackage, approval: ApplicationApproval, status: AttemptStatus): ApplicationAttempt {
+/** Idempotent attempt creation — SQLite unique key is the durable authority.
+ *  Returns whether THIS call created the attempt (reused attempts are never
+ *  re-transitioned: a BLOCKED attempt does not magically become executable). */
+function ensureAttempt(db: Database, userId: string, plan: SubmissionPlan, pkg: ApplicationPackage, approval: ApplicationApproval, status: AttemptStatus): { attempt: ApplicationAttempt; created: boolean } {
   const key = executionKey({ userId, provider: plan.provider, externalJobId: plan.target.externalJobId, packageSnapshotHash: pkg.snapshotHash, planFingerprint: plan.planFingerprint });
   const existing = getAttemptsByExecutionKey(db, key);
   if (existing.length) {
-    // Reuse the existing attempt (idempotent). Phase-1 states only.
-    return existing[0];
+    return { attempt: existing[0], created: false };
   }
   assertPhase1Transition('PENDING_APPROVAL', status);
   const now = new Date().toISOString();
@@ -225,9 +252,9 @@ function ensureAttempt(db: Database, userId: string, plan: SubmissionPlan, pkg: 
   const res = storeAttempt(db, attempt);
   if (res.duplicate) {
     const existing = getAttemptsByExecutionKey(db, key);
-    if (existing.length) return existing[0];
+    if (existing.length) return { attempt: existing[0], created: false };
   }
-  return attempt;
+  return { attempt, created: true };
 }
 
 export function transitionAttempt(db: Database, userId: string, attemptId: string, to: AttemptStatus): ApplicationAttempt | null {

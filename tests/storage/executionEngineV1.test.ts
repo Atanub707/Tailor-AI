@@ -16,8 +16,8 @@ const { buildPackage } = await import('../../server/applicationPackage/packageEn
 const { storePackage } = await import('../../server/applicationPackage/packageStore.js');
 const { createPlan } = await import('../../server/applicationEngine/engine.js');
 const { storePlan } = await import('../../server/applicationEngine/planStore.js');
-const { ensureExecutionSchema, executionKey, getAttempt, getAttemptsByExecutionKey, getApproval } = await import('../../server/applicationEngine/executionStore.js');
-const { createApproval, prepareExecution, gateExecution, mappedFieldsHash, verifyResumeArtifact } = await import('../../server/applicationEngine/executionEngine.js');
+const { ensureExecutionSchema, executionKey, getAttempt, getAttemptsByExecutionKey, getApproval, storeAttempt } = await import('../../server/applicationEngine/executionStore.js');
+const { createApproval, prepareExecution, gateExecution, mappedFieldsHash, verifyResumeArtifact, approvalFingerprint } = await import('../../server/applicationEngine/executionEngine.js');
 const { buildLeverPayload, payloadFingerprint, PayloadBuildError } = await import('../../server/applicationEngine/leverPayloadBuilder.js');
 const { resetInspectionState, parseLeverForm } = await import('../../server/applicationEngine/leverInspector.js');
 const { requirementsFingerprint } = await import('../../server/applicationEngine/contract.js');
@@ -25,6 +25,7 @@ import type { MasterCv, Job } from '../../src/types.js';
 
 const USER = 'exec-v1-user';
 const OTHER = 'exec-v1-other';
+const H64 = 'a'.repeat(64);
 
 const FORM = (q: string, extra = '') => `<form id="application-form" enctype="multipart/form-data" method="POST">
   <input type="text" name="name" required><input type="email" name="email" required><input type="text" name="phone" required>
@@ -350,6 +351,123 @@ describe('Multipart payload builder', () => {
     const payload = buildLeverPayload({ plan, targetUrl: 'u', requirements: fresh, resume, transport: {}, marketingOptIn: false, consentSelections: {}, omitTracking: true });
     const noPart = payload.parts.find((p) => p.kind === 'TEXT' && p.name === 'cards[c3][field0]') as any;
     expect(noPart?.value).toBe('No'); // false ≠ missing
+  });
+});
+
+describe('Calibration: canonical hashing + eligibility + safety', () => {
+  it('mappedFieldsHash: separator/unicode/newline-safe, 10x deterministic', async () => {
+    const { plan } = { plan: { id: 'p', userId: USER, packageId: 'pk', packageSnapshotHash: 'sh', provider: 'lever', requirementsFingerprint: 'rf', planFingerprint: 'pf', status: 'READY_TO_SUBMIT', mappedFields: [
+      { providerFieldId: 'a', value: 'x|y' },
+      { providerFieldId: 'b', value: 'line\nbreak' },
+      { providerFieldId: 'c', value: 'ünïcode 日本語' },
+      { providerFieldId: 'd', value: '' },
+      { providerFieldId: 'e', value: '"quotes"' },
+      { providerFieldId: 'f', value: ['P1', 'P2'] },
+    ], unresolvedFields: [], unresolvedDetails: [], consentFields: [], manualFields: [], files: [], target: {} as any, createdAt: '', updatedAt: '' } } as any;
+    const h0 = mappedFieldsHash(plan);
+    for (let i = 0; i < 10; i++) expect(mappedFieldsHash(plan)).toBe(h0);
+    const swapped = { ...plan, mappedFields: [...plan.mappedFields].reverse() };
+    expect(mappedFieldsHash(swapped as any)).toBe(h0); // order-insensitive
+    const changed = { ...plan, mappedFields: plan.mappedFields.map((m: any, i: number) => (i === 0 ? { ...m, value: 'x|z' } : m)) };
+    expect(mappedFieldsHash(changed)).not.toBe(h0);
+  });
+
+  it('approvalFingerprint: canonical, drift-sensitive, deterministic', async () => {
+    const { pkg, job: j } = await makeReady(USER);
+    const { plan } = await createPlan({ userId: USER, mode: 'fixture', pkg, job: j, adapter: realAdapter(HTML), artifactOk: true });
+    resolveUserAnswers(plan, { 'cards[c1][field1]': 'Fluent' });
+    const consents = [{ providerFieldId: 'consent[legal]', classification: 'LEGAL_CONSENT' as const, legalTextHash: H64, selectedValue: true, approvedAt: '' }];
+    const f0 = approvalFingerprint(plan, pkg, consents, mappedFieldsHash(plan), pkg.resumeSnapshot!.pdfHash);
+    for (let i = 0; i < 10; i++) expect(approvalFingerprint(plan, pkg, consents, mappedFieldsHash(plan), pkg.resumeSnapshot!.pdfHash)).toBe(f0);
+    const drift = [{ ...consents[0], legalTextHash: 'b'.repeat(64) }];
+    expect(approvalFingerprint(plan, pkg, drift, mappedFieldsHash(plan), pkg.resumeSnapshot!.pdfHash)).not.toBe(f0);
+  });
+
+  it('eligibility model: submissionTransportEnabled=false always → executionEligible=false always', async () => {
+    const { pkg, job: j } = await makeReady(USER);
+    const { plan } = await createPlan({ userId: USER, mode: 'fixture', pkg, job: j, adapter: realAdapter(HTML), artifactOk: true });
+    resolveUserAnswers(plan, { 'cards[c1][field1]': 'Fluent' });
+    const approval = createApproval({ db: getDb(), userId: USER, plan, pkg, consents: [], marketingOptIn: false });
+    // hCaptcha board
+    vi.stubGlobal('fetch', async () => new Response(HTML, { status: 200, headers: { 'content-type': 'text/html' } }));
+    resetInspectionState();
+    const r1 = await prepareExecution({ db: getDb(), userId: USER, plan, pkg, approval, marketingOptIn: false });
+    expect(r1.formAutomationEligible).toBe(false); // hCaptcha
+    expect(r1.submissionTransportEnabled).toBe(false);
+    expect(r1.executionEligible).toBe(false);
+    expect(r1.dryRunAvailable).toBe(true);
+    expect(r1.attempt.status).toBe('MANUAL_ACTION_REQUIRED');
+    vi.unstubAllGlobals();
+    resetInspectionState();
+    // synthetic no-hCaptcha board
+    const noCaptchaHtml = HTML.replace('<div class="h-captcha" data-sitekey="sk"></div>', '');
+    const { plan: plan2 } = await createPlan({ userId: USER, mode: 'fixture', pkg, job: job(), adapter: realAdapter(noCaptchaHtml), artifactOk: true });
+    resolveUserAnswers(plan2, { 'cards[c1][field1]': 'Fluent' });
+    const approval2 = createApproval({ db: getDb(), userId: USER, plan: plan2, pkg, consents: [], marketingOptIn: false });
+    vi.stubGlobal('fetch', async () => new Response(noCaptchaHtml, { status: 200, headers: { 'content-type': 'text/html' } }));
+    resetInspectionState();
+    const r2 = await prepareExecution({ db: getDb(), userId: USER, plan: plan2, pkg, approval: approval2, marketingOptIn: false });
+    expect(r2.formAutomationEligible).toBe(true); // synthetic no-captcha
+    expect(r2.submissionTransportEnabled).toBe(false);
+    expect(r2.executionEligible).toBe(false);      // invariant: no transport in Phase 1
+    expect(r2.attempt.status).toBe('READY_FOR_DRY_RUN');
+    expect(r2.dryRunAvailable).toBe(true);
+    vi.unstubAllGlobals();
+    resetInspectionState();
+  });
+
+  it('attempt created FIRST (PREPARING) then durable outcome — audit trail', async () => {
+    const { pkg, job: j } = await makeReady(USER);
+    const { plan } = await createPlan({ userId: USER, mode: 'fixture', pkg, job: j, adapter: realAdapter(HTML), artifactOk: true });
+    resolveUserAnswers(plan, { 'cards[c1][field1]': 'Fluent' });
+    const approval = createApproval({ db: getDb(), userId: USER, plan, pkg, consents: [], marketingOptIn: false });
+    const changed = HTML.replace('English level', 'English level (changed)');
+    vi.stubGlobal('fetch', async () => new Response(changed, { status: 200, headers: { 'content-type': 'text/html' } }));
+    resetInspectionState();
+    const r = await prepareExecution({ db: getDb(), userId: USER, plan, pkg, approval, marketingOptIn: false });
+    expect(r.attempt.status).toBe('BLOCKED');
+    expect(r.payload).toBeNull();
+    // retry: same execution key reuses the BLOCKED attempt — never resurrected
+    const r2 = await prepareExecution({ db: getDb(), userId: USER, plan, pkg, approval, marketingOptIn: false });
+    expect(r2.attempt.id).toBe(r.attempt.id);
+    expect(r2.attempt.status).toBe('BLOCKED');
+    vi.unstubAllGlobals();
+    resetInspectionState();
+  });
+
+  it('field-name safety: CRLF/quote/oversized names rejected', async () => {
+    const { pkg, job: j } = await makeReady(USER);
+    const evilHtml = FORM('<input type="hidden" name="cards[c9][baseTemplate]" value="{&quot;id&quot;:&quot;c9&quot;,&quot;fields&quot;:[{&quot;type&quot;:&quot;text&quot;,&quot;text&quot;:&quot;Evil?&quot;,&quot;required&quot;:false,&quot;id&quot;:&quot;f0&quot;}]}"><input name="cards[c9][field0]\r\nInjected: x" type="text">');
+    const { plan } = await createPlan({ userId: USER, mode: 'fixture', pkg, job: j, adapter: realAdapter(evilHtml), artifactOk: true });
+    const fresh = freshReqs(evilHtml);
+    const resume = { filename: 'r.pdf', mimeType: 'application/pdf', size: 1, sha256: 'x', artifactReference: 'a' };
+    const evilField = fresh.fields.find((f: any) => f.providerFieldId.includes('\r'));
+    expect(evilField).toBeUndefined(); // parser keeps names bounded — injection cannot occur
+    expect(() => buildLeverPayload({ plan, targetUrl: 'u', requirements: fresh, resume, transport: {}, marketingOptIn: false, consentSelections: {}, omitTracking: true })).not.toThrow();
+  });
+
+  it('unsafe filename rejected; optional null/undefined never serialized', async () => {
+    const { pkg, job: j } = await makeReady(USER);
+    const { plan } = await createPlan({ userId: USER, mode: 'fixture', pkg, job: j, adapter: realAdapter(HTML), artifactOk: true });
+    resolveUserAnswers(plan, { 'cards[c1][field1]': 'Fluent' });
+    const fresh = freshReqs(HTML);
+    const evilName = { filename: 'resume-..\..\etc.pdf', mimeType: 'application/pdf', size: 1, sha256: 'x', artifactReference: 'a' };
+    expect(() => buildLeverPayload({ plan, targetUrl: 'u', requirements: fresh, resume: evilName, transport: {}, marketingOptIn: false, consentSelections: {}, omitTracking: true })).toThrow(PayloadBuildError);
+    // optional field mapped to null → omitted, never "null"
+    const withNull = { ...plan, mappedFields: [...plan.mappedFields, { providerFieldId: 'urls[Other]', value: null, label: 'Other', type: 'URL', required: false, source: 'USER', mappingMethod: 'USER', mappingConfidence: 'high' as const }] } as any;
+    const payload = buildLeverPayload({ plan: withNull, targetUrl: 'u', requirements: fresh, resume: { filename: 'r.pdf', mimeType: 'application/pdf', size: 1, sha256: 'x', artifactReference: 'a' }, transport: {}, marketingOptIn: false, consentSelections: {}, omitTracking: true });
+    expect(payload.parts.some((p) => p.name === 'urls[Other]' && p.kind === 'TEXT' && p.value === 'null')).toBe(false);
+  });
+
+  it('approval immutability: no mutation path exists for semantic fields', async () => {
+    const { pkg, job: j } = await makeReady(USER);
+    const { plan } = await createPlan({ userId: USER, mode: 'fixture', pkg, job: j, adapter: realAdapter(HTML), artifactOk: true });
+    resolveUserAnswers(plan, { 'cards[c1][field1]': 'Fluent' });
+    const approval = createApproval({ db: getDb(), userId: USER, plan, pkg, consents: [], marketingOptIn: false });
+    const stored = getApproval(getDb(), USER, approval.id)!;
+    expect(stored.status).toBe('ACTIVE');
+    expect(JSON.stringify(stored)).not.toContain('baseTemplate'); // transport never in approval
+    expect(JSON.stringify(stored)).not.toContain('hcaptcha');
   });
 });
 

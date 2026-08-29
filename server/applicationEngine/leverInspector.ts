@@ -310,7 +310,10 @@ export function parseLeverForm(html: string): { fields: ApplicationField[]; prov
   });
 
   // CAPTCHA presence (read-only observation; never solved/bypassed).
-  if (form.find('[data-sitekey], .h-captcha, [class*="h-captcha"]').length || /hcaptcha|h-captcha/i.test(html)) {
+  // STRUCTURE-BASED only: a real widget inside the form (sitekey div or the
+  // hidden response input). Page-wide text references (JS bundles, inline
+  // scripts) are not evidence of an active challenge gate.
+  if (form.find('[data-sitekey], .h-captcha, [class*="h-captcha"], input[name="h-captcha-response"]').length) {
     providerMetadata['hcaptcha'] = 'hCaptcha';
   }
 
