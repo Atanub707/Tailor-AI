@@ -483,7 +483,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="st-card-body">
                   <label className="st-flabel" htmlFor="st-fname">Profile</label>
                   <div className="st-row">
-                    <div className="st-lbl"><label htmlFor="st-fname"><b>Full name</b><span>Used in tailored CVs and email signatures — edit in the Master CV.</span></label></div>
+                    <div className="st-lbl"><label htmlFor="st-fname"><b>Full name</b><span>Used in tailored CVs and email signatures — edit in the Applicant Profile.</span></label></div>
                     <input className={inputCls} id="st-fname" type="text" value={user?.name || ''} disabled />
                   </div>
                   <div className="st-row">

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { IdentificationBadge, SlidersHorizontal, FileText, SignOut, CaretDown, GlobeSimple, Question, Tray, ChatCircleDots, PaperPlaneTilt, UserCircle, SuitcaseSimple, List, House } from '@phosphor-icons/react';
+import { IdentificationBadge, SlidersHorizontal, SignOut, CaretDown, Question, Tray, ChatCircleDots, UserCircle, SuitcaseSimple, List, House } from '@phosphor-icons/react';
 
 interface NavbarProps {
   onOpenHome: () => void;
@@ -113,19 +113,16 @@ export const Navbar: React.FC<NavbarProps> = ({
   }> = [
     { label: 'Home', icon: House, onClick: onOpenHome, active: pathname === '/', color: 'var(--color-brand)' },
     { label: 'Applications', icon: SuitcaseSimple, onClick: () => onOpenApplications?.(), active: pathname === '/applications' || pathname.startsWith('/applications/'), badge: applicationsBadge, color: 'var(--color-brand)' },
-    { label: 'Job Portals', icon: GlobeSimple, onClick: () => onOpenJobPortals?.(), active: pathname === '/job-portals', hint: '190+', color: 'var(--color-brand)' },
-    { label: 'LinkedIn Posts', icon: PaperPlaneTilt, onClick: () => onOpenLinkedInPosts?.(), active: pathname === '/linkedin-posts', color: '#7C3AED' },
+    { label: 'Applicant Profile', icon: UserCircle, onClick: () => onOpenApplicantProfile?.(), active: pathname === '/applicant-profile', color: 'var(--color-brand)' },
+    { label: 'Master CV', icon: IdentificationBadge, onClick: onOpenMasterCv, active: pathname === '/master-cv', color: 'var(--color-brand)' },
     { label: 'Recruiters', icon: Tray, onClick: () => onOpenRecruiters?.(), active: pathname === '/recruiters', badge: recruiterBadge, color: 'var(--color-cta)' },
     { label: 'AI Interview', icon: ChatCircleDots, onClick: () => onOpenChat?.(), active: pathname === '/ai-interview', color: '#7C3AED' },
-    { label: 'Master CV', icon: IdentificationBadge, onClick: onOpenMasterCv, active: pathname === '/master-cv', color: 'var(--color-brand)' },
-    { label: 'Applicant Profile', icon: UserCircle, onClick: () => onOpenApplicantProfile?.(), active: pathname === '/applicant-profile', color: 'var(--color-brand)' },
-    { label: 'Manual JD', icon: FileText, onClick: onOpenManualJd, active: pathname === '/manual-jd', hint: '⌘J', color: 'var(--color-brand)' },
     { label: 'Settings', icon: SlidersHorizontal, onClick: onOpenSettings, active: pathname === '/settings', hint: '⌘,', color: 'var(--color-brand)' },
   ];
 
-  const workspaceItems = navItems.slice(1, 6);
-  const prepareItems = navItems.slice(6, 9);
-  const systemItems = navItems.slice(9);
+  const libraryItems = navItems.slice(0, 2);
+  const profileItems = navItems.slice(2, 4);
+  const toolsItems = navItems.slice(4);
 
   return (
     <header className="sticky top-0 z-30 bg-white" style={{ borderBottom: '1px solid var(--color-hairline)' }}>
@@ -263,18 +260,16 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Drawer nav */}
         <nav className="flex-1 overflow-y-auto px-3 py-2">
-          <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--color-faint)' }}>Main</div>
-          <DrawerItem {...navItems[0]} onNavigate={navigateFromDrawer} />
-          <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--color-faint)' }}>Workspace</div>
-          {workspaceItems.map((item) => (
+          <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--color-faint)' }}>Library</div>
+          {libraryItems.map((item) => (
             <DrawerItem key={item.label} {...item} onNavigate={navigateFromDrawer} />
           ))}
-          <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--color-faint)' }}>Prepare</div>
-          {prepareItems.map((item) => (
+          <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--color-faint)' }}>Profile</div>
+          {profileItems.map((item) => (
             <DrawerItem key={item.label} {...item} onNavigate={navigateFromDrawer} />
           ))}
-          <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--color-faint)' }}>System</div>
-          {systemItems.map((item) => (
+          <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--color-faint)' }}>Tools</div>
+          {toolsItems.map((item) => (
             <DrawerItem key={item.label} {...item} onNavigate={navigateFromDrawer} />
           ))}
         </nav>

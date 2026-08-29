@@ -660,6 +660,29 @@ async function startServer() {
         return;
       }
       saveApplicantProfile(profile, userId);
+      // SINGLE SOURCE OF TRUTH: the Applicant Profile owns identity — sync
+      // it into the Master CV so PDFs, packages, and tailored resumes always
+      // carry the same name/email/phone/location (never drift).
+      try {
+        const { getMasterCv, saveMasterCv } = await import('./server/storage/fileStorage.js');
+        const cv = getMasterCv(userId);
+        if (cv) {
+          const next = {
+            ...cv,
+            fullName: [profile.personal?.firstName, profile.personal?.lastName].filter(Boolean).join(' ') || cv.fullName,
+            email: profile.personal?.email || cv.email,
+            phone: profile.personal?.phone || cv.phone,
+            location: [profile.contact?.city, profile.contact?.country].filter(Boolean).join(', ') || cv.location,
+            linkedin: profile.links?.linkedin || cv.linkedin,
+            github: profile.links?.github || cv.github,
+            website: profile.links?.website || cv.website,
+          };
+          saveMasterCv(next, userId);
+        }
+      } catch (cvErr) {
+        // Profile save still succeeds even if the CV sync hiccups.
+        console.error('Profile → Master CV identity sync failed:', cvErr);
+      }
       res.json({ success: true, profile: getApplicantProfile(userId) });
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Failed to save profile.' });

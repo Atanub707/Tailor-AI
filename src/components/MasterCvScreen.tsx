@@ -225,6 +225,9 @@ export const MasterCvScreen: React.FC<MasterCvScreenProps> = ({
             <User className="w-5 h-5 text-[var(--color-muted)] ml-1" />
             <div>
               <h2 className="text-sm font-bold text-[var(--color-ink)] leading-tight">Master Candidate CV</h2>
+              <div className="flex items-center gap-2 rounded-xl border border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] px-3 py-2 text-[11px] text-[var(--color-brand-strong)] mt-2">
+                <b>Identity (name, email, phone, location, links)</b> is managed in the <b>Applicant Profile</b> — keep it up to date there and it flows into this CV automatically.
+              </div>
               <p className="text-[10.5px] text-[var(--color-faint)] font-medium">Edits apply to every score &amp; tailor · autosaved on Save</p>
             </div>
           </div>
