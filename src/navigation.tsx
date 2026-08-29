@@ -31,7 +31,6 @@ export const NAV_GROUPS: Array<{ id: NavGroupId; label: string }> = [
 export const NAV_ITEMS: NavigationItem[] = [
   { id: 'home', label: 'Home', icon: House, route: '/', group: 'library', activeFor: (p) => p === '/' },
   { id: 'applications', label: 'Applications', icon: SuitcaseSimple, route: '/applications', group: 'library', badgeKey: 'applications', activeFor: (p) => p === '/applications' || p.startsWith('/applications/') },
-  { id: 'applicant-profile', label: 'Applicant Profile', icon: UserCircle, route: '/applicant-profile', group: 'profile', activeFor: (p) => p === '/applicant-profile' },
   { id: 'master-cv', label: 'Master CV', icon: IdentificationBadge, route: '/master-cv', group: 'profile', activeFor: (p) => p === '/master-cv' },
   { id: 'recruiters', label: 'Recruiters', icon: Tray, route: '/recruiters', group: 'tools', badgeKey: 'recruiters', activeFor: (p) => p === '/recruiters' },
   { id: 'job-portals', label: 'Job Portals', icon: GlobeSimple, route: '/job-portals', group: 'tools', hint: '190+', activeFor: (p) => p === '/job-portals' },

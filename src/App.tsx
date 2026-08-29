@@ -30,7 +30,9 @@ export default function App() {
   const isSettingsOpen = pathname === '/settings';
   const isRecruitersOpen = pathname === '/recruiters';
   const isMasterCvOpen = pathname === '/master-cv';
+  // Applicant Profile is consolidated into Settings → Application Profile.
   const isApplicantProfileOpen = pathname === '/applicant-profile';
+  if (pathname === '/applicant-profile') return <Navigate to="/settings" replace />;
   const isManualJdOpen = pathname === '/manual-jd';
   const isJobPortalsOpen = pathname === '/job-portals';
   const isAiSystemOpen = pathname === '/ai-interview';

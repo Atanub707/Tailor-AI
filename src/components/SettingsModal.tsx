@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { HamburgerTrigger } from '../navigation';
+import { ProfileSections } from './ProfileSections';
+import type { ApplicantProfile } from '../types';
 import { AppConfig, LlmProvider } from '../types';
-import { ArrowLeft, User, LockKey, PlugsConnected, Brain, RocketLaunch, EnvelopeSimple, ShieldCheck, Key, Database, CheckCircle, CaretRight, Warning, Pulse, Check, Eye, EyeSlash, ArrowSquareOut, Info, GlobeSimple } from '@phosphor-icons/react';
+import { ArrowLeft, User, UserCircle, LockKey, PlugsConnected, Brain, RocketLaunch, EnvelopeSimple, ShieldCheck, Key, Database, CheckCircle, CaretRight, Warning, Pulse, Check, Eye, EyeSlash, ArrowSquareOut, Info, GlobeSimple } from '@phosphor-icons/react';
 import { RECOVERY_QUESTIONS } from '../constants/recoveryQuestions';
 import { PROVIDER_BASE_URLS as LLM_PRESETS } from '../constants/llmPresets';
 import { APIFY_SOURCES } from '../constants/sources';
@@ -132,7 +134,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [testMsg, setTestMsg] = useState('');
   const [savedToast, setSavedToast] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [activePanel, setActivePanel] = useState<'account' | 'security' | 'integration'>('account');
+  const [activePanel, setActivePanel] = useState<'account' | 'security' | 'integration' | 'profile'>('account');
   const [activeItab, setActiveItab] = useState<'llm' | 'apify' | 'email'>('llm');
   const [companionPaired, setCompanionPaired] = useState<boolean | null>(null);
   const [appPasswordConfigured, setAppPasswordConfigured] = useState(false);
@@ -418,6 +420,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const isGuest = !!user?.isGuest;
 
   const panels = [
+    { id: 'profile' as const, label: 'Application Profile', icon: UserCircle },
     { id: 'account' as const, label: 'Account', icon: User },
     { id: 'security' as const, label: 'Security', icon: LockKey },
     { id: 'integration' as const, label: 'Integrations', icon: PlugsConnected, count: 3 },
@@ -467,6 +470,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <main className="st-content">
 
           {/* ═══ ACCOUNT ═══ */}
+          {activePanel === 'profile' && (
+            <ProfilePanel />
+          )}
+
           {activePanel === 'account' && (
             <section className="st-panel" aria-label="Account settings">
               <div className="st-phead"><h2>Account</h2><p>Your profile, contact details and matching preferences.</p></div>
@@ -484,7 +491,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="st-card-body">
                   <label className="st-flabel" htmlFor="st-fname">Profile</label>
                   <div className="st-row">
-                    <div className="st-lbl"><label htmlFor="st-fname"><b>Full name</b><span>Used in tailored CVs and email signatures — edit in the Applicant Profile.</span></label></div>
+                    <div className="st-lbl"><label htmlFor="st-fname"><b>Full name</b><span>Managed in Settings → Application Profile — one source of truth.</span></label></div>
                     <input className={inputCls} id="st-fname" type="text" value={user?.name || ''} disabled />
                   </div>
                   <div className="st-row">
@@ -1288,3 +1295,64 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     </div>
   );
 };
+
+
+// ── Application Profile panel (canonical applicant data, one source of truth) ──
+function ProfilePanel() {
+  const [profile, setProfile] = React.useState<ApplicantProfile | null>(null);
+  const [saveState, setSaveState] = React.useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [errorMsg, setErrorMsg] = React.useState('');
+
+  React.useEffect(() => {
+    fetch('/api/applicant-profile')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('load failed'))))
+      .then((p) => setProfile(p))
+      .catch((e) => { setSaveState('error'); setErrorMsg(String(e?.message || 'Failed to load profile.')); });
+  }, []);
+
+  const update = (fn: (p: ApplicantProfile) => ApplicantProfile) => {
+    setProfile((prev) => (prev ? fn(prev) : prev));
+    setSaveState('idle');
+  };
+
+  const save = async () => {
+    if (!profile) return;
+    setSaveState('saving'); setErrorMsg('');
+    try {
+      const res = await fetch('/api/applicant-profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(profile) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Save failed.'); }
+      const d = await res.json();
+      setProfile(d.profile);
+      setSaveState('saved');
+      setTimeout(() => setSaveState((s2) => (s2 === 'saved' ? 'idle' : s2)), 2500);
+    } catch (e: any) {
+      setSaveState('error'); setErrorMsg(String(e?.message || 'Save failed.'));
+    }
+  };
+
+  return (
+    <section className="st-panel" aria-label="Application Profile">
+      <div className="st-phead"><h2>Application Profile</h2><p>Your reusable application identity — one source of truth for Auto-Apply, Tailor and Applications. Never auto-inferred.</p></div>
+      <div className="st-note-box">Your Master CV remains the source for professional history (experience, education, skills). This profile holds reusable identity and preference facts.</div>
+      {!profile ? (
+        <div className="text-sm text-[var(--color-faint)]">Loading profile…</div>
+      ) : (
+        <>
+          <ProfileSections profile={profile} update={update} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
+            <button
+              onClick={() => void save()}
+              disabled={saveState === 'saving'}
+              className="st-btn"
+              style={{ background: 'var(--st-primary)', color: '#fff', fontWeight: 800, padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer' }}
+            >
+              {saveState === 'saving' ? 'Saving…' : 'Save profile'}
+            </button>
+            {saveState === 'saved' && <span className="text-xs font-semibold" style={{ color: '#059669' }}>Saved.</span>}
+            {saveState === 'error' && <span className="text-xs font-semibold" style={{ color: '#DC2626' }}>{errorMsg}</span>}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}

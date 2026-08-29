@@ -13,7 +13,6 @@ const NAV = fs.readFileSync(path.join(process.cwd(), 'src/navigation.tsx'), 'utf
 const EXPECTED_ITEMS: Array<{ id: string; label: string; route: string; group: 'library' | 'profile' | 'tools' }> = [
   { id: 'home', label: 'Home', route: '/', group: 'library' },
   { id: 'applications', label: 'Applications', route: '/applications', group: 'library' },
-  { id: 'applicant-profile', label: 'Applicant Profile', route: '/applicant-profile', group: 'profile' },
   { id: 'master-cv', label: 'Master CV', route: '/master-cv', group: 'profile' },
   { id: 'recruiters', label: 'Recruiters', route: '/recruiters', group: 'tools' },
   { id: 'job-portals', label: 'Job Portals', route: '/job-portals', group: 'tools' },
@@ -145,6 +144,21 @@ describe('App shell — navigation system', () => {
     expect(tour).toContain('OPT-IN ONLY');
     // Tour steps target the current UI: the hamburger trigger, not dead selectors.
     expect(tour).toContain('button[aria-label="Open menu"]');
+  });
+});
+
+describe('Profile consolidation', () => {
+  it('Applicant Profile is consolidated: no nav item, deep link redirects, Settings owns the profile panel', () => {
+    expect(NAV).not.toContain("label: 'Applicant Profile'");
+    expect(NAV).not.toContain("'{ applicant-profile }'");
+    expect(NAV).not.toContain("id: 'applicant-profile'");
+    expect(APP).toContain("pathname === '/applicant-profile') return <Navigate to=\"/settings\" replace");
+    const settings = fs.readFileSync(path.join(process.cwd(), 'src/components/SettingsModal.tsx'), 'utf8');
+    expect(settings).toContain("label: 'Application Profile'");
+    expect(settings).toContain('ProfileSections');
+    expect(settings).toContain('ProfilePanel');
+    const profileSections = fs.readFileSync(path.join(process.cwd(), 'src/components/ProfileSections.tsx'), 'utf8');
+    expect(profileSections).toContain('export function ProfileSections');
   });
 });
 
