@@ -136,18 +136,21 @@ const JobCard = React.memo(function JobCard({
   // Final provider submission stays user-triggered.
   const navigate = useNavigate();
   const [applying, setApplying] = React.useState(false);
+  const [applyError, setApplyError] = React.useState('');
   const apply = async () => {
     if (applying) return; // double-click guard
     setApplying(true);
+    setApplyError('');
     try {
       const res = await fetch(`/api/jobs/${job.id}/application-package`, { method: 'POST' });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         const msg = d.error || 'Could not prepare the application.';
-        if (msg.includes('profile') || msg.includes('Profile') || msg.includes('JD') || msg.includes('job description')) {
-          alert(`${msg} — open the job for details, or check your Applicant Profile.`);
+        if (msg.includes('description') || msg.includes('JD')) {
+          // JD-less posting: show an inline notice instead of a dead-end alert.
+          setApplyError(msg);
         } else {
-          alert(`Could not prepare the application. ${msg} Please try again.`);
+          alert(`Could not prepare the application. ${msg}`);
         }
         return;
       }
@@ -321,6 +324,12 @@ const JobCard = React.memo(function JobCard({
         >
           View
         </button>
+
+        {applyError && (
+          <div className="mt-1.5 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 max-w-[520px]" role="status">
+            {applyError}
+          </div>
+        )}
 
         {/* Apply — primary */}
         <button
