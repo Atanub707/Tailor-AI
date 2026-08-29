@@ -438,9 +438,11 @@ const JobCard = React.memo(function JobCard({
         {/* Remove job — no confirmation */}
         <button
           onClick={() => onDeleteJob(job.id)}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors cursor-pointer min-h-[38px]"
+          aria-label="Remove job"
+          title="Remove job"
+          className="inline-flex items-center px-2 py-2 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors cursor-pointer min-h-[38px]"
         >
-          <Trash2 className="w-3.5 h-3.5" /> Remove
+          <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
     </div>
