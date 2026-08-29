@@ -2397,6 +2397,12 @@ function computePlanStatus(plan: { manualFields: unknown[]; consentFields: unkno
   // ── Application Engine V1 (Phase 1) — provider-neutral plans ──────────
   // Prepare-only: inspection + dry-run. NO submission endpoints.
 
+const bearerToken = (req: any): string | undefined => {
+  const h = String(req.headers?.authorization || '');
+  if (h.startsWith('Bearer ')) return h.slice(7);
+  return undefined;
+};
+
 const sanitizeSummary = (a: any) => ({
   applicationId: a.applicationId, planId: a.planId, attemptId: a.attemptId,
   jobId: a.jobId, jobTitle: a.jobTitle, company: a.company, provider: a.provider,
@@ -2514,6 +2520,120 @@ const sanitizeAttemptDryRun = (a: any) => ({
 
   // Ordinary unresolved answers (source=USER). Consent/EEO/UNKNOWN remain
   // review-only; READY_TO_SUBMIT plans are frozen (409).
+  // ── Browser Companion Phase 1: secure local bridge (loopback-only). ──
+  // Pairing (web UI, authenticated user)
+  app.post('/api/browser-companion/pairing-code', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { createPairingCode } = await import('./server/browserCompanion/companionService.js');
+      const { assertLoopbackHost } = await import('./server/browserCompanion/companionService.js');
+      assertLoopbackHost(req.headers.host);
+      const { code, expiresAt } = createPairingCode(getDb(), userId);
+      res.json({ code, expiresAt });
+    } catch (err: any) {
+      res.status(500).json({ error: String(err?.message || 'Pairing code failed.').slice(0, 200) });
+    }
+  });
+  // Extension pairing (loopback + rate-limited)
+  app.post('/api/browser-companion/pair', async (req, res) => {
+    try {
+      const { pairExtension } = await import('./server/browserCompanion/companionService.js');
+      const { assertLoopbackHost } = await import('./server/browserCompanion/companionService.js');
+      assertLoopbackHost(req.headers.host);
+      const { code } = req.body || {};
+      const r = pairExtension(getDb(), String(code || ''));
+      res.json(r);
+    } catch (err: any) {
+      if (err?.name === 'CompanionError') return res.status(401).json({ error: err.message, code: err.code });
+      res.status(500).json({ error: String(err?.message || 'Pairing failed.').slice(0, 200) });
+    }
+  });
+  // Extension presence handshake
+  app.post('/api/browser-companion/status', async (req, res) => {
+    try {
+      const { companionStatus } = await import('./server/browserCompanion/companionService.js');
+      const { assertLoopbackHost } = await import('./server/browserCompanion/companionService.js');
+      assertLoopbackHost(req.headers.host);
+      const { pairingId, installSecret } = req.body || {};
+      res.json(companionStatus(getDb(), String(pairingId || ''), String(installSecret || '')));
+    } catch (err: any) {
+      res.status(500).json({ error: String(err?.message || 'Status failed.').slice(0, 200) });
+    }
+  });
+  // Web UI unpair (authenticated user)
+  app.post('/api/browser-companion/unpair', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { unpairExtension } = await import('./server/browserCompanion/companionService.js');
+      const { pairingId } = req.body || {};
+      if (!pairingId) return res.status(400).json({ error: 'pairingId required.' });
+      unpairExtension(getDb(), String(pairingId));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: String(err?.message || 'Unpair failed.').slice(0, 200) });
+    }
+  });
+  // Web UI: create a BrowserAssistSession for an attempt (user-triggered)
+  app.post('/api/browser-companion/sessions', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { createCompanionSession } = await import('./server/browserCompanion/companionService.js');
+      const { attemptId } = req.body || {};
+      if (!attemptId) return res.status(400).json({ error: 'attemptId required.' });
+      const r = createCompanionSession(getDb(), userId, String(attemptId));
+      res.json(r);
+    } catch (err: any) {
+      if (err?.name === 'CompanionError') return res.status(409).json({ error: err.message, code: err.code });
+      res.status(500).json({ error: String(err?.message || 'Session creation failed.').slice(0, 200) });
+    }
+  });
+  // Extension: claim session bearer (paired extension only, one-time)
+  app.post('/api/browser-companion/sessions/:id/claim', async (req, res) => {
+    try {
+      const { claimSessionToken } = await import('./server/browserCompanion/companionService.js');
+      const { assertLoopbackHost } = await import('./server/browserCompanion/companionService.js');
+      assertLoopbackHost(req.headers.host);
+      const { pairingId, installSecret } = req.body || {};
+      const r = claimSessionToken(getDb(), String(pairingId || ''), String(installSecret || ''), req.params.id);
+      res.json(r);
+    } catch (err: any) {
+      if (err?.name === 'CompanionError') return res.status(401).json({ error: err.message, code: err.code });
+      res.status(500).json({ error: String(err?.message || 'Claim failed.').slice(0, 200) });
+    }
+  });
+  // Extension: session payload (approved fields only; bearer token)
+  app.get('/api/browser-companion/sessions/:id/payload', async (req, res) => {
+    try {
+      const { sessionPayload } = await import('./server/browserCompanion/companionService.js');
+      const { assertLoopbackHost } = await import('./server/browserCompanion/companionService.js');
+      assertLoopbackHost(req.headers.host);
+      const token = bearerToken(req);
+      const payload = sessionPayload(getDb(), token);
+      res.json(payload);
+    } catch (err: any) {
+      if (err?.name === 'CompanionError') return res.status(401).json({ error: err.message, code: err.code });
+      res.status(500).json({ error: String(err?.message || 'Payload failed.').slice(0, 200) });
+    }
+  });
+  // Extension: event intake (enum-only, idempotent, non-PII)
+  app.post('/api/browser-companion/sessions/:id/events', async (req, res) => {
+    try {
+      const { recordCompanionEvent } = await import('./server/browserCompanion/companionService.js');
+      const { assertLoopbackHost } = await import('./server/browserCompanion/companionService.js');
+      assertLoopbackHost(req.headers.host);
+      const token = bearerToken(req);
+      const { type, reasonCode, metadata } = req.body || {};
+      const r = recordCompanionEvent(getDb(), token, String(type || ''), reasonCode ? String(reasonCode) : undefined, metadata || {});
+      res.json(r);
+    } catch (err: any) {
+      if (err?.name === 'CompanionError') return res.status(401).json({ error: err.message, code: err.code });
+      res.status(500).json({ error: String(err?.message || 'Event failed.').slice(0, 200) });
+    }
+  });
+
   // ── Application Experience V1: user-facing dashboard + handoff. ──
   app.get('/api/applications', async (req, res) => {
     try {

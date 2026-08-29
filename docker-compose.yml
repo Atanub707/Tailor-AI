@@ -3,7 +3,10 @@ services:
     build: .
     container_name: ats-cv-tailor
     ports:
-      - "3000:3000"
+      # Loopback-only publication — Browser Companion security boundary.
+      # Container-internal networking is unaffected; LAN interfaces never
+      # expose the API.
+      - "127.0.0.1:3000:3000"
     volumes:
       # Live source mount — lets the app pull updates and restart itself.
       - ./:/app

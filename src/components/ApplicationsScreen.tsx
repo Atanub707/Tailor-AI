@@ -53,9 +53,10 @@ export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: ()
   const [details, setDetails] = React.useState<Details | null>(null);
   const [detailsOpen, setDetailsOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
-  const [startingId, setStartingId] = React.useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [toast, setToast] = React.useState('');
+  const [companionPaired, setCompanionPaired] = React.useState<boolean | null>(null);
+  const [startingId, setStartingId] = React.useState<string | null>(null);
 
   const fetchRows = React.useCallback(async () => {
     try {
@@ -73,6 +74,17 @@ export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: ()
 
   React.useEffect(() => {
     void fetchRows();
+    // Presence handshake — ask the extension bridge once, no spam.
+    const t = setTimeout(() => {
+      window.postMessage({ type: 'TAILOR_PING' }, '*');
+      const onPong = (e: MessageEvent) => {
+        if (e.data?.type !== 'TAILOR_PONG') return;
+        setCompanionPaired(e.data.paired === true);
+        window.removeEventListener('message', onPong);
+      };
+      window.addEventListener('message', onPong);
+    }, 400);
+    return () => clearTimeout(t);
   }, [fetchRows]);
 
   const openDetails = async (row: ApplicationRow) => {
@@ -83,6 +95,33 @@ export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: ()
       const res = await fetch(`/api/applications/${row.applicationId}/details`);
       if (res.ok) setDetails(await res.json().then((d) => d.details));
     } catch { /* details are optional */ }
+  };
+
+  const continueInBrowser = async (row: ApplicationRow) => {
+    if (!row.attemptId) return;
+    setBusy(true);
+    setError('');
+    try {
+      const res = await fetch('/api/browser-companion/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attemptId: row.attemptId }) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Could not start browser assist.'); }
+      const d = await res.json();
+      const started = await new Promise<boolean>((resolve) => {
+        const handler = (e: MessageEvent) => {
+          if (e.data?.type !== 'TAILOR_ASSIST_STARTED') return;
+          window.removeEventListener('message', handler);
+          resolve(e.data.ok === true);
+        };
+        window.addEventListener('message', handler);
+        window.postMessage({ type: 'TAILOR_START_ASSIST', sessionId: d.sessionId }, '*');
+      });
+      if (!started) throw new Error('The extension could not start browser assist. Use Continue on Lever instead.');
+      setToast('Application opened in the browser.');
+      await fetchRows();
+    } catch (e: any) {
+      setError(String(e?.message || 'Could not start browser assist.'));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const continueOnLever = async (row: ApplicationRow) => {
@@ -157,6 +196,9 @@ export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: ()
       </button>;
     }
     if (row.availableActions.includes('CONTINUE_PROVIDER')) {
+      if (companionPaired === true) {
+        return <button onClick={() => void continueInBrowser(row)} disabled={busy} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-50">Continue in Browser</button>;
+      }
       return <button onClick={() => void continueOnLever(row)} disabled={busy} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-50">Continue on Lever</button>;
     }
     if (row.availableActions.includes('REOPEN_PROVIDER')) {

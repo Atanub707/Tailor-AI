@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Tailor AI Browser Companion",
+  "version": "0.1.0",
+  "description": "Local-first assistant for approved Tailor AI applications. Fills approved fields on the real Lever page. Never submits, never solves CAPTCHAs, never touches your resume.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://jobs.lever.co/*",
+    "http://127.0.0.1:3000/*"
+  ],
+  "optional_host_permissions": [
+    "http://localhost:3000/*",
+    "http://[::1]:3000/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://jobs.lever.co/*"],
+      "js": ["content/lever.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": ["http://127.0.0.1:3000/*", "http://localhost:3000/*"],
+      "js": ["content/bridge.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+  "action": {
+    "default_title": "Tailor AI Browser Companion"
+  }
+}
