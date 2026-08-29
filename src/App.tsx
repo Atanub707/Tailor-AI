@@ -570,6 +570,7 @@ export default function App() {
           {/* Header Navigation */}
           <Navbar
             user={currentUser}
+            onOpenHome={() => navigate('/')}
             onLogout={handleLogout}
             onOpenMasterCv={() => navigate('/master-cv')}
             onOpenApplicantProfile={() => navigate('/applicant-profile')}
