@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { IdentificationBadge, SlidersHorizontal, SignOut, CaretDown, Question, Tray, ChatCircleDots, UserCircle, SuitcaseSimple, List, House } from '@phosphor-icons/react';
+import { IdentificationBadge, SlidersHorizontal, FileText, SignOut, CaretDown, GlobeSimple, Question, Tray, ChatCircleDots, PaperPlaneTilt, UserCircle, SuitcaseSimple, List, House } from '@phosphor-icons/react';
 
 interface NavbarProps {
   onOpenHome: () => void;
@@ -116,7 +116,10 @@ export const Navbar: React.FC<NavbarProps> = ({
     { label: 'Applicant Profile', icon: UserCircle, onClick: () => onOpenApplicantProfile?.(), active: pathname === '/applicant-profile', color: 'var(--color-brand)' },
     { label: 'Master CV', icon: IdentificationBadge, onClick: onOpenMasterCv, active: pathname === '/master-cv', color: 'var(--color-brand)' },
     { label: 'Recruiters', icon: Tray, onClick: () => onOpenRecruiters?.(), active: pathname === '/recruiters', badge: recruiterBadge, color: 'var(--color-cta)' },
+    { label: 'Job Portals', icon: GlobeSimple, onClick: () => onOpenJobPortals?.(), active: pathname === '/job-portals', hint: '190+', color: 'var(--color-brand)' },
+    { label: 'LinkedIn Posts', icon: PaperPlaneTilt, onClick: () => onOpenLinkedInPosts?.(), active: pathname === '/linkedin-posts', color: '#7C3AED' },
     { label: 'AI Interview', icon: ChatCircleDots, onClick: () => onOpenChat?.(), active: pathname === '/ai-interview', color: '#7C3AED' },
+    { label: 'Manual JD', icon: FileText, onClick: onOpenManualJd, active: pathname === '/manual-jd', hint: '⌘J', color: 'var(--color-brand)' },
     { label: 'Settings', icon: SlidersHorizontal, onClick: onOpenSettings, active: pathname === '/settings', hint: '⌘,', color: 'var(--color-brand)' },
   ];
 
