@@ -36,7 +36,7 @@ export const DownloadCvDropdown: React.FC<DownloadCvDropdownProps> = ({
       className={`inline-flex items-center space-x-1.5 rounded-md font-semibold bg-slate-900 hover:bg-slate-800 text-white transition-all shadow-xs cursor-pointer ${
         isSmall ? 'px-2.5 py-1.5 text-xs' : 'px-3.5 py-2 text-xs'
       } ${className}`}
-      title="Download Tailored ATS CV as PDF"
+      title="Download tailored resume as PDF"
     >
       <FileCode className={isSmall ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
       <span>{buttonText}</span>
