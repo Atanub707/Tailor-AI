@@ -2,25 +2,25 @@ import React from 'react';
 
 interface Checkpoint { type: string; reasonCode: string; title: string; description: string; provider: string }
 interface ApplicationRow {
-  applicationId: string; planId?: string; attemptId?: string; jobId: string;
+  applicationId: string; planId?: string; attemptId?: string; jobId: string; jobUrl?: string;
   jobTitle: string; company: string; provider: string;
   userStatus: string; checkpoint: Checkpoint | null;
   availableActions: string[]; updatedAt: string;
 }
 interface Details {
-  applicationId: string; jobTitle: string; company: string; provider: string;
+  resume?: { artifactHash: string; downloadUrl: string } | null;
   userConfirmed?: { confirmedAt: string; source: string };
   answeredFields: Array<{ label: string; value: string }>;
-  optionalOmittedCount: number; consentReviewCount: number;
-  resume: { artifactHash: string; downloadUrl: string } | null;
-  lastUpdated: string;
+  optionalOmittedCount: number;
+  consentReviewCount: number;
+  events?: Array<{ eventType: string; createdAt: string }>;
 }
 
 const STATUS_LABEL: Record<string, string> = {
   PREPARING: 'Preparing', READY: 'Ready', APPLYING: 'Applying',
   ACTION_REQUIRED: 'Action Required', WAITING_FOR_YOU: 'Waiting for You',
   READY_TO_SUBMIT: 'Ready to Submit', APPLIED: 'Applied',
-  CHECK_SUBMISSION: 'Check Submission', FAILED: 'Failed',
+  CHECK_SUBMISSION: 'Check Submission', MANUAL_REQUIRED: 'Manual application required', FAILED: 'Failed',
 };
 const STATUS_TONE: Record<string, string> = {
   ACTION_REQUIRED: 'bg-amber-50 text-amber-800 border-amber-200',
@@ -28,12 +28,24 @@ const STATUS_TONE: Record<string, string> = {
   APPLIED: 'bg-emerald-50 text-emerald-800 border-emerald-200',
   FAILED: 'bg-red-50 text-red-800 border-red-200',
   CHECK_SUBMISSION: 'bg-orange-50 text-orange-800 border-orange-200',
+  MANUAL_REQUIRED: 'bg-slate-50 text-slate-700 border-slate-200',
   PREPARING: 'bg-slate-50 text-slate-700 border-slate-200',
   READY: 'bg-sky-50 text-sky-800 border-sky-200',
   APPLYING: 'bg-slate-50 text-slate-700 border-slate-200',
   READY_TO_SUBMIT: 'bg-emerald-50 text-emerald-800 border-emerald-200',
 };
 const DEFAULT_TONE = 'bg-slate-50 text-slate-700 border-slate-200';
+const EVENT_LABEL: Record<string, string> = {
+  APPLICATION_STARTED: 'Application started',
+  PROVIDER_HANDOFF: 'Opened the application form',
+  USER_CONFIRMED_SUBMITTED: 'Marked as applied',
+  SUBMISSION_CONFIRMED: 'Submission confirmed',
+  SUBMISSION_UNCONFIRMED: 'Submission unconfirmed',
+  SESSION_OPENED: 'Browser assist session opened',
+  RESUME_ATTACHED: 'Resume attached',
+  CHECKPOINT_DETECTED: 'Checkpoint detected',
+  READY_TO_SUBMIT: 'Ready to submit',
+};
 
 const providerLabel = (p: string) => (p === 'lever' ? 'Lever' : p === 'greenhouse' ? 'Greenhouse' : p === 'ashby' ? 'Ashby' : 'the employer site');
 
@@ -47,7 +59,7 @@ const timeAgo = (iso: string) => {
   return `${Math.floor(h / 24)}d ago`;
 };
 
-export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: () => void }) {
+export default function ApplicationsScreen({ onBackToJobs, initialApplicationId }: { onBackToJobs?: () => void; initialApplicationId?: string }) {
   const [rows, setRows] = React.useState<ApplicationRow[]>([]);
   const [counts, setCounts] = React.useState({ all: 0, action: 0, applied: 0 });
   const [filter, setFilter] = React.useState<'all' | 'action' | 'applied'>('all');
@@ -90,6 +102,14 @@ export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: ()
     }, 400);
     return () => clearTimeout(t);
   }, [fetchRows]);
+
+  // Canonical route /applications/:applicationId — open that application's
+  // detail drawer from persisted state (refresh/restart recovery).
+  React.useEffect(() => {
+    if (!initialApplicationId || !rows.length) return;
+    const row = rows.find((r) => r.applicationId === initialApplicationId);
+    if (row) void openDetails(row);
+  }, [initialApplicationId, rows]);
 
   const openDetails = async (row: ApplicationRow) => {
     setSelected(row);
@@ -146,6 +166,27 @@ export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: ()
     }
   };
 
+  const markAppliedManually = async (row: ApplicationRow) => {
+    setBusy(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/applications/${row.applicationId}/mark-applied`, { method: 'POST' });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Could not mark as applied.'); }
+      const d = await res.json();
+      setSelected(d.application);
+      setToast('Marked as applied — a manual record was kept.');
+      await fetchRows();
+    } catch (e: any) {
+      setError(String(e?.message || 'Could not mark as applied.'));
+    } finally { setBusy(false); }
+  };
+
+  const openOriginalApplication = (row: ApplicationRow) => {
+    const url = row.jobUrl;
+    if (!url) { setError('The original application link is not available for this job.'); return; }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   const confirmSubmitted = async () => {
     if (!selected?.attemptId) return;
     setBusy(true);
@@ -175,12 +216,41 @@ export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: ()
     setStartingId(row.applicationId);
     setError('');
     try {
+      // 1) Ensure the application plan exists (creates or reuses; read-only
+      //    inspection — never mutates the provider form). Unsupported
+      //    providers produce a manual-required plan instead of failing.
+      const planRes = await fetch(`/api/application-packages/${row.applicationId}/plan`, { method: 'POST' });
+      if (!planRes.ok) {
+        const d = await planRes.json().catch(() => ({}));
+        const gateMsg: Record<string, string> = {
+          PACKAGE_NOT_READY: 'Some required application information is still missing (for example your Applicant Profile or a resume). Complete it, then try again.',
+          RESUME_ARTIFACT_MISSING: 'No resume is available for this application. Add your Master CV or tailor a resume, then try again.',
+          PACKAGE_STALE: 'The prepared application is out of date. Prepare it again, then retry.',
+          PACKAGE_NOT_FOUND: 'The application was not found. It may have been removed.',
+        };
+        if (d?.code && gateMsg[d.code]) {
+          setError(gateMsg[d.code]);
+        } else if (d?.gate && d.gate.ok === false) {
+          setError(`The application cannot be prepared yet: ${d.gate.reason || 'a required item is missing.'}`);
+        } else {
+          throw new Error(d.error || 'Could not prepare the application plan.');
+        }
+        return;
+      }
+      // 2) Start the application (respects gates: unknown questions, consent,
+      //    CAPTCHA and other checkpoints stay Action Required).
       const res = await fetch(`/api/applications/${row.applicationId}/start`, { method: 'POST' });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Could not start the application.'); }
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        if (d.code === 'NEEDS_PREPARATION') { await fetchRows(); return; }
+        throw new Error(d.error || 'Could not start the application.');
+      }
       const d = await res.json();
       setSelected(d.application);
       if (d.application.userStatus === 'ACTION_REQUIRED') {
         setToast('Your application needs your attention.');
+      } else if (d.application.userStatus === 'MANUAL_REQUIRED') {
+        setToast('This provider needs a manual application — open the original form and complete it.');
       } else {
         setToast('Application started.');
       }
@@ -210,6 +280,9 @@ export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: ()
     }
     if (row.availableActions.includes('REOPEN_PROVIDER')) {
       return <button onClick={() => void continueOnLever(row)} disabled={busy} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-50">{`Open ${providerLabel(row.provider)} Again`}</button>;
+    }
+    if (row.availableActions.includes('MARK_APPLIED')) {
+      return <button onClick={() => void markAppliedManually(row)} disabled={busy} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-white border border-[var(--color-hairline)] text-[var(--color-muted)] hover:bg-[var(--color-brand-soft)] disabled:opacity-50">Mark as applied</button>;
     }
     return <button onClick={() => void openDetails(row)} className="px-3 py-1.5 rounded-md text-xs font-medium bg-white border border-[var(--color-hairline)] text-[var(--color-muted)] hover:bg-[var(--color-brand-soft)]">View</button>;
   };
@@ -327,7 +400,22 @@ export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: ()
                   I Submitted It
                 </button>
               )}
-              <p className="text-[11px] text-[var(--color-faint)]">Your application will open on Lever.</p>
+              {selected.availableActions.includes('OPEN_ORIGINAL') && (
+                <button onClick={() => openOriginalApplication(selected)} className="w-full px-3 py-2.5 rounded-lg text-sm font-semibold bg-white border border-[var(--color-hairline)] text-[var(--color-muted)] hover:bg-[var(--color-brand-soft)]">
+                  Open original application
+                </button>
+              )}
+              {selected.availableActions.includes('MARK_APPLIED') && (
+                <button onClick={() => void markAppliedManually(selected)} disabled={busy} className="w-full px-3 py-2.5 rounded-lg text-sm font-medium bg-white border border-[var(--color-hairline)] text-[var(--color-muted)] hover:bg-[var(--color-brand-soft)] disabled:opacity-50">
+                  Mark as applied
+                </button>
+              )}
+              {selected.userStatus === 'MANUAL_REQUIRED' && (
+                <div className="rounded-lg bg-slate-50 border border-[var(--color-hairline)] p-3 text-xs text-[var(--color-muted)]">
+                  This provider does not support automated assistance yet. Open the original application and complete it yourself — Tailor AI keeps your tracking record.
+                </div>
+              )}
+              <p className="text-[11px] text-[var(--color-faint)]">{selected.userStatus === 'MANUAL_REQUIRED' ? 'Application tracking continues here.' : `Your application will open on ${providerLabel(selected.provider)}.`}</p>
             </div>
 
             {details && (
@@ -355,6 +443,20 @@ export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: ()
                         </button>
                       </div>
                     ))}
+                  </div>
+                )}
+                {details.events && details.events.length > 0 && (
+                  <div className="mt-3">
+                    <div className="text-[11px] font-bold uppercase tracking-widest text-[var(--color-faint)]">Recent activity</div>
+                    <div className="mt-1.5 space-y-1">
+                      {details.events.slice(0, 6).map((ev, i) => (
+                        <div key={i} className="flex items-center gap-2 text-[11px] text-[var(--color-muted)]">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-brand)] shrink-0" />
+                          <span>{EVENT_LABEL[ev.eventType] || ev.eventType}</span>
+                          <span className="text-[var(--color-faint)] ml-auto">{new Date(ev.createdAt).toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
                 {(details.optionalOmittedCount > 0 || details.consentReviewCount > 0) && (

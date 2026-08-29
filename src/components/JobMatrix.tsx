@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Job, JobState, JobSource } from '../types';
 import { formatTimeAgoSemantic } from '../lib/dateUtils';
 import { getValidJobUrl } from '../lib/jobUrlUtils';
@@ -131,15 +132,30 @@ const JobCard = React.memo(function JobCard({
   };
 
   // Apply: orchestrate the existing preparation workflow, then hand over to
-  // Applications. Final provider submission stays user-triggered.
+  // the application's own detail screen via the router (no page reload).
+  // Final provider submission stays user-triggered.
+  const navigate = useNavigate();
+  const [applying, setApplying] = React.useState(false);
   const apply = async () => {
-    setFitLoading(true);
+    if (applying) return; // double-click guard
+    setApplying(true);
     try {
       const res = await fetch(`/api/jobs/${job.id}/application-package`, { method: 'POST' });
-      if (!res.ok) return;
-      window.location.href = '/applications';
-    } catch { /* keep user on the card */ }
-    finally { setFitLoading(false); }
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        const msg = d.error || 'Could not prepare the application.';
+        if (msg.includes('profile') || msg.includes('Profile') || msg.includes('JD') || msg.includes('job description')) {
+          alert(`${msg} — open the job for details, or check your Applicant Profile.`);
+        } else {
+          alert(`Could not prepare the application. ${msg} Please try again.`);
+        }
+        return;
+      }
+      const d = await res.json().catch(() => ({}));
+      navigate(`/applications/${d.application?.applicationId || d.package?.id || job.id}`);
+    } catch (err: any) {
+      alert(`Could not prepare the application. ${String(err?.message || 'Please try again.')}`);
+    } finally { setApplying(false); }
   };
 
   const FIT_GRADE_COLOR: Record<string, string> = { Excellent: 'text-emerald-700', Strong: 'text-emerald-700', Good: 'text-amber-700', Partial: 'text-orange-700', Weak: 'text-red-700' };
@@ -308,11 +324,12 @@ const JobCard = React.memo(function JobCard({
 
         {/* Apply — primary */}
         <button
+          type="button"
           onClick={() => void apply()}
-          disabled={fitLoading}
+          disabled={applying}
           className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-[var(--color-cta)] hover:bg-[#047857] transition-colors cursor-pointer disabled:opacity-60 min-h-[38px]"
         >
-          Apply
+          {applying ? 'Preparing…' : 'Apply'}
         </button>
 
         {/* Mark as applied */}
