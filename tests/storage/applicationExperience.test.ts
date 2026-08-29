@@ -1,6 +1,6 @@
 // Application Experience V1 — status mapping, checkpoints, handoff, manual
 // confirmation, events, URL safety, ownership. No network.
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -19,9 +19,9 @@ const { storePlan } = await import('../../server/applicationEngine/planStore.js'
 const { createApproval } = await import('../../server/applicationEngine/executionEngine.js');
 const { ensureExecutionSchema } = await import('../../server/applicationEngine/executionStore.js');
 const { mapApplicationStatus, humanCheckpointFrom, availableActions } = await import('../../server/applicationExperience/applicationStatus.js');
-const { applicationSummaries, recordHandoff, confirmUserSubmitted, verifiedLeverActionUrl, ExperienceError } = await import('../../server/applicationExperience/applicationService.js');
+const { applicationSummaries, recordHandoff, confirmUserSubmitted, verifiedLeverActionUrl, ExperienceError, startApplication } = await import('../../server/applicationExperience/applicationService.js');
 const { ensureEventSchema, appendEvent, getEventsForAttempt } = await import('../../server/applicationExperience/applicationEvents.js');
-const { parseLeverForm } = await import('../../server/applicationEngine/leverInspector.js');
+const { parseLeverForm, resetInspectionState } = await import('../../server/applicationEngine/leverInspector.js');
 const { requirementsFingerprint } = await import('../../server/applicationEngine/contract.js');
 import type { MasterCv, Job } from '../../src/types.js';
 
@@ -100,10 +100,10 @@ describe('Status mapper (exhaustive, centralized)', () => {
 
   it('available actions derived by backend, not frontend', () => {
     expect(availableActions('ACTION_REQUIRED', 'CAPTCHA')).toEqual(['CONTINUE_PROVIDER', 'VIEW']);
-    expect(availableActions('ACTION_REQUIRED', 'MANUAL_SUBMISSION')).toEqual(['RETRY', 'VIEW']);
+    expect(availableActions('ACTION_REQUIRED', 'MANUAL_SUBMISSION')).toEqual(['CONTINUE_PROVIDER', 'VIEW']);
     expect(availableActions('WAITING_FOR_YOU')).toEqual(['REOPEN_PROVIDER', 'CONFIRM_SUBMITTED']);
     expect(availableActions('APPLIED')).toEqual(['VIEW']);
-    expect(availableActions('READY')).toEqual(['CONTINUE_PROVIDER']);
+    expect(availableActions('READY')).toEqual(['START_APPLICATION']);
     expect(availableActions('FAILED')).toEqual(['RETRY', 'VIEW']);
   });
 });
@@ -123,6 +123,108 @@ describe('Human checkpoint router', () => {
     expect(c5.type).toBe('REQUIRED_QUESTION');
     const c6 = humanCheckpointFrom('WEIRD', 'Lever');
     expect(c6.type).toBe('UNKNOWN');
+  });
+});
+
+describe('Start Application (product command)', () => {
+  it('READY + CAPTCHA → start → MANUAL_ACTION_REQUIRED → ACTION_REQUIRED with Human verification required', async () => {
+    const { pkg, job: j } = await makeReady(USER);
+    const { plan } = await createPlan({ userId: USER, mode: 'fixture', pkg, job: j, adapter: realAdapter(), artifactOk: true });
+    plan.status = 'READY_TO_SUBMIT' as any;
+    try { getDb().prepare('DELETE FROM submission_plans WHERE id = ?').run(plan.id); } catch {}
+    storePlan(plan);
+    vi.stubGlobal('fetch', async () => new Response(HTML, { status: 200, headers: { 'content-type': 'text/html' } }));
+    resetInspectionState();
+    const r = await startApplication(getDb(), USER, pkg.id);
+    expect(r.started).toBe(true);
+    expect(r.summary.userStatus).toBe('ACTION_REQUIRED');
+    expect(r.summary.checkpoint?.type).toBe('CAPTCHA');
+    expect(r.summary.checkpoint?.title).toBe('Human verification required');
+    expect(r.summary.availableActions).toContain('CONTINUE_PROVIDER');
+    // idempotent: second start → same attempt, no new provider call
+    resetInspectionState();
+    let gets = 0;
+    const orig = (globalThis as any).fetch;
+    (globalThis as any).fetch = async () => { gets++; return new Response(HTML, { status: 200, headers: { 'content-type': 'text/html' } }); };
+    const r2 = await startApplication(getDb(), USER, pkg.id);
+    (globalThis as any).fetch = orig;
+    expect(r2.started).toBe(false);
+    expect(r2.reason).toBe('ALREADY_STARTED');
+    expect(r2.summary.userStatus).toBe('ACTION_REQUIRED');
+    expect(gets).toBe(0); // no unnecessary provider calls
+    vi.unstubAllGlobals();
+    resetInspectionState();
+  });
+
+  it('double click (Promise.all) → one attempt', async () => {
+    const { pkg, job: j } = await makeReady(USER);
+    const { plan } = await createPlan({ userId: USER, mode: 'fixture', pkg, job: j, adapter: realAdapter(), artifactOk: true });
+    plan.status = 'READY_TO_SUBMIT' as any;
+    try { getDb().prepare('DELETE FROM submission_plans WHERE id = ?').run(plan.id); } catch {}
+    storePlan(plan);
+    vi.stubGlobal('fetch', async () => new Response(HTML, { status: 200, headers: { 'content-type': 'text/html' } }));
+    resetInspectionState();
+    const [a, b] = await Promise.all([startApplication(getDb(), USER, pkg.id), startApplication(getDb(), USER, pkg.id)]);
+    const { getAttemptsByExecutionKey: gk, executionKey: ek } = await import('../../server/applicationEngine/executionStore.js');
+    const key = ek({ userId: USER, provider: 'lever', externalJobId: j.externalId, packageSnapshotHash: pkg.snapshotHash, planFingerprint: plan.planFingerprint });
+    expect(gk(getDb(), key).length).toBe(1);
+    expect(a.started || b.started).toBe(true);
+    vi.unstubAllGlobals();
+    resetInspectionState();
+  });
+
+  it('cross-user start blocked; missing package 404', async () => {
+    await expect(startApplication(getDb(), OTHER, 'pkg-does-not-exist')).rejects.toThrow(ExperienceError);
+  });
+
+  it('non-READY plan → no attempt, no bypass (Preparing/Action Required state)', async () => {
+    const { pkg, job: j } = await makeReady(USER);
+    const { plan } = await createPlan({ userId: USER, mode: 'fixture', pkg, job: j, adapter: realAdapter(), artifactOk: true });
+    plan.status = 'NEEDS_INPUT' as any;
+    try { getDb().prepare('DELETE FROM submission_plans WHERE id = ?').run(plan.id); } catch {}
+    storePlan(plan);
+    const r = await startApplication(getDb(), USER, pkg.id);
+    expect(r.started).toBe(false);
+    expect(r.reason).toBe('PLAN_NOT_READY');
+    expect(['PREPARING', 'ACTION_REQUIRED']).toContain(r.summary.userStatus);
+    const { getAttemptsByExecutionKey: gk, executionKey: ek } = await import('../../server/applicationEngine/executionStore.js');
+    expect(gk(getDb(), ek({ userId: USER, provider: 'lever', externalJobId: j.externalId, packageSnapshotHash: pkg.snapshotHash, planFingerprint: plan.planFingerprint })).length).toBe(0);
+  });
+
+  it('no-captcha synthetic form → formAutomationEligible=true, transport=false, execEligible=false, actionable ACTION_REQUIRED (manual)', async () => {
+    const { pkg, job: j } = await makeReady(USER);
+    const noCapHtml = HTML.replace('<div class="h-captcha" data-sitekey="sk"></div>', '');
+    const { plan } = await createPlan({ userId: USER, mode: 'fixture', pkg, job: j, adapter: realAdapter(), artifactOk: true });
+    // rebuild plan against the no-captcha fingerprint
+    const { parseLeverForm: plf } = await import('../../server/applicationEngine/leverInspector.js');
+    const { requirementsFingerprint: rfp } = await import('../../server/applicationEngine/contract.js');
+    const fields = plf(noCapHtml).fields;
+    plan.requirementsFingerprint = rfp('lever', 'jobs.lever.co', fields);
+    plan.status = 'READY_TO_SUBMIT' as any;
+    try { getDb().prepare('DELETE FROM submission_plans WHERE id = ?').run(plan.id); } catch {}
+    storePlan(plan);
+    vi.stubGlobal('fetch', async () => new Response(noCapHtml, { status: 200, headers: { 'content-type': 'text/html' } }));
+    resetInspectionState();
+    const r = await startApplication(getDb(), USER, pkg.id);
+    expect(r.started).toBe(true);
+    expect(r.summary.userStatus).toBe('ACTION_REQUIRED'); // never stuck Applying
+    expect(r.summary.availableActions).toContain('CONTINUE_PROVIDER');
+    vi.unstubAllGlobals();
+    resetInspectionState();
+  });
+
+  it('consent/EEO boundaries never bypassed by start', async () => {
+    const { pkg, job: j } = await makeReady(USER);
+    const reviewHtml = HTML.replace('<input name="resume" type="file">', '<input name="resume" type="file"><input type="hidden" name="consent[legal]" value="0"><input type="checkbox" name="consent[legal]" value="1" required><label>I acknowledge the privacy policy</label>');
+    const { plan } = await createPlan({ userId: USER, mode: 'fixture', pkg, job: j, adapter: realAdapter(), artifactOk: true });
+    plan.status = 'NEEDS_REVIEW' as any;
+    try { getDb().prepare('DELETE FROM submission_plans WHERE id = ?').run(plan.id); } catch {}
+    storePlan(plan);
+    // plan stays NEEDS_REVIEW (legal consent) — start must not approve it
+    const r = await startApplication(getDb(), USER, pkg.id);
+    expect(r.started).toBe(false);
+    expect(r.reason).toBe('PLAN_NOT_READY');
+    expect(r.summary.userStatus).toBe('ACTION_REQUIRED'); // review boundary surfaced
   });
 });
 

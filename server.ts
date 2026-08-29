@@ -2535,6 +2535,21 @@ const sanitizeAttemptDryRun = (a: any) => ({
     }
   });
 
+  // PRODUCT command: orchestrates approval + fresh reinspection + execution
+  // preparation from ONE user action. Idempotent; never bypasses review.
+  app.post('/api/applications/:applicationId/start', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { startApplication } = await import('./server/applicationExperience/applicationService.js');
+      const result = await startApplication(getDb(), userId, req.params.applicationId);
+      res.json({ application: sanitizeSummary(result.summary), started: result.started, reason: result.reason ?? null });
+    } catch (err: any) {
+      if (err?.name === 'ExperienceError') return res.status(err.code === 'NOT_FOUND' ? 404 : 409).json({ error: err.message, code: err.code });
+      res.status(500).json({ error: String(err?.message || 'Start failed.').slice(0, 300) });
+    }
+  });
+
   app.post('/api/applications/:attemptId/handoff', async (req, res) => {
     try {
       const userId = getCurrentUserId();

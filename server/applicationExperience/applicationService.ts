@@ -5,8 +5,9 @@ import type { SubmissionPlan } from '../applicationEngine/contract.js';
 import type { ApplicationAttempt } from '../applicationEngine/executionContract.js';
 import { getPlanById } from '../applicationEngine/engine.js';
 import { getPackageById } from '../applicationPackage/packageStore.js';
-import { getAttempt, getAttemptsByExecutionKey } from '../applicationEngine/executionStore.js';
+import { getAttempt, getAttemptsByExecutionKey, getApprovalsByPlan, executionKey } from '../applicationEngine/executionStore.js';
 import { ensureEventSchema, appendEvent, getEventTypesForAttempt } from './applicationEvents.js';
+import { createApproval, prepareExecution } from '../applicationEngine/executionEngine.js';
 import {
   availableActions, humanCheckpointFrom, mapApplicationStatus,
 } from './applicationStatus.js';
@@ -135,6 +136,56 @@ function buildSummary(r: Row): ApplicationSummary {
     availableActions: availableActions(status, checkpoint?.type),
     updatedAt: attempt?.updatedAt ?? plan.updatedAt,
   };
+}
+
+export interface StartResult {
+  summary: ApplicationSummary;
+  started: boolean;
+  reason?: string;
+}
+
+/** PRODUCT command: orchestrates approval + fresh reinspection + execution
+ *  preparation from ONE user action. Idempotent: repeated/concurrent starts
+ *  reuse the durable attempt (SQLite unique execution key) and never make
+ *  unnecessary provider calls. Never bypasses consent/EEO/manual review —
+ *  non-READY plans return their existing state without an attempt. */
+export async function startApplication(db: Database, userId: string, applicationId: string): Promise<StartResult> {
+  ensureEventSchema(db);
+  const pkg = getPackageById(userId, applicationId);
+  if (!pkg) throw new ExperienceError('NOT_FOUND', 'Application not found.');
+  const planRows = db.prepare('SELECT data FROM submission_plans WHERE user_id = ? AND package_id = ? ORDER BY created_at DESC LIMIT 1').all(userId, applicationId) as any[];
+  const plan: SubmissionPlan | undefined = planRows.length ? JSON.parse(planRows[0].data) : undefined;
+  if (!plan) throw new ExperienceError('NEEDS_PREPARATION', 'This application needs to be prepared first.');
+  // Human review boundaries are NEVER bypassed: non-READY plans return their
+  // authoritative state (Preparing / Action Required) without approval or
+  // attempt creation.
+  if (plan.status !== 'READY_TO_SUBMIT') {
+    return { summary: applicationSummaries(db, userId).find((x) => x.applicationId === applicationId)!, started: false, reason: 'PLAN_NOT_READY' };
+  }
+  // Idempotency: an existing attempt for this execution identity wins.
+  const existingAttempts = getAttemptsByExecutionKey(db, executionKey({ userId, provider: plan.provider, externalJobId: plan.target.externalJobId, packageSnapshotHash: pkg.snapshotHash, planFingerprint: plan.planFingerprint }));
+  if (existingAttempts.length) {
+    return { summary: applicationSummaries(db, userId).find((x) => x.applicationId === applicationId)!, started: false, reason: 'ALREADY_STARTED' };
+  }
+  // Approval semantics preserved: reuse an existing ACTIVE approval for this
+  // plan (never a blanket new approval); consent decisions come only from the
+  // plan's explicit fields — marketing defaults to omitted, legal/unknown
+  // consent would have kept the plan out of READY (never auto-accepted).
+  const existingApproval = getApprovalsByPlan(db, userId, plan.id).find((a) => a.status === 'ACTIVE');
+  const consents = plan.consentFields
+    .filter((c) => c.classification === 'OPTIONAL_MARKETING' || c.classification === 'OPTIONAL_COMMUNICATION')
+    .map((c) => ({ providerFieldId: c.providerFieldId, classification: c.classification, selectedValue: false, approvedAt: '' }));
+  const approval = existingApproval ?? createApproval({ db, userId, plan, pkg, consents, marketingOptIn: false });
+  // fresh read-only reinspection + local preparation (single GET, existing engine)
+  let reason: string | undefined;
+  try {
+    const prepared = await prepareExecution({ db, userId, plan, pkg, approval, marketingOptIn: false, omitTracking: true });
+    reason = prepared.reason;
+    appendEvent(db, { userId, attemptId: prepared.attempt.id, eventType: 'APPLICATION_STARTED', reasonCode: reason, metadata: { provider: plan.provider, externalJobId: plan.target.externalJobId, applicationId }, idempotencyId: `start-${prepared.attempt.id}` });
+  } catch (e: any) {
+    reason = e?.kind ?? 'UNKNOWN';
+  }
+  return { summary: applicationSummaries(db, userId).find((x) => x.applicationId === applicationId)!, started: true, reason };
 }
 
 /** Record a user-intended provider handoff and return the VERIFIED canonical

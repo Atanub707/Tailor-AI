@@ -47,9 +47,10 @@ export interface HumanCheckpoint {
   createdAt?: string;
 }
 
-export type AvailableAction = 'VIEW' | 'CONTINUE_PROVIDER' | 'REOPEN_PROVIDER' | 'CONFIRM_SUBMITTED' | 'RETRY' | 'NONE';
+export type AvailableAction = 'VIEW' | 'START_APPLICATION' | 'CONTINUE_PROVIDER' | 'REOPEN_PROVIDER' | 'CONFIRM_SUBMITTED' | 'RETRY' | 'NONE';
 
 export type ApplicationEventType =
+  | 'APPLICATION_STARTED'
   | 'PROVIDER_HANDOFF'
   | 'USER_CONFIRMED_SUBMITTED'
   | 'SUBMISSION_CONFIRMED'
@@ -87,6 +88,12 @@ export function humanCheckpointFrom(reasonCode: string | undefined, provider: st
         type: 'CONSENT', reasonCode: reason, provider,
         title: 'Consent required',
         description: 'This application includes a consent step that needs your review.',
+      };
+    case 'MANUAL_SUBMISSION':
+      return {
+        type: 'MANUAL_SUBMISSION', reasonCode: reason, provider,
+        title: 'Continue on the provider',
+        description: 'Your application is prepared. Continue on ' + provider + ' to complete the required step.',
       };
     case 'FORM_CHANGED':
     case 'PLAN_CHANGED':
@@ -127,7 +134,10 @@ export function mapApplicationStatus(input: {
       case 'MANUAL_ACTION_REQUIRED':
         return hasHandoffEvent ? 'WAITING_FOR_YOU' : 'ACTION_REQUIRED';
       case 'READY_FOR_DRY_RUN':
-        return 'APPLYING';
+        // The form is automation-eligible but NO submission transport exists
+        // in this phase — a user stuck in "Applying" would be untruthful.
+        // Project an actionable manual boundary instead.
+        return 'ACTION_REQUIRED';
       case 'BLOCKED':
         return 'FAILED';
       case 'PREPARING':
@@ -154,11 +164,15 @@ export function mapApplicationStatus(input: {
 export function availableActions(status: UserApplicationStatus, checkpointType?: CheckpointType): AvailableAction[] {
   switch (status) {
     case 'ACTION_REQUIRED':
-      return checkpointType === 'MANUAL_SUBMISSION' ? ['RETRY', 'VIEW'] : ['CONTINUE_PROVIDER', 'VIEW'];
+      // Ready-for-dry-run (no transport) → manual continuation; form changed
+      // → retry/reprepare; otherwise provider handoff.
+      if (checkpointType === 'MANUAL_SUBMISSION') return ['CONTINUE_PROVIDER', 'VIEW'];
+      if (checkpointType === undefined) return ['RETRY', 'VIEW'];
+      return ['CONTINUE_PROVIDER', 'VIEW'];
     case 'WAITING_FOR_YOU':
       return ['REOPEN_PROVIDER', 'CONFIRM_SUBMITTED'];
     case 'READY':
-      return ['CONTINUE_PROVIDER'];
+      return ['START_APPLICATION'];
     case 'APPLIED':
       return ['VIEW'];
     case 'FAILED':

@@ -53,6 +53,7 @@ export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: ()
   const [details, setDetails] = React.useState<Details | null>(null);
   const [detailsOpen, setDetailsOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+  const [startingId, setStartingId] = React.useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [toast, setToast] = React.useState('');
 
@@ -126,7 +127,35 @@ export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: ()
     return true;
   });
 
+  const startApplication = async (row: ApplicationRow) => {
+    setBusy(true);
+    setStartingId(row.applicationId);
+    setError('');
+    try {
+      const res = await fetch(`/api/applications/${row.applicationId}/start`, { method: 'POST' });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Could not start the application.'); }
+      const d = await res.json();
+      setSelected(d.application);
+      if (d.application.userStatus === 'ACTION_REQUIRED') {
+        setToast('Your application needs your attention.');
+      } else {
+        setToast('Application started.');
+      }
+      await fetchRows();
+    } catch (e: any) {
+      setError(String(e?.message || 'Could not start the application.'));
+    } finally {
+      setBusy(false);
+      setStartingId(null);
+    }
+  };
+
   const primaryAction = (row: ApplicationRow) => {
+    if (row.availableActions.includes('START_APPLICATION')) {
+      return <button onClick={() => void startApplication(row)} disabled={busy} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-50">
+        {startingId === row.applicationId ? 'Preparing application…' : 'Start Application'}
+      </button>;
+    }
     if (row.availableActions.includes('CONTINUE_PROVIDER')) {
       return <button onClick={() => void continueOnLever(row)} disabled={busy} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-50">Continue on Lever</button>;
     }
@@ -223,6 +252,11 @@ export default function ApplicationsScreen({ onBackToJobs }: { onBackToJobs?: ()
                 <div className="rounded-lg bg-sky-50 border border-sky-200 p-3 text-xs text-sky-800">
                   Complete the required step on {selected.provider}, then return here.
                 </div>
+              )}
+              {selected.availableActions.includes('START_APPLICATION') && (
+                <button onClick={() => void startApplication(selected)} disabled={busy} className="w-full px-3 py-2.5 rounded-lg text-sm font-semibold bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-50">
+                  {startingId === selected.applicationId ? 'Preparing application…' : 'Start Application'}
+                </button>
               )}
               {selected.availableActions.includes('CONTINUE_PROVIDER') && (
                 <button onClick={() => void continueOnLever(selected)} disabled={busy} className="w-full px-3 py-2.5 rounded-lg text-sm font-semibold bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-50">
