@@ -12,7 +12,13 @@ export type UserApplicationStatus =
   | 'READY_TO_SUBMIT'
   | 'APPLIED'
   | 'CHECK_SUBMISSION'
-  | 'FAILED';
+  | 'FAILED'
+  // Post-application lifecycle (projected from events/evidence).
+  | 'ASSESSMENT'
+  | 'INTERVIEW'
+  | 'OFFER'
+  | 'REJECTED'
+  | 'WITHDRAWN';
 
 export const USER_STATUS_LABELS: Record<UserApplicationStatus, string> = {
   PREPARING: 'Preparing',
@@ -24,6 +30,11 @@ export const USER_STATUS_LABELS: Record<UserApplicationStatus, string> = {
   APPLIED: 'Applied',
   CHECK_SUBMISSION: 'Check Submission',
   FAILED: 'Failed',
+  ASSESSMENT: 'Assessment',
+  INTERVIEW: 'Interview',
+  OFFER: 'Offer',
+  REJECTED: 'Rejected',
+  WITHDRAWN: 'Withdrawn',
 };
 
 export type CheckpointType =
@@ -34,6 +45,9 @@ export type CheckpointType =
   | 'REQUIRED_QUESTION'
   | 'PROVIDER_CHALLENGE'
   | 'MANUAL_SUBMISSION'
+  | 'ACCOUNT_CREATION'
+  | 'EMAIL_VERIFICATION'
+  | 'OTP'
   | 'UNKNOWN';
 
 export interface HumanCheckpoint {
@@ -101,6 +115,36 @@ export function humanCheckpointFrom(reasonCode: string | undefined, provider: st
         type: 'PROVIDER_CHALLENGE', reasonCode: reason, provider,
         title: 'Security check required',
         description: provider + ' is asking for a security check before accepting this application.',
+      };
+    case 'ACCOUNT_CREATION_REQUIRED':
+      return {
+        type: 'ACCOUNT_CREATION', reasonCode: reason, provider,
+        title: 'Create an account to continue',
+        description: 'The employer requires a new account. Tailor AI can fill the email and a dedicated application password after you approve.',
+      };
+    case 'EMAIL_VERIFICATION_REQUIRED':
+      return {
+        type: 'EMAIL_VERIFICATION', reasonCode: reason, provider,
+        title: 'Verify your email',
+        description: 'The employer sent a verification email. Complete it on the employer page to continue.',
+      };
+    case 'OTP_REQUIRED':
+      return {
+        type: 'OTP', reasonCode: reason, provider,
+        title: 'Security code required',
+        description: 'The employer requires a security code. Complete it on the employer page to continue.',
+      };
+    case 'PASSWORD_POLICY_REJECTED':
+      return {
+        type: 'ACCOUNT_CREATION', reasonCode: reason, provider,
+        title: 'Password format not accepted',
+        description: 'This employer requires a different password format. Generate a compatible password for this account.',
+      };
+    case 'ACCOUNT_EXISTS':
+      return {
+        type: 'LOGIN', reasonCode: reason, provider,
+        title: 'An account already exists',
+        description: 'Sign in on the employer page to continue.',
       };
     case 'CONSENT_REQUIRED':
       return {

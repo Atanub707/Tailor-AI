@@ -134,6 +134,55 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [activePanel, setActivePanel] = useState<'account' | 'security' | 'integration'>('account');
   const [activeItab, setActiveItab] = useState<'llm' | 'apify' | 'email'>('llm');
   const [companionPaired, setCompanionPaired] = useState<boolean | null>(null);
+  const [appPasswordConfigured, setAppPasswordConfigured] = useState(false);
+  const [appPasswordStatus, setAppPasswordStatus] = useState('');
+  const [gmailConnected, setGmailConnected] = useState(false);
+  const [msConnected, setMsConnected] = useState(false);
+  useEffect(() => {
+    fetch('/api/credentials/application-password/status').then((r) => (r.ok ? r.json() : null)).then((d) => { if (d) setAppPasswordConfigured(d.configured === true); }).catch(() => {});
+    fetch('/api/mail/status').then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (d?.connections) {
+        setGmailConnected(d.connections.some((c: any) => c.connector === 'gmail' && c.status !== 'disconnected'));
+        setMsConnected(d.connections.some((c: any) => c.connector === 'microsoft' && c.status !== 'disconnected'));
+      }
+    }).catch(() => {});
+  }, []);
+  const generateAppPassword = async () => {
+    const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+    const bytes = new Uint8Array(20);
+    crypto.getRandomValues(bytes);
+    const password = [...bytes].map((b) => charset[b % charset.length]).join('');
+    const res = await fetch('/api/credentials/application-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
+    if (res.ok) { setAppPasswordConfigured(true); setAppPasswordStatus('Generated and saved. Existing ATS accounts keep their old passwords.'); }
+    else setAppPasswordStatus('Could not save.');
+  };
+  const setOwnAppPassword = async () => {
+    const value = window.prompt('Set your own application password (min 12 chars). Do not reuse your email or banking password.');
+    if (!value) return;
+    if (value.length < 12) { setAppPasswordStatus('Minimum 12 characters.'); return; }
+    const res = await fetch('/api/credentials/application-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: value }) });
+    setAppPasswordStatus(res.ok ? 'Saved.' : 'Could not save.');
+    if (res.ok) setAppPasswordConfigured(true);
+  };
+  const removeAppPassword = async () => {
+    await fetch('/api/credentials/application-password', { method: 'DELETE' });
+    setAppPasswordConfigured(false);
+    setAppPasswordStatus('Removed.');
+  };
+  const connectMail = async (connector: string) => {
+    const res = await fetch('/api/mail/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ connector }) });
+    if (res.ok) { if (connector === 'gmail') setGmailConnected(true); else setMsConnected(true); }
+  };
+  const disconnectMail = async (connector: string) => {
+    const res = await fetch('/api/mail/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ connector }) });
+    void res;
+    if (connector === 'gmail') setGmailConnected(false); else setMsConnected(false);
+  };
+  const syncMail = async (connector: string) => {
+    const res = await fetch('/api/mail/sync-now', { method: 'POST' });
+    const d = await res.json().catch(() => ({}));
+    setAppPasswordStatus(d.error ? 'Sync unavailable (mailbox not authorized).' : `Synced: ${d.scanned ?? 0} scanned.`);
+  };
   const [pairingCode, setPairingCode] = useState('');
   const [companionBusy, setCompanionBusy] = useState(false);
   useEffect(() => {
@@ -999,6 +1048,64 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
               )}
+            </section>
+
+            <section className="st-panel" aria-label="Application Accounts settings">
+              <div className="st-phead"><h2>Application Accounts</h2><p>Used only when an employer's application system requires creating a new account. Never your email or banking password.</p></div>
+              <div className="st-card">
+                <div className="st-card-head">
+                  <div className="st-card-ico violet"><Key size={17} weight="duotone" /></div>
+                  <div className="st-t"><b>Application Password</b><span className="st-d">{appPasswordConfigured ? 'Configured — used for new ATS account creation only.' : 'Not configured — generate or set your own.'}</span></div>
+                  <div className="st-spacer" />
+                  <span className={`st-tag ${appPasswordConfigured ? 'green' : 'red'}`}>{appPasswordConfigured ? 'Configured' : 'Not configured'}</span>
+                </div>
+                <div className="st-card-body" style={{ fontSize: 12, color: 'var(--st-muted, #475569)' }}>
+                  <p style={{ marginTop: 4 }}>
+                    Minimum 12 characters. Existing ATS accounts keep their old passwords if you regenerate — the new password applies to future accounts only.
+                  </p>
+                  <div className="st-card-actions" style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <button className="st-btn primary sm" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', background: 'var(--st-cta, #059669)', color: '#fff', border: 0 }} onClick={generateAppPassword}>Generate strong password</button>
+                    <button className="st-btn sm" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: '#e2e8f0', color: '#334155', border: 0 }} onClick={setOwnAppPassword}>Set my own</button>
+                    <button className="st-btn sm" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: '#fee2e2', color: '#b91c1c', border: 0 }} onClick={removeAppPassword} disabled={!appPasswordConfigured}>Remove</button>
+                  </div>
+                  {appPasswordStatus && <p style={{ marginTop: 8, fontSize: 12 }}>{appPasswordStatus}</p>}
+                </div>
+              </div>
+            </section>
+
+            <section className="st-panel" aria-label="Email Connections settings">
+              <div className="st-phead"><h2>Email Connections</h2><p>Optional — link your mailbox so Tailor AI can update application status from employer emails. Read-only classification; nothing is forwarded or stored beyond evidence.</p></div>
+              <div className="st-card">
+                <div className="st-card-head">
+                  <div className="st-card-ico violet"><EnvelopeSimple size={17} weight="duotone" /></div>
+                  <div className="st-t"><b>Gmail</b><span className="st-d">OAuth connector — polling while the app runs.</span></div>
+                  <div className="st-spacer" />
+                  <span className={`st-tag ${gmailConnected ? 'green' : 'red'}`}>{gmailConnected ? 'Configured' : 'Not connected'}</span>
+                </div>
+                <div className="st-card-body" style={{ fontSize: 12, color: 'var(--st-muted, #475569)' }}>
+                  <p style={{ marginTop: 4 }}>Mailbox read permission may allow broader inbox access — Tailor AI only classifies job-related messages locally.</p>
+                  <div className="st-card-actions" style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <button className="st-btn primary sm" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', background: 'var(--st-cta, #059669)', color: '#fff', border: 0 }} onClick={() => connectMail('gmail')}>{gmailConnected ? 'Reconfigure' : 'Connect Gmail'}</button>
+                    <button className="st-btn sm" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: '#e2e8f0', color: '#334155', border: 0 }} onClick={() => syncMail('gmail')} disabled={!gmailConnected}>Sync now</button>
+                    <button className="st-btn sm" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: '#fee2e2', color: '#b91c1c', border: 0 }} onClick={() => disconnectMail('gmail')} disabled={!gmailConnected}>Disconnect</button>
+                  </div>
+                </div>
+              </div>
+              <div className="st-card">
+                <div className="st-card-head">
+                  <div className="st-card-ico violet"><EnvelopeSimple size={17} weight="duotone" /></div>
+                  <div className="st-t"><b>Microsoft</b><span className="st-d">Microsoft Graph OAuth connector.</span></div>
+                  <div className="st-spacer" />
+                  <span className={`st-tag ${msConnected ? 'green' : 'red'}`}>{msConnected ? 'Configured' : 'Not connected'}</span>
+                </div>
+                <div className="st-card-body" style={{ fontSize: 12, color: 'var(--st-muted, #475569)' }}>
+                  <div className="st-card-actions" style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <button className="st-btn primary sm" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', background: 'var(--st-cta, #059669)', color: '#fff', border: 0 }} onClick={() => connectMail('microsoft')}>{msConnected ? 'Reconfigure' : 'Connect Microsoft'}</button>
+                    <button className="st-btn sm" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: '#e2e8f0', color: '#334155', border: 0 }} onClick={() => syncMail('microsoft')} disabled={!msConnected}>Sync now</button>
+                    <button className="st-btn sm" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: '#fee2e2', color: '#b91c1c', border: 0 }} onClick={() => disconnectMail('microsoft')} disabled={!msConnected}>Disconnect</button>
+                  </div>
+                </div>
+              </div>
             </section>
             </>
           )}

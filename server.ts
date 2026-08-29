@@ -2520,6 +2520,98 @@ const sanitizeAttemptDryRun = (a: any) => ({
 
   // Ordinary unresolved answers (source=USER). Consent/EEO/UNKNOWN remain
   // review-only; READY_TO_SUBMIT plans are frozen (409).
+  // ── Application Identity & Credentials V1 ──
+  // Application Password (web UI, authenticated): NEVER returns plaintext.
+  app.get('/api/credentials/application-password/status', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { LocalCredentialVault } = await import('./server/credentialVault/credentialVault.js');
+      const vault = new LocalCredentialVault({ db: getDb(), dataDir: require('node:path').join(process.cwd(), 'data') });
+      res.json({ configured: vault.hasApplicationPassword(userId) });
+    } catch (err: any) { res.status(500).json({ error: String(err?.message || 'Status failed.').slice(0, 200) }); }
+  });
+  app.post('/api/credentials/application-password', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { LocalCredentialVault, encryptAes256Gcm } = await import('./server/credentialVault/credentialVault.js');
+      const vault = new LocalCredentialVault({ db: getDb(), dataDir: require('node:path').join(process.cwd(), 'data') });
+      const { password } = req.body || {};
+      if (typeof password !== 'string' || password.length < 12) return res.status(400).json({ error: 'Application password must be at least 12 characters.' });
+      vault.setApplicationPassword(userId, password);
+      res.json({ configured: true });
+    } catch (err: any) { res.status(500).json({ error: String(err?.message || 'Save failed.').slice(0, 200) }); }
+  });
+  app.delete('/api/credentials/application-password', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { LocalCredentialVault } = await import('./server/credentialVault/credentialVault.js');
+      const vault = new LocalCredentialVault({ db: getDb(), dataDir: require('node:path').join(process.cwd(), 'data') });
+      vault.deleteApplicationPassword(userId);
+      res.json({ configured: false });
+    } catch (err: any) { res.status(500).json({ error: String(err?.message || 'Remove failed.').slice(0, 200) }); }
+  });
+  // Extension: short-lived single-use credential grant for account creation.
+  app.post('/api/credentials/application-password/grant', async (req, res) => {
+    try {
+      const { assertLoopbackHost } = await import('./server/browserCompanion/companionService.js');
+      assertLoopbackHost(req.headers.host);
+      const { pairingId, installSecret, attemptId, provider, externalJobId } = req.body || {};
+      if (!attemptId || !provider || !externalJobId) return res.status(400).json({ error: 'attemptId/provider/externalJobId required.' });
+      const { verifyPairing } = await import('./server/browserCompanion/companionStore.js');
+      const pairing = verifyPairing(getDb(), String(pairingId || ''), String(installSecret || ''));
+      if (!pairing) return res.status(401).json({ error: 'Extension not paired.' });
+      const { LocalCredentialVault } = await import('./server/credentialVault/credentialVault.js');
+      const vault = new LocalCredentialVault({ db: getDb(), dataDir: require('node:path').join(process.cwd(), 'data') });
+      const grant = vault.authorizeCredentialUse({ userId: pairing.userId, attemptId: String(attemptId), provider: String(provider), externalJobId: String(externalJobId), purpose: 'ATS_NEW_ACCOUNT_CREATION' });
+      res.json({ grantId: grant.grantId, expiresInSec: 300 });
+    } catch (err: any) { res.status(401).json({ error: String(err?.message || 'Grant failed.').slice(0, 200) }); }
+  });
+  app.post('/api/credentials/application-password/use', async (req, res) => {
+    try {
+      const { LocalCredentialVault } = await import('./server/credentialVault/credentialVault.js');
+      const { assertLoopbackHost } = await import('./server/browserCompanion/companionService.js');
+      assertLoopbackHost(req.headers.host);
+      const { pairingId, installSecret, grantId, attemptId, provider, externalJobId } = req.body || {};
+      const { verifyPairing } = await import('./server/browserCompanion/companionStore.js');
+      const pairing = verifyPairing(getDb(), String(pairingId || ''), String(installSecret || ''));
+      if (!pairing) return res.status(401).json({ error: 'Extension not paired.' });
+      const vault = new LocalCredentialVault({ db: getDb(), dataDir: require('node:path').join(process.cwd(), 'data') });
+      const grant = { grantId: String(grantId || ''), userId: pairing.userId, attemptId: String(attemptId), provider: String(provider), externalJobId: String(externalJobId), purpose: 'ATS_NEW_ACCOUNT_CREATION' as const, expiresAt: Date.now() };
+      const plaintext = vault.getCredentialForGrant(grant, { userId: pairing.userId, attemptId: String(attemptId), provider: String(provider), externalJobId: String(externalJobId) });
+      res.json({ credential: plaintext }); // single-use; released only to the paired extension
+    } catch (err: any) { res.status(401).json({ error: String(err?.message || 'Credential denied.').slice(0, 200) }); }
+  });
+  // Mail intelligence (V1: connector status + sync via injected connector).
+  app.get('/api/mail/status', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { mailConnectorStatus } = await import('./server/mailIntelligence/mailService.js');
+      res.json({ connections: mailConnectorStatus(getDb(), userId) });
+    } catch (err: any) { res.status(500).json({ error: String(err?.message || 'Status failed.').slice(0, 200) }); }
+  });
+  app.post('/api/mail/connect', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { connectMailConnector } = await import('./server/mailIntelligence/mailService.js');
+      const { connector } = req.body || {};
+      res.json({ ok: connectMailConnector(getDb(), userId, String(connector || '')) });
+    } catch (err: any) { res.status(500).json({ error: String(err?.message || 'Connect failed.').slice(0, 200) }); }
+  });
+  app.post('/api/mail/sync-now', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { syncNow } = await import('./server/mailIntelligence/mailService.js');
+      const result = await syncNow(getDb(), userId);
+      res.json(result);
+    } catch (err: any) { res.status(500).json({ error: String(err?.message || 'Sync failed.').slice(0, 200) }); }
+  });
+
   // ── Browser Companion Phase 1: secure local bridge (loopback-only). ──
   // Pairing (web UI, authenticated user)
   app.post('/api/browser-companion/pairing-code', async (req, res) => {
