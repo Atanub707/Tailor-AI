@@ -1,0 +1,9 @@
+src/components/CandidateProfilePanel.tsx:119:        <div className="stp-card-title">Personal Details</div>
+src/components/CandidateProfilePanel.tsx:143:        <div className="stp-card-title">Professional Links</div>
+src/components/CandidateProfilePanel.tsx:154:        <div className="stp-card-head"><div><div className="stp-card-title">Job Preferences</div>
+src/components/CandidateProfilePanel.tsx:230:        <div className="stp-card-head"><div><div className="stp-card-title">Work Eligibility</div>
+src/components/CandidateProfilePanel.tsx:254:        <div className="stp-card-head"><div><div className="stp-card-title">Availability</div></div>
+src/components/CandidateProfilePanel.tsx:264:        <div className="stp-card-head"><div><div className="stp-card-title">Compensation</div>
+src/components/CandidateProfilePanel.tsx:277:        <div className="stp-card-title">Application Defaults</div>
+src/components/CandidateProfilePanel.tsx:289:        <div className="stp-card-title" style={{ color: '#9A3412' }}>Sensitive (optional)</div>
+src/components/CandidateProfilePanel.tsx:309:        <div className="stp-card-title">Login &amp; Security</div>

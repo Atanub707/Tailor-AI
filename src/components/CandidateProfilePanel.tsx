@@ -35,7 +35,7 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
   React.useEffect(() => {
     fetch('/api/profile')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('load failed'))))
-      .then((d) => { setProfile(d.profile); setConflicts(d.conflicts || {}); lastSavedJson.current = JSON.stringify(d.profile); setTimeout(() => { firstLoad.current = false; }, 0); })
+      .then((d) => { setProfile(d.profile); setConflicts(d.conflicts || {}); })
       .catch((e) => { setSaveState('error'); setErrorMsg(String(e?.message || 'Failed to load profile.')); });
   }, []);
 
@@ -44,19 +44,7 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
     setSaveState('idle');
   };
 
-  // Auto-save: debounced after every change (typing, chips, selects).
-  // lastSavedJson guards against loops: save() echoes the server response
-  // back into state, so skip scheduling when the state matches the last
-  // saved snapshot (prevents endless Saving…/Saved blinking).
-  const lastSavedJson = React.useRef('');
-  const firstLoad = React.useRef(true);
-  React.useEffect(() => {
-    if (!profile) return;
-    if (firstLoad.current) return;
-    if (JSON.stringify(profile) === lastSavedJson.current) return;
-    const timer = setTimeout(() => { void save(); }, 700);
-    return () => clearTimeout(timer);
-  }, [profile]);
+  // Manual save — explicit user action only.
 
   const save = async () => {
     if (!profile) return;
@@ -65,7 +53,6 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
       const res = await fetch('/api/applicant-profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(profile) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Save failed.'); }
       const d = await res.json();
-      lastSavedJson.current = JSON.stringify(d.profile);
       setProfile(d.profile);
       setSaveState('saved');
       setConflicts({});
@@ -129,43 +116,52 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
 
       {/* PERSONAL DETAILS */}
       <div className="stp-card" style={{ marginTop: 4 }}>
-        <div className="stp-card-title">Personal Details</div>
-        <p className="stp-card-sub">Reusable application identity. Nothing is inferred.</p>
+        <div className="stp-card-head">
+          <div>
+            <div className="stp-card-title">Personal Details</div>
+            <p className="stp-card-sub">Reusable application identity. Nothing is inferred.</p>
+          </div>
+          <span className="stp-status-tag">{personal.firstName && personal.lastName && personal.email ? 'Complete' : 'Incomplete'}</span>
+        </div>
         <div className="stp-grid">
-          <div className="stp-field"><label className="stp-label">First name</label><input className="stp-input" value={personal.firstName ?? ''} onChange={(e) => update((x) => ({ ...x, personal: { ...x.personal, firstName: e.target.value } }))} /></div>
-          <div className="stp-field"><label className="stp-label">Middle name (optional)</label><input className="stp-input" value={personal.middleName ?? ''} onChange={(e) => update((x) => ({ ...x, personal: { ...x.personal, middleName: e.target.value } }))} /></div>
-          <div className="stp-field"><label className="stp-label">Last name</label><input className="stp-input" value={personal.lastName ?? ''} onChange={(e) => update((x) => ({ ...x, personal: { ...x.personal, lastName: e.target.value } }))} /></div>
-          <div className="stp-field"><label className="stp-label">Preferred name (optional)</label><input className="stp-input" value={personal.preferredName ?? ''} onChange={(e) => update((x) => ({ ...x, personal: { ...x.personal, preferredName: e.target.value } }))} /></div>
+          <div className="stp-field"><label className="stp-label">First name</label><input className="stp-input has-value" value={personal.firstName ?? ''} onChange={(e) => update((x) => ({ ...x, personal: { ...x.personal, firstName: e.target.value } }))} /></div>
+          <div className="stp-field"><label className="stp-label">Middle name <span className="stp-opt">Optional</span></label><input className="stp-input" value={personal.middleName ?? ''} onChange={(e) => update((x) => ({ ...x, personal: { ...x.personal, middleName: e.target.value } }))} /></div>
+          <div className="stp-field"><label className="stp-label">Last name</label><input className="stp-input has-value" value={personal.lastName ?? ''} onChange={(e) => update((x) => ({ ...x, personal: { ...x.personal, lastName: e.target.value } }))} /></div>
+          <div className="stp-field"><label className="stp-label">Preferred name <span className="stp-opt">Optional</span></label><input className="stp-input" value={personal.preferredName ?? ''} onChange={(e) => update((x) => ({ ...x, personal: { ...x.personal, preferredName: e.target.value } }))} /></div>
         </div>
         <div className="stp-field">
           <label className="stp-label">Application Email</label>
-          <input className="stp-input" type="email" value={personal.email ?? ''} onChange={(e) => update((x) => ({ ...x, personal: { ...x.personal, email: e.target.value } }))} />
-          <div className="stp-hint">Used when applying to jobs. This is different from your Tailor AI sign-in email.</div>
+          <input className="stp-input has-value" type="email" value={personal.email ?? ''} onChange={(e) => update((x) => ({ ...x, personal: { ...x.personal, email: e.target.value } }))} />
+          <div className="stp-hint-inline">Used when applying to jobs. Different from your Tailor AI sign-in email.</div>
         </div>
         <div className="stp-grid">
-          <div className="stp-field"><label className="stp-label">Phone</label><input className="stp-input" value={personal.phone ?? ''} onChange={(e) => update((x) => ({ ...x, personal: { ...x.personal, phone: e.target.value } }))} /></div>
-          <div className="stp-field"><label className="stp-label">City</label><input className="stp-input" value={contact.city ?? ''} onChange={(e) => update((x) => ({ ...x, contact: { ...x.contact, city: e.target.value } }))} /></div>
+          <div className="stp-field"><label className="stp-label">Phone</label><input className="stp-input has-value" value={personal.phone ?? ''} onChange={(e) => update((x) => ({ ...x, personal: { ...x.personal, phone: e.target.value } }))} /></div>
+          <div className="stp-field"><label className="stp-label">City</label><input className="stp-input has-value" value={contact.city ?? ''} onChange={(e) => update((x) => ({ ...x, contact: { ...x.contact, city: e.target.value } }))} /></div>
           <div className="stp-field"><label className="stp-label">State / region</label><input className="stp-input" value={contact.state ?? ''} onChange={(e) => update((x) => ({ ...x, contact: { ...x.contact, state: e.target.value } }))} /></div>
-          <div className="stp-field"><label className="stp-label">Country</label><input className="stp-input" value={contact.country ?? ''} onChange={(e) => update((x) => ({ ...x, contact: { ...x.contact, country: e.target.value } }))} /></div>
+          <div className="stp-field"><label className="stp-label">Country</label><input className="stp-input has-value" value={contact.country ?? ''} onChange={(e) => update((x) => ({ ...x, contact: { ...x.contact, country: e.target.value } }))} /></div>
           <div className="stp-field"><label className="stp-label">Postal code</label><input className="stp-input" value={contact.postalCode ?? ''} onChange={(e) => update((x) => ({ ...x, contact: { ...x.contact, postalCode: e.target.value } }))} /></div>
         </div>
       </div>
 
       {/* PROFESSIONAL LINKS */}
       <div className="stp-card">
-        <div className="stp-card-title">Professional Links</div>
+        <div className="stp-card-head">
+          <div><div className="stp-card-title">Professional Links</div></div>
+          <span className="stp-status-tag muted">Optional</span>
+        </div>
         <div className="stp-grid">
-          <div className="stp-field"><label className="stp-label">LinkedIn URL</label><input className="stp-input" value={links.linkedin ?? ''} onChange={(e) => update((x) => ({ ...x, links: { ...x.links, linkedin: e.target.value } }))} /></div>
+          <div className="stp-field"><label className="stp-label">LinkedIn URL</label><input className="stp-input has-value" value={links.linkedin ?? ''} onChange={(e) => update((x) => ({ ...x, links: { ...x.links, linkedin: e.target.value } }))} /></div>
           <div className="stp-field"><label className="stp-label">GitHub URL</label><input className="stp-input" value={links.github ?? ''} onChange={(e) => update((x) => ({ ...x, links: { ...x.links, github: e.target.value } }))} /></div>
-          <div className="stp-field"><label className="stp-label">Portfolio URL</label><input className="stp-input" value={links.portfolio ?? ''} onChange={(e) => update((x) => ({ ...x, links: { ...x.links, portfolio: e.target.value } }))} /></div>
-          <div className="stp-field"><label className="stp-label">Website URL</label><input className="stp-input" value={links.website ?? ''} onChange={(e) => update((x) => ({ ...x, links: { ...x.links, website: e.target.value } }))} /></div>
+          <div className="stp-field"><label className="stp-label">Portfolio URL <span className="stp-opt">Optional</span></label><input className="stp-input" value={links.portfolio ?? ''} onChange={(e) => update((x) => ({ ...x, links: { ...x.links, portfolio: e.target.value } }))} /></div>
+          <div className="stp-field"><label className="stp-label">Website URL <span className="stp-opt">Optional</span></label><input className="stp-input" value={links.website ?? ''} onChange={(e) => update((x) => ({ ...x, links: { ...x.links, website: e.target.value } }))} /></div>
         </div>
       </div>
 
       {/* JOB PREFERENCES */}
       <div className="stp-card">
-        <div className="stp-card-title">Job Preferences</div>
-        <p className="stp-card-sub">Used for matching and drafting your approach — nothing here goes on your CV.</p>
+        <div className="stp-card-head"><div><div className="stp-card-title">Job Preferences</div>
+        <p className="stp-card-sub">Used for matching and drafting your approach — nothing here goes on your CV.</p></div>
+        <span className="stp-status-tag muted">Matching only</span></div>
         <div className="stp-field">
           <label className="stp-label">Desired job titles</label>
           <input className="stp-input" placeholder="e.g. DevOps Engineer, Platform Engineer" value={(prefs.desiredTitles || []).join(', ')} onChange={(e) => update((x) => ({ ...x, preferences: { ...x.preferences, desiredTitles: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) } }))} />
@@ -239,10 +235,11 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
 
       {/* WORK ELIGIBILITY */}
       <div className="stp-card">
-        <div className="stp-card-title">Work Eligibility</div>
-        <p className="stp-card-sub">Explicit only — never inferred from your CV, location or nationality.</p>
+        <div className="stp-card-head"><div><div className="stp-card-title">Work Eligibility</div>
+        <p className="stp-card-sub">Explicit only — never inferred from your CV, location or nationality.</p></div>
+        <span className="stp-status-tag muted">{wa.country || wa.authorizedToWork ? 'Set' : 'Unknown'}</span></div>
         <div className="stp-grid">
-          <div className="stp-field"><label className="stp-label">Country</label><input className="stp-input" value={wa.country ?? ''} onChange={(e) => update((x) => ({ ...x, workAuthorization: { ...x.workAuthorization, country: e.target.value } }))} /></div>
+          <div className="stp-field"><label className="stp-label">Country</label><input className="stp-input has-value" value={wa.country ?? ''} onChange={(e) => update((x) => ({ ...x, workAuthorization: { ...x.workAuthorization, country: e.target.value } }))} /></div>
           <div className="stp-field"><label className="stp-label">Visa / work permit type (optional)</label><input className="stp-input" value={wa.visaType ?? ''} onChange={(e) => update((x) => ({ ...x, workAuthorization: { ...x.workAuthorization, visaType: e.target.value } }))} /></div>
           <div className="stp-field">
             <label className="stp-label">Authorized to work</label>
@@ -262,21 +259,23 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
 
       {/* AVAILABILITY */}
       <div className="stp-card">
-        <div className="stp-card-title">Availability</div>
+        <div className="stp-card-head"><div><div className="stp-card-title">Availability</div></div>
+        <span className="stp-status-tag muted">{prefs.noticePeriod || prefs.earliestStartDate ? 'Set' : 'Not set'}</span></div>
         <div className="stp-grid">
-          <div className="stp-field"><label className="stp-label">Notice period</label><input className="stp-input" placeholder="e.g. 30 days" value={prefs.noticePeriod ?? ''} onChange={(e) => update((x) => ({ ...x, preferences: { ...x.preferences, noticePeriod: e.target.value } }))} /></div>
+          <div className="stp-field"><label className="stp-label">Notice period</label><input className="stp-input has-value" placeholder="e.g. 30 days" value={prefs.noticePeriod ?? ''} onChange={(e) => update((x) => ({ ...x, preferences: { ...x.preferences, noticePeriod: e.target.value } }))} /></div>
           <div className="stp-field"><label className="stp-label">Available from</label><input className="stp-input" placeholder="YYYY-MM-DD" value={prefs.earliestStartDate ?? ''} onChange={(e) => update((x) => ({ ...x, preferences: { ...x.preferences, earliestStartDate: e.target.value } }))} /></div>
         </div>
       </div>
 
       {/* COMPENSATION */}
       <div className="stp-card">
-        <div className="stp-card-title">Compensation</div>
-        <p className="stp-card-sub">Kept private — used for matching, never placed into cold emails.</p>
+        <div className="stp-card-head"><div><div className="stp-card-title">Compensation</div>
+        <p className="stp-card-sub">Kept private — used for matching, never placed into cold emails.</p></div>
+        <span className="stp-status-tag muted">Private</span></div>
         <div className="stp-grid">
           <div className="stp-field"><label className="stp-label">Current compensation (optional)</label><input className="stp-input" type="number" value={prefs.currentSalary ?? ''} onChange={(e) => update((x) => ({ ...x, preferences: { ...x.preferences, currentSalary: e.target.value === '' ? undefined : Number(e.target.value) } }))} /></div>
-          <div className="stp-field"><label className="stp-label">Expected salary — minimum</label><input className="stp-input" type="number" value={prefs.minimumSalary ?? ''} onChange={(e) => update((x) => ({ ...x, preferences: { ...x.preferences, minimumSalary: e.target.value === '' ? undefined : Number(e.target.value) } }))} /></div>
-          <div className="stp-field"><label className="stp-label">Expected salary — maximum</label><input className="stp-input" type="number" value={prefs.targetSalary ?? ''} onChange={(e) => update((x) => ({ ...x, preferences: { ...x.preferences, targetSalary: e.target.value === '' ? undefined : Number(e.target.value) } }))} /></div>
+          <div className="stp-field"><label className="stp-label">Expected salary — minimum</label><input className="stp-input has-value" type="number" value={prefs.minimumSalary ?? ''} onChange={(e) => update((x) => ({ ...x, preferences: { ...x.preferences, minimumSalary: e.target.value === '' ? undefined : Number(e.target.value) } }))} /></div>
+          <div className="stp-field"><label className="stp-label">Expected salary — maximum</label><input className="stp-input has-value" type="number" value={prefs.targetSalary ?? ''} onChange={(e) => update((x) => ({ ...x, preferences: { ...x.preferences, targetSalary: e.target.value === '' ? undefined : Number(e.target.value) } }))} /></div>
           <div className="stp-field"><label className="stp-label">Currency</label><input className="stp-input" placeholder="e.g. USD, INR, EUR" value={prefs.salaryCurrency ?? ''} onChange={(e) => update((x) => ({ ...x, preferences: { ...x.preferences, salaryCurrency: e.target.value } }))} /></div>
         </div>
       </div>
@@ -293,6 +292,26 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
         </div>
       </div>
 
+      {/* SENSITIVE (optional, opt-in) */}
+      <div className="stp-card" style={{ borderColor: '#FED7AA', background: '#FFF7ED' }}>
+        <div className="stp-card-title" style={{ color: '#9A3412' }}>Sensitive (optional)</div>
+        <div className="stp-field" style={{ marginTop: 10 }}>
+          <div className="toggle-row" style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 12.5, fontWeight: 600, color: 'var(--st-ink)' }}>
+            <input id="sens-enabled2" type="checkbox" checked={p.optionalSensitive?.enabled === true} onChange={(e) => update((x) => ({ ...x, optionalSensitive: { ...x.optionalSensitive, enabled: e.target.checked } }))} />
+            <label htmlFor="sens-enabled2" style={{ cursor: 'pointer' }}>Enable optional sensitive fields (voluntary self-identification)</label>
+          </div>
+          <div className="stp-hint-inline">Disabled by default. Never inferred. ATS questions only use these when you explicitly enable them.</div>
+        </div>
+        {p.optionalSensitive?.enabled && (
+          <div className="stp-grid2">
+            <div className="stp-field"><label className="stp-label">Gender</label><input className="stp-input" value={p.optionalSensitive?.gender ?? ''} onChange={(e) => update((x) => ({ ...x, optionalSensitive: { ...x.optionalSensitive, gender: e.target.value } }))} /></div>
+            <div className="stp-field"><label className="stp-label">Race / ethnicity</label><input className="stp-input" value={p.optionalSensitive?.raceEthnicity ?? ''} onChange={(e) => update((x) => ({ ...x, optionalSensitive: { ...x.optionalSensitive, raceEthnicity: e.target.value } }))} /></div>
+            <div className="stp-field"><label className="stp-label">Veteran status</label><input className="stp-input" value={p.optionalSensitive?.veteranStatus ?? ''} onChange={(e) => update((x) => ({ ...x, optionalSensitive: { ...x.optionalSensitive, veteranStatus: e.target.value } }))} /></div>
+            <div className="stp-field"><label className="stp-label">Disability status</label><input className="stp-input" value={p.optionalSensitive?.disabilityStatus ?? ''} onChange={(e) => update((x) => ({ ...x, optionalSensitive: { ...x.optionalSensitive, disabilityStatus: e.target.value } }))} /></div>
+          </div>
+        )}
+      </div>
+
       {/* LOGIN & SECURITY (read-only) */}
       <div className="stp-card">
         <div className="stp-card-title">Login &amp; Security</div>
@@ -300,12 +319,12 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
           <div className="stp-field">
             <label className="stp-label">Sign-in Email</label>
             <input className="stp-input" value={user?.email ?? ''} disabled />
-            <div className="stp-hint">Used to access Tailor AI. This is different from your Application Email.</div>
+            <div className="stp-hint-inline">Used to access Tailor AI. Different from your Application Email.</div>
           </div>
           <div className="stp-field">
             <label className="stp-label">Account Status</label>
             <input className="stp-input" value={user?.isGuest ? 'Guest' : 'Registered'} disabled />
-            <div className="stp-hint">Authentication remains separate from your candidate profile.</div>
+            <div className="stp-hint-inline">Authentication stays separate from your candidate profile.</div>
           </div>
         </div>
       </div>
@@ -315,9 +334,12 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
         <b>Professional history lives in your Master CV.</b> Your experience, employers, titles, dates, skills, education and certifications belong to the Master CV — this profile holds reusable identity, eligibility and preference facts only.
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }} aria-live="polite">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10 }} aria-live="polite">
+        <button onClick={() => void save()} disabled={saveState === 'saving'} style={{ background: 'var(--st-primary)', color: '#fff', fontWeight: 800, padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12.5 }}>
+          {saveState === 'saving' ? 'Saving…' : 'Save Candidate Profile'}
+        </button>
         <span className="text-xs font-semibold" style={{ color: saveState === 'error' ? '#DC2626' : saveState === 'saved' ? '#059669' : 'var(--st-faint)' }}>
-          {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : saveState === 'error' ? errorMsg : 'Changes save automatically'}
+          {saveState === 'saved' ? 'Saved.' : saveState === 'error' ? errorMsg : ''}
         </span>
       </div>
     </section>

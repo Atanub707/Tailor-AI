@@ -925,6 +925,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           .st-inp{width:180px;}
         }
         .stp-card { background: var(--st-card, #fff); border: 1px solid var(--st-border, #E2E8F0); border-radius: 14px; padding: 18px; }
+        .stp-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+        .stp-status-tag { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--st-cta, #059669); background: var(--st-cta-soft, #ECFDF5); border: 1px solid var(--st-cta-line, #A7F3D0); border-radius: 999px; padding: 3px 9px; white-space: nowrap; }
+        .stp-status-tag.muted { color: var(--st-faint, #64748B); background: #F1F5F9; border-color: var(--st-border, #E2E8F0); }
+        .stp-opt { font-size: 10px; font-weight: 600; color: var(--st-faint, #64748B); text-transform: none; letter-spacing: 0; }
+        .stp-input.has-value { border-color: #C7D2FE; }
+        .stp-hint-inline { font-size: 10.5px; color: var(--st-faint, #64748B); font-weight: 500; margin-top: 2px; line-height: 1.45; }
+        .stp-input:disabled { background: #F1F5F9; color: var(--st-faint, #64748B); cursor: not-allowed; }
         .stp-card-title { font-size: 13px; font-weight: 800; color: var(--st-ink, #0F172A); }
         .stp-card-sub { font-size: 11.5px; color: var(--st-faint, #64748B); margin-top: 3px; line-height: 1.55; }
         .stp-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; margin-top: 14px; }
