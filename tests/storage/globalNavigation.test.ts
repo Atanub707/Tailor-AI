@@ -100,6 +100,13 @@ describe('App shell — navigation system', () => {
   it('the full Home Navbar renders on Home only', () => {
     expect(APP).toContain("{pathname === '/' && (");
     expect(APP).toContain('<Navbar');
+    // Home dashboard content (ScraperBar + JobMatrix <main>) is wrapped in the
+    // same Home-only branch so it never pushes feature screens below the fold.
+    expect(APP).toContain('{/* Live Job Search Bar */}');
+    const homeBranchStart = APP.indexOf("pathname === '/' && (");
+    const mainIdx = APP.indexOf('<main>', homeBranchStart);
+    expect(mainIdx).toBeGreaterThan(-1);
+    expect(APP.indexOf('</main>', mainIdx)).toBeGreaterThan(mainIdx);
     // Feature screens never render the full Home bar (Navbar has no route condition inside it)
     for (const file of ['SettingsModal.tsx', 'ManualJdScreen.tsx', 'ApplicationsScreen.tsx', 'ApplicantProfileScreen.tsx', 'MasterCvScreen.tsx']) {
       const src = fs.readFileSync(path.join(process.cwd(), 'src/components', file), 'utf8');

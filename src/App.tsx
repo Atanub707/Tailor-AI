@@ -622,6 +622,8 @@ export default function App() {
             </div>
           )}
 
+          {pathname === '/' && (
+            <>
           {/* Live Job Search Bar */}
           <ScraperBar
             onScrape={handleScrape}
@@ -662,6 +664,8 @@ export default function App() {
               tailorMessages={tailorMessages}
             />
           </main>
+            </>
+          )}
 
           {/* Job Details & Tailored CV Modal */}
           <JobDetailModal

@@ -358,7 +358,7 @@ export default function ApplicationsScreen({ onBackToJobs, initialApplicationId 
       </div>
 
       {detailsOpen && selected && (
-        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center" role="dialog" aria-modal="true" aria-label="Application details">
+        <div className="fixed inset-x-0 top-[65px] bottom-0 z-50 flex items-end md:items-center justify-center" role="dialog" aria-modal="true" aria-label="Application details">
           <div className="absolute inset-0 bg-black/30" onClick={() => setDetailsOpen(false)} aria-hidden="true" />
           <div className="relative w-full md:max-w-lg max-h-[85vh] overflow-y-auto rounded-t-2xl md:rounded-2xl bg-white shadow-xl p-5">
             <div className="flex items-start justify-between gap-3">
