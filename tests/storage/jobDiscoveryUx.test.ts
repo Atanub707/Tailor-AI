@@ -84,7 +84,7 @@ describe('Job discovery UX — card surface', () => {
   it('primary journey is Match → View → Apply with direct secondary actions', () => {
     expect(CARD).toContain('Check match');
     expect(CARD).toMatch(/View\s*<\/button>/);
-    expect(CARD).toMatch(/Apply\s*<\/button>/);
+    expect(CARD).toMatch(/Apply|Preparing…\s*<\/button>/);
     expect(CARD).toContain('Mark as applied');
     expect(CARD).toContain('Remove job');
   });

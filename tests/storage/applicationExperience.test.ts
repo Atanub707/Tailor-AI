@@ -83,7 +83,7 @@ describe('Status mapper (exhaustive, centralized)', () => {
     expect(mapApplicationStatus({ ...base, plan: { status: 'NEEDS_INPUT' } as any })).toBe('PREPARING');
     expect(mapApplicationStatus({ ...base, plan: { status: 'NEEDS_REVIEW' } as any })).toBe('ACTION_REQUIRED');
     expect(mapApplicationStatus({ ...base, plan: { status: 'READY_TO_SUBMIT' } as any })).toBe('READY');
-    expect(mapApplicationStatus({ ...base, plan: { status: 'UNSUPPORTED' } as any })).toBe('FAILED');
+    expect(mapApplicationStatus({ ...base, plan: { status: 'UNSUPPORTED' } as any })).toBe('MANUAL_REQUIRED'); // unsupported → manual, never Failed (E2E V1)
     // attempt states
     for (const s of ['MANUAL_ACTION_REQUIRED', 'READY_FOR_DRY_RUN', 'BLOCKED', 'PREPARING', 'SUBMITTED', 'SUCCESS_UNCONFIRMED', 'FAILED', 'CANCELLED', 'PENDING_APPROVAL', 'APPROVED'] as const) {
       const r = mapApplicationStatus({ ...base, attempt: { status: s } as any });
