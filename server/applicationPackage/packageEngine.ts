@@ -6,6 +6,7 @@ import type { FitResult } from '../fit/fitEngine.js';
 import { jdHash } from '../fit/fitCache.js';
 import { getLatestTailorVersion, type TailoredResumeVersionRow } from '../tailorV2/versionStore.js';
 import { toTailoredCv } from '../tailorV2/tailorV2Engine.js';
+import type { TailorDraft } from '../tailorV2/drafter.js';
 import { generatePdfBuffer } from '../builder/docxGenerator.js';
 import { freshPackage, getLatestPackage, nextPackageVersion, packageInputFingerprint, snapshotHash, storePackage } from './packageStore.js';
 import { persistPdfArtifact, readPdfArtifact, sha256Bytes } from './artifactStore.js';
@@ -54,6 +55,23 @@ export function computePackageKeys(input: BuildPackageInput): {
 }
 
 /** Build a fresh package object from current inputs (no persistence). */
+/** Convert the authoritative Master CV into the structured resume shape used
+ *  by the PDF renderer — deterministic, no generation, no invented facts. */
+export function masterCvToTailorDraft(cv: MasterCv): TailorDraft {
+  const toSkillList = (raw: MasterCv['skills']): string[] =>
+    Array.isArray(raw)
+      ? raw.flatMap((s) => (typeof s === 'string' ? [s] : Array.isArray(s.items) ? s.items : []))
+      : [];
+  return {
+    summary: cv.summary || '',
+    skills: toSkillList(cv.skills),
+    experience: (cv.experiences || []).map((e) => ({ title: e.title, company: e.company, location: e.location, dates: e.dates, highlights: e.responsibilities || [] })),
+    education: (cv.education || []).map((ed) => ({ degree: ed.degree, institution: ed.institution, dates: ed.dates, details: Array.isArray(ed.details) ? ed.details.join('\n') : ed.details })),
+    certifications: (cv.certifications || []).map((c) => (typeof c === 'string' ? c : c.name || '')),
+    projects: (cv.projects || []).map((pr) => ({ name: pr.name || '', description: pr.description || '' })),
+  };
+}
+
 export async function buildPackage(input: BuildPackageInput, masterCvUpdatedAt: string | undefined): Promise<ApplicationPackage> {
   const version = nextPackageVersion(input.userId, input.job.id);
   const pkg = freshPackage(input.userId, input.job.id, version);
@@ -139,7 +157,32 @@ export async function buildPackage(input: BuildPackageInput, masterCvUpdatedAt: 
       };
     }
   } else {
-    pkg.resumeSnapshot = null;
+    // AUTHORITATIVE MASTER CV as the resume artifact — deterministic, local,
+    // no LLM. The user's own current CV is the truthful baseline when no
+    // verified tailored version exists (resume-selection policy).
+    try {
+      const draft = masterCvToTailorDraft(input.masterCv);
+      const buf = await generatePdfBuffer(toTailoredCv(draft, input.masterCv.fullName || ''));
+      const art = persistPdfArtifact(buf);
+      const reRead = readPdfArtifact(art.sha256);
+      const pdfOk = sha256Bytes(reRead) === art.sha256;
+      pkg.resumeSnapshot = {
+        source: 'MASTER_CV',
+        tailoredResumeVersionId: undefined,
+        resumeUserId: input.userId,
+        resumeJobId: input.job.id,
+        version: 0,
+        tailorEngineVersion: 0,
+        structuredResume: draft,
+        verification: undefined,
+        pdfHash: art.sha256,
+        pdfSize: art.size,
+        pdfArtifact: art.path,
+        pdfOk,
+      };
+    } catch (pdfErr: any) {
+      pkg.resumeSnapshot = null;
+    }
   }
 
   pkg.answers = answers;

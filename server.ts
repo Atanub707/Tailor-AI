@@ -2824,6 +2824,22 @@ const sanitizeAttemptDryRun = (a: any) => ({
     }
   });
 
+  // Manual "I applied" record for applications without an attempt (plan-less
+  // or unsupported-provider packages). Durable, idempotent, never fabricates
+  // provider evidence.
+  app.post('/api/applications/:applicationId/mark-applied', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { markAppliedManually } = await import('./server/applicationExperience/applicationService.js');
+      const summary = markAppliedManually(getDb(), userId, req.params.applicationId);
+      res.json({ application: sanitizeSummary(summary) });
+    } catch (err: any) {
+      if (err?.name === 'ExperienceError') return res.status(404).json({ error: err.message, code: err.code });
+      res.status(500).json({ error: String(err?.message || 'Marking failed.').slice(0, 300) });
+    }
+  });
+
   app.get('/api/applications/:applicationId/details', async (req, res) => {
     try {
       const userId = getCurrentUserId();
@@ -3000,7 +3016,9 @@ const sanitizeAttemptDryRun = (a: any) => ({
       const keys = computePackageKeys({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredVersion: ctx.tailored });
       keys.masterCvUpdatedAt = ctx.deps.getMasterCvUpdatedAt(userId);
       const fp = packageInputFingerprint(keys);
-      if (latest && latest.status !== 'STALE' && latest.inputFingerprint === fp) {
+      // Reuse only a READY package — a DRAFT one (missing prerequisites at
+      // build time) is rebuilt so current engine policy applies.
+      if (latest && latest.status === 'READY' && latest.inputFingerprint === fp) {
         res.json({ package: latest, reused: true });
         return;
       }

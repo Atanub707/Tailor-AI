@@ -1,6 +1,7 @@
 // Application Experience V1 — dashboard service: summaries (no N+1),
 // verified provider handoff, manual user confirmation. User-scoped.
 import type { Database } from 'better-sqlite3';
+import type { ApplicationPackage } from '../applicationPackage/packageModel.js';
 import type { SubmissionPlan } from '../applicationEngine/contract.js';
 import type { ApplicationAttempt } from '../applicationEngine/executionContract.js';
 import { getPlanById } from '../applicationEngine/engine.js';
@@ -21,7 +22,7 @@ export class ExperienceError extends Error {
 }
 
 export interface ApplicationSummary {
-  applicationId: string;   // package id
+  applicationId: string;
   planId?: string;
   attemptId?: string;
   jobId: string;
@@ -32,6 +33,7 @@ export interface ApplicationSummary {
   checkpoint: HumanCheckpoint | null;
   availableActions: AvailableAction[];
   updatedAt: string;
+  jobUrl?: string;
 }
 
 /** Canonical Lever application URL validation (server-side, allowlisted). */
@@ -63,8 +65,9 @@ export function verifiedLeverActionUrl(applyUrl: string | undefined, externalJob
 }
 
 interface Row {
-  plan: SubmissionPlan;
-  attempt?: ApplicationAttempt;
+  pkg: ApplicationPackage;
+  plan: SubmissionPlan | undefined;
+  attempt: ApplicationAttempt | undefined;
   eventTypes: Set<string>;
 }
 
@@ -102,24 +105,54 @@ export function applicationSummaries(db: Database, userId: string): ApplicationS
     if (!eventsByAttempt.has(r.attempt_id)) eventsByAttempt.set(r.attempt_id, new Set());
     eventsByAttempt.get(r.attempt_id)!.add(r.event_type);
   }
+  // Manual "I applied" records live under synthetic attempt ids (manual-<pkgId>)
+  // so plan-less / unsupported-provider applications stay trackable.
+  const manualRows = db.prepare(`SELECT attempt_id, event_type FROM application_events WHERE user_id = ? AND attempt_id LIKE 'manual-%'`).all(userId) as any[];
+  const manualByPackage = new Map<string, Set<string>>();
+  for (const r of manualRows) {
+    const pkgId = r.attempt_id.replace('manual-', '');
+    if (!manualByPackage.has(pkgId)) manualByPackage.set(pkgId, new Set());
+    manualByPackage.get(pkgId)!.add(r.event_type);
+  }
 
   const rows: Row[] = [];
   for (const p of pkgRows) {
     const pkg = JSON.parse(p.data);
     const plan = planByPackage.get(pkg.id);
-    if (!plan) continue; // packages without a plan are preparation-only
-    const attempt = attemptByPlan.get(plan.id);
+    const attempt = plan ? attemptByPlan.get(plan.id) : undefined;
     const eventTypes = attempt ? eventsByAttempt.get(attempt.id) ?? new Set<string>() : new Set<string>();
-    rows.push({ plan, attempt, eventTypes });
+    const manual = manualByPackage.get(pkg.id);
+    if (manual) for (const t of manual) eventTypes.add(t);
+    rows.push({ pkg, plan, attempt, eventTypes });
   }
   return rows.map((r) => buildSummary(r));
 }
 
 function buildSummary(r: Row): ApplicationSummary {
+  const pkg = r.pkg;
   const plan = r.plan;
   const attempt = r.attempt;
   const hasHandoff = r.eventTypes.has('PROVIDER_HANDOFF');
   const hasUserConfirmed = r.eventTypes.has('USER_CONFIRMED_SUBMITTED');
+  const job = pkg.jobSnapshot ?? {} as any;
+  const jobUrl = (job as any).applyUrl || (job as any).jobUrl || (plan?.target as any)?.jobUrl || '';
+  if (!plan) {
+    // Package prepared but not yet started — the Apply handoff target.
+    return {
+      applicationId: pkg.id,
+      planId: undefined,
+      attemptId: undefined,
+      jobId: String((job as any).externalJobId || pkg.jobId),
+      jobTitle: String((job as any).title || 'Job'),
+      company: String((job as any).company || ''),
+      provider: String((job as any).platform || (job as any).source || 'Unknown'),
+      userStatus: 'PREPARING',
+      checkpoint: null,
+      availableActions: ['START_APPLICATION'],
+      updatedAt: pkg.updatedAt,
+      jobUrl,
+    };
+  }
   const status = mapApplicationStatus({ plan, attempt, hasHandoffEvent: hasHandoff, hasUserConfirmedEvent: hasUserConfirmed });
   const reason = attempt?.failure?.kind ?? (plan.status === 'NEEDS_REVIEW' ? (plan.consentFields.length ? 'CONSENT_REQUIRED' : 'REQUIRED_QUESTION') : undefined);
   const checkpoint = status === 'ACTION_REQUIRED' || status === 'WAITING_FOR_YOU' ? humanCheckpointFrom(reason, plan.provider, plan) : null;
@@ -135,6 +168,7 @@ function buildSummary(r: Row): ApplicationSummary {
     checkpoint,
     availableActions: availableActions(status, checkpoint?.type),
     updatedAt: attempt?.updatedAt ?? plan.updatedAt,
+    jobUrl: jobUrl || plan.target.jobUrl || plan.target.applyUrl || '',
   };
 }
 
@@ -212,6 +246,24 @@ export function recordHandoff(db: Database, userId: string, attemptId: string): 
 
 /** Manual user confirmation — USER_CONFIRMED provenance, never a provider
  *  receipt. Requires a prior handoff; idempotent; cross-user blocked. */
+/** Manual "I applied" record for applications with no attempt (plan-less or
+ *  unsupported-provider packages). Durable via the events table with a
+ *  synthetic attempt id; never fabricates provider evidence. */
+export function markAppliedManually(db: Database, userId: string, applicationId: string): ApplicationSummary {
+  ensureEventSchema(db);
+  const pkg = getPackageById(userId, applicationId);
+  if (!pkg) throw new ExperienceError('NOT_FOUND', 'Application not found.');
+  appendEvent(db, {
+    userId,
+    attemptId: `manual-${applicationId}`,
+    eventType: 'USER_CONFIRMED_SUBMITTED',
+    reasonCode: 'USER_CONFIRMED',
+    metadata: { provider: String(pkg.jobSnapshot?.platform || pkg.jobSnapshot?.source || ''), externalJobId: String(pkg.jobSnapshot?.externalJobId || ''), confirmationSource: 'USER_MANUAL', confirmedAt: new Date().toISOString() },
+    idempotencyId: `manual-${applicationId}-user-confirmed`,
+  });
+  return applicationSummaries(db, userId).find((s) => s.applicationId === applicationId)!;
+}
+
 export function confirmUserSubmitted(db: Database, userId: string, attemptId: string): ApplicationSummary {
   ensureEventSchema(db);
   const attempt = getAttempt(db, userId, attemptId);

@@ -98,6 +98,7 @@ export interface ApplicationPackage {
     calculatedAt?: string;
   };
   resumeSnapshot: {
+    source?: 'TAILORED' | 'MASTER_CV';
     tailoredResumeVersionId?: string;
     resumeUserId?: string;
     resumeJobId?: string;

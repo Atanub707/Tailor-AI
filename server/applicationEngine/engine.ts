@@ -66,7 +66,44 @@ export async function createPlan(input: PlanCreateInput): Promise<{ plan: Submis
   }
 
   const target = targetFromJob(input.job);
-  const adapter = resolveAdapter(target.provider, input.mode ?? 'production', input.adapter);
+  let adapter: ApplicationInspectionAdapter;
+  try {
+    adapter = resolveAdapter(target.provider, input.mode ?? 'production', input.adapter);
+  } catch (err: any) {
+    // Unsupported provider → durable UNSUPPORTED plan (Manual application
+    // required) instead of a hard failure. Never fabricates inspection data.
+    if (err?.name === 'InspectionFailure') {
+      const existing = getLatestPlanForPackage(input.userId, input.pkg.id);
+      if (existing && existing.status === 'UNSUPPORTED' && existing.provider === target.provider) {
+        return { plan: existing, reused: true, gate };
+      }
+      const rev = nextPlanRevision(input.userId, input.pkg.id);
+      const now = new Date().toISOString();
+      const unsupported: SubmissionPlan = {
+        id: createPlanId(input.userId, input.pkg.id, rev),
+        userId: input.userId,
+        packageId: input.pkg.id,
+        packageSnapshotHash: input.pkg.snapshotHash,
+        provider: target.provider,
+        inspection: { adapter: 'unsupported', version: 'n/a', inspectedAt: now, url: target.applyUrl },
+        target,
+        requirementsFingerprint: `unsupported-${target.provider}`,
+        mappedFields: [],
+        files: [],
+        unresolvedFields: [],
+        unresolvedDetails: [],
+        consentFields: [],
+        manualFields: [],
+        status: 'UNSUPPORTED',
+        planFingerprint: `unsupported-${target.provider}-${input.pkg.snapshotHash}`,
+        createdAt: now,
+        updatedAt: now,
+      };
+      storePlan(unsupported);
+      return { plan: unsupported, reused: false, gate };
+    }
+    throw err;
+  }
   // INVARIANT: plan.provider == adapter.provider == resolved target provider.
   const reqs = await adapterInspect(adapter, target);
   const mapping = mapRequirements(input.pkg, reqs.fields);
