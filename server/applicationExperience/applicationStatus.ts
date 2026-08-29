@@ -12,6 +12,7 @@ export type UserApplicationStatus =
   | 'READY_TO_SUBMIT'
   | 'APPLIED'
   | 'CHECK_SUBMISSION'
+  | 'MANUAL_REQUIRED'
   | 'FAILED'
   // Post-application lifecycle (projected from events/evidence).
   | 'ASSESSMENT'
@@ -29,6 +30,7 @@ export const USER_STATUS_LABELS: Record<UserApplicationStatus, string> = {
   READY_TO_SUBMIT: 'Ready to Submit',
   APPLIED: 'Applied',
   CHECK_SUBMISSION: 'Check Submission',
+  MANUAL_REQUIRED: 'Manual application required',
   FAILED: 'Failed',
   ASSESSMENT: 'Assessment',
   INTERVIEW: 'Interview',
@@ -63,7 +65,7 @@ export interface HumanCheckpoint {
   createdAt?: string;
 }
 
-export type AvailableAction = 'VIEW' | 'START_APPLICATION' | 'CONTINUE_PROVIDER' | 'REOPEN_PROVIDER' | 'CONFIRM_SUBMITTED' | 'REVIEW_AND_SUBMIT' | 'RETRY' | 'NONE';
+export type AvailableAction = 'VIEW' | 'START_APPLICATION' | 'CONTINUE_PROVIDER' | 'REOPEN_PROVIDER' | 'CONFIRM_SUBMITTED' | 'REVIEW_AND_SUBMIT' | 'RETRY' | 'OPEN_ORIGINAL' | 'MARK_APPLIED' | 'NONE';
 
 export type ApplicationEventType =
   | 'APPLICATION_STARTED'
@@ -222,7 +224,7 @@ export function mapApplicationStatus(input: {
     if (plan.status === 'NEEDS_INPUT') return 'PREPARING';
     if (plan.status === 'NEEDS_REVIEW') return 'ACTION_REQUIRED';
     if (plan.status === 'READY_TO_SUBMIT') return 'READY';
-    if (plan.status === 'UNSUPPORTED') return 'FAILED';
+    if (plan.status === 'UNSUPPORTED') return 'MANUAL_REQUIRED';
   }
   return 'CHECK_SUBMISSION'; // safe fallback
 }
@@ -235,6 +237,8 @@ export function availableActions(status: UserApplicationStatus, checkpointType?:
       if (checkpointType === 'MANUAL_SUBMISSION') return ['CONTINUE_PROVIDER', 'VIEW'];
       if (checkpointType === undefined) return ['RETRY', 'VIEW'];
       return ['CONTINUE_PROVIDER', 'VIEW'];
+    case 'MANUAL_REQUIRED':
+      return ['OPEN_ORIGINAL', 'MARK_APPLIED', 'VIEW'];
     case 'WAITING_FOR_YOU':
       return ['REOPEN_PROVIDER', 'CONFIRM_SUBMITTED'];
     case 'READY':

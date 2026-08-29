@@ -86,6 +86,26 @@ The installer is **idempotent**: checks/installs Docker Desktop, starts the engi
 
 **Start the app again later:** the app runs in Docker in the background, so there's no start command — after closing the tab or rebooting, just open **http://localhost:3000** once Docker Desktop is running (the app auto-starts with Docker).
 
+## Applying to jobs (Assisted Apply)
+
+1. Find a job in the Job Library.
+2. Click **Apply** — Tailor AI prepares the application (no page reload).
+3. The **Application Detail** opens: it shows the current state and the one
+   next action (Start Application, Answer Questions, Continue, Ready to Submit…).
+4. Tailor AI inspects the provider form (read-only), fills only verified
+   information, and attaches your exact resume (a verified tailored version,
+   or your Master CV when no tailored version exists yet).
+5. Anything Tailor AI cannot answer stays **Action Required** for you:
+   unknown questions, legal consent, EEO, CAPTCHA, login, MFA, OTP.
+6. When everything supported is filled, the application is **Ready to Submit** —
+   review it and **click Submit yourself**.
+7. Tailor AI records the result when confirmation is available; you can also
+   mark an application as applied manually.
+
+Tailor AI never submits applications automatically, never solves CAPTCHAs,
+and never consumes OTP/MFA codes. Unsupported providers show
+"Manual application required" with an open-original link and tracking.
+
 ### Update
 
 **Easy way (v1.8+):** the app checks for updates itself — when a new version is released, a banner appears in the app with an **Update & Restart** button. One click, done.

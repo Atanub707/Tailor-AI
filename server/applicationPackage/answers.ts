@@ -99,15 +99,19 @@ export function validatePackage(
   if (!fit) missingPrerequisites.push('Fit snapshot');
   else if (fit.blockers?.length) warnings.push('Fit blockers present — review before applying.');
 
-  // RESUME + immutable PDF artifact — REQUIRED system prerequisites
+  // RESUME + immutable PDF artifact — REQUIRED system prerequisites.
+  // Two authoritative sources: a verified Tailor V2 version (exact, fact-
+  // verified) or the current Master CV (deterministic, no fabrication).
   const rs = pkg.resumeSnapshot;
   if (!rs) {
-    missingPrerequisites.push('Verified Tailor V2 resume');
+    missingPrerequisites.push('Resume (Master CV or verified tailored resume)');
   } else {
-    if (!rs.tailoredResumeVersionId) missingPrerequisites.push('Resume version association');
+    if (rs.source !== 'MASTER_CV') { // default TAILORED (legacy fixtures omit source)
+      if (!rs.tailoredResumeVersionId) missingPrerequisites.push('Resume version association');
+      if (!rs.verification?.passed) missingPrerequisites.push('Tailor V2 factual verification');
+    }
     if (rs.resumeJobId && rs.resumeJobId !== pkg.jobId) blockers.push('Resume belongs to a different job.');
     if (rs.resumeUserId && rs.resumeUserId !== pkg.userId) blockers.push('Resume belongs to a different user.');
-    if (!rs.verification?.passed) missingPrerequisites.push('Tailor V2 factual verification');
     if (!rs.pdfOk || !rs.pdfHash || !rs.pdfArtifact) missingPrerequisites.push('Immutable verified PDF artifact');
   }
 

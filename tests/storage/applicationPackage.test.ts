@@ -457,10 +457,13 @@ describe('Application Package V1 — Phase 2 calibration', () => {
     expect(broken.validation.ready).toBe(false);
   });
 
-  it('STATUS-U. no Tailor resume → DRAFT with missingPrerequisites (not needsInput)', async () => {
+  it('STATUS-U. no Tailor resume → READY with the authoritative Master CV artifact (E2E V1 resume policy)', async () => {
     const pkg = await buildPackage(buildInput({ tailoredVersion: undefined }), 'cv1');
-    expect(pkg.status).toBe('DRAFT');
-    expect(pkg.validation.missingPrerequisites.join(' ')).toContain('resume');
+    expect(pkg.status).toBe('READY');
+    expect(pkg.resumeSnapshot?.source).toBe('MASTER_CV');
+    expect(pkg.resumeSnapshot?.pdfHash).toBeTruthy();
+    expect(pkg.resumeSnapshot?.pdfOk).toBe(true);
+    expect(pkg.validation.ready).toBe(true);
     expect(pkg.validation.needsInput.length).toBe(0);
   });
 

@@ -153,7 +153,7 @@ describe('Application preparation — orchestrated behind Apply', () => {
   });
 
   it('Apply is the single entry point and preparation endpoints remain intact', () => {
-    expect(CARD).toMatch(/Apply\s*<\/button>/);
+    expect(CARD).toMatch(/Apply|Preparing…\s*<\/button>/);
     expect(SERVER).toContain("app.post('/api/jobs/:id/application-package'");
     expect(SERVER).toContain("app.post('/api/application-packages/:packageId/plan'");
   });
@@ -182,9 +182,9 @@ describe('Apply safety — no automatic submission primitives anywhere', () => {
   });
 });
 
-describe('Delete — confirmation before removal', () => {
-  it('Remove job requires confirmation in the overflow menu', () => {
-    expect(CARD).toContain("window.confirm('Remove this job from your library?')");
+describe('Delete — direct removal without confirmation', () => {
+  it('Remove job deletes immediately — no second confirmation', () => {
     expect(CARD).toContain('Remove job');
+    expect(CARD).not.toContain('window.confirm');
   });
 });

@@ -18,6 +18,7 @@ export interface ApplicationDetails {
   consentReviewCount: number;
   resume: { artifactHash: string; downloadUrl: string } | null;
   lastUpdated: string;
+  events: Array<{ eventType: string; reasonCode?: string | null; createdAt: string; metadata: Record<string, string> }>;
 }
 
 export function applicationDetails(db: Database, userId: string, applicationId: string): ApplicationDetails | null {
@@ -28,7 +29,9 @@ export function applicationDetails(db: Database, userId: string, applicationId: 
   const plan: SubmissionPlan | undefined = planRows.length ? JSON.parse(planRows[0].data) : undefined;
   const attempt = plan ? getAttempt(db, userId, getLatestAttemptId(db, userId, plan.id) ?? '') : undefined;
   const events = plan && attempt ? getEventsForAttempt(db, userId, attempt.id) : [];
-  const confirmed = events.find((e) => e.eventType === 'USER_CONFIRMED_SUBMITTED');
+  const manualEvents = getEventsForAttempt(db, userId, `manual-${applicationId}`);
+  const confirmed = events.find((e) => e.eventType === 'USER_CONFIRMED_SUBMITTED') ?? manualEvents.find((e) => e.eventType === 'USER_CONFIRMED_SUBMITTED');
+  const allEvents = [...events, ...manualEvents].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   const answeredFields = plan
     ? plan.mappedFields
         .filter((m) => m.value !== null && m.value !== undefined)
@@ -49,6 +52,7 @@ export function applicationDetails(db: Database, userId: string, applicationId: 
       ? { artifactHash: pkg.resumeSnapshot.pdfHash, downloadUrl: `/api/application-packages/${pkg.id}/resume.pdf` }
       : null,
     lastUpdated: attempt?.updatedAt ?? plan?.updatedAt ?? pkg.updatedAt,
+    events: allEvents.slice(0, 8).map((e) => ({ eventType: e.eventType, reasonCode: e.reasonCode, createdAt: e.createdAt, metadata: e.metadata ?? {} })),
   };
 }
 

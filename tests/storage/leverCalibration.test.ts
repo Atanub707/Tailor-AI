@@ -254,16 +254,20 @@ describe('Provider invariant + fixture isolation', () => {
     }
   });
 
-  it('Greenhouse/Ashby production → INSPECTION_NOT_IMPLEMENTED, never fixture', async () => {
-    for (const platform of ['greenhouse', 'ashby']) {
-      const job = makeJob('https://job-boards.greenhouse.io/acme/x', platform);
+  it('Greenhouse/Ashby production → durable UNSUPPORTED plan, never fixture, never hard failure', async () => {
+    for (const [i, platform] of ['greenhouse', 'ashby'].entries()) {
+      const url = platform === 'greenhouse' ? `https://job-boards.greenhouse.io/acme/job-${i}` : `https://jobs.ashbyhq.com/acme/job-${i}`;
+      const job = { ...makeJob(url, platform), id: `j-${platform}`, externalId: `e-${platform}` };
       const pkg = await makePackage(job);
-      try {
-        await createPlan({ userId: USER, mode: 'production', pkg, job, artifactOk: true });
-        expect.unreachable('fixture must never run in production');
-      } catch (e: any) {
-        expect(e.kind).toBe('INSPECTION_NOT_IMPLEMENTED');
-      }
+      const { plan } = await createPlan({ userId: USER, mode: 'production', pkg, job, artifactOk: true });
+      expect(plan.status).toBe('UNSUPPORTED');
+      expect(plan.provider).toBe(platform);
+      expect(plan.mappedFields).toEqual([]);
+      expect(plan.requirementsFingerprint).toBe(`unsupported-${platform}`);
+      // idempotent reuse of the unsupported plan
+      const again = await createPlan({ userId: USER, mode: 'production', pkg, job, artifactOk: true });
+      expect(again.reused).toBe(true);
+      expect(again.plan.status).toBe('UNSUPPORTED');
     }
   });
 

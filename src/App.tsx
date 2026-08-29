@@ -34,12 +34,16 @@ export default function App() {
   const isJobPortalsOpen = pathname === '/job-portals';
   const isAiSystemOpen = pathname === '/ai-interview';
   const isLinkedInPostsOpen = pathname === '/linkedin-posts';
-  const isApplicationsOpen = pathname === '/applications';
+  const isApplicationsOpen = pathname === '/applications' || pathname.startsWith('/applications/');
+  // Canonical per-application route: /applications/:applicationId — reloads
+  // land back on the same application's detail view.
+  const applicationDetailId = pathname.startsWith('/applications/') ? decodeURIComponent(pathname.slice('/applications/'.length)) : undefined;
 
   // Unknown paths (stale bookmarks, typos) land on the dashboard instead of
   // a blank screen. Done BEFORE any screen renders.
   const knownPaths = ['/', '/settings', '/recruiters', '/master-cv', '/applicant-profile', '/manual-jd', '/job-portals', '/ai-interview', '/linkedin-posts', '/applications'];
-  if (!knownPaths.includes(pathname)) return <Navigate to="/" replace />;
+  const knownPrefixes = ['/applications/'];
+  if (!knownPaths.includes(pathname) && !knownPrefixes.some((p) => pathname.startsWith(p))) return <Navigate to="/" replace />;
 
   const [jobs, setJobs] = useState<Job[]>([]);
   const [masterCv, setMasterCv] = useState<MasterCv | null>(null);
@@ -709,7 +713,7 @@ export default function App() {
           {/* AI Interview */}
           {isAiSystemOpen && <AiSystemScreen onClose={goHome} />}
           {isLinkedInPostsOpen && <LinkedInPostsScreen onClose={goHome} />}
-          {isApplicationsOpen && <ApplicationsScreen onBackToJobs={goHome} />}
+          {isApplicationsOpen && <ApplicationsScreen onBackToJobs={goHome} initialApplicationId={applicationDetailId} />}
         </>
       )}
     </div>
