@@ -329,11 +329,6 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
         </div>
       </div>
 
-      {/* MASTER CV BOUNDARY */}
-      <div className="st-note-box" style={{ marginBottom: 14 }}>
-        <b>Professional history lives in your Master CV.</b> Your experience, employers, titles, dates, skills, education and certifications belong to the Master CV — this profile holds reusable identity, eligibility and preference facts only.
-      </div>
-
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10 }} aria-live="polite">
         <button onClick={() => void save()} disabled={saveState === 'saving'} style={{ background: 'var(--st-primary)', color: '#fff', fontWeight: 800, padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12.5 }}>
           {saveState === 'saving' ? 'Saving…' : 'Save Candidate Profile'}

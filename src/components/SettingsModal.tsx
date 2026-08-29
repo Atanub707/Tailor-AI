@@ -350,9 +350,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <HamburgerTrigger />
         <div className="st-ttl">Settings <small>Tailor CV workspace</small></div>
         <div className="st-spacer" />
-        <span className={`st-status ${dirty ? 'warn' : ''}`}>
-          {dirty ? <><Info size={13} weight="bold" /> Unsaved changes</> : <><CheckCircle size={13} weight="bold" /> All saved</>}
-        </span>
+
       </header>
 
       {/* ── Layout ── */}
@@ -369,7 +367,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </button>
           ))}
           <div className="st-side-note">
-            Tailor CV v{pkg.version} — created by <b>Atanu Biswas</b><br />© 2026 Atanu Biswas · All rights reserved.
           </div>
         </aside>
 
@@ -784,12 +781,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {saveError && <span className="stp-save-error">{saveError}</span>}
             <div className="st-spacer" />
             <button className="st-btn sm">Reset</button>
+            {activePanel !== 'candidate' && (
             <button className="st-btn primary" onClick={handleSave} disabled={isSaving}>
               {isSaving ? <><span className="st-spin" /> Saving…</> : <><Check size={14} weight="bold" /> Save changes</>}
             </button>
-          </div>
-          <div className="st-about">
-            Tailor CV v{pkg.version} — created by <b>Atanu Biswas</b> · © 2026 Atanu Biswas. All rights reserved. Personal use only — redistribution or white-labeling is prohibited (see LICENSE).
+            )}
           </div>
         </main>
       </div>
