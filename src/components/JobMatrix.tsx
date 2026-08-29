@@ -178,12 +178,26 @@ const JobCard = React.memo(function JobCard({
     const slowTailorTimer = window.setTimeout(() => {
       setApplyStage((s) => (s === 'preparing' ? 'tailoring' : s));
     }, 900);
+    // The package POST is idempotent (READY packages are reused; auto-tailor
+    // only ever runs when no version exists). A dropped connection mid-flight
+    // (server restart, network hiccup) can therefore be retried safely.
+    const postPackage = () => fetch(`/api/jobs/${job.id}/application-package`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ autoTailor: true }),
+    });
+    const isNetworkError = (e: any) => /load failed|failed to fetch|networkerror|network request|abort/i.test(String(e?.message || ''));
     try {
-      const res = await fetch(`/api/jobs/${job.id}/application-package`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ autoTailor: true }),
-      });
+      let res: Response;
+      try {
+        res = await postPackage();
+      } catch (netErr: any) {
+        if (!isNetworkError(netErr)) throw netErr;
+        // One automatic retry after a short pause — the request is safe to repeat.
+        await new Promise((r) => window.setTimeout(r, 1500));
+        setApplyStage((s) => (s === 'preparing' ? 'tailoring' : s));
+        res = await postPackage();
+      }
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         const msg = d.error || 'Could not prepare the application.';
@@ -216,7 +230,12 @@ const JobCard = React.memo(function JobCard({
         }
       }
     } catch (err: any) {
-      alert(`Could not prepare the application. ${String(err?.message || 'Please try again.')}`);
+      if (isNetworkError(err)) {
+        // Connection never recovered after the retry — explain, don't die.
+        setApplyError('Could not reach the app server while preparing (the connection dropped). Check that Tailor AI is still running, then click Apply again — your progress is safe.');
+      } else {
+        alert(`Could not prepare the application. ${String(err?.message || 'Please try again.')}`);
+      }
     } finally {
       window.clearTimeout(slowTailorTimer);
       setApplyStage('idle');
