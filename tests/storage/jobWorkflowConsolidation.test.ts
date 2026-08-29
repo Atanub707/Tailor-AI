@@ -182,9 +182,9 @@ describe('Apply safety — no automatic submission primitives anywhere', () => {
   });
 });
 
-describe('Delete — confirmation before removal', () => {
-  it('Remove job requires confirmation in the overflow menu', () => {
-    expect(CARD).toContain("window.confirm('Remove this job from your library?')");
+describe('Delete — direct removal without confirmation', () => {
+  it('Remove job deletes immediately — no second confirmation', () => {
     expect(CARD).toContain('Remove job');
+    expect(CARD).not.toContain('window.confirm');
   });
 });

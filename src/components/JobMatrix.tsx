@@ -2,7 +2,6 @@ import React from 'react';
 import { Job, JobState, JobSource } from '../types';
 import { formatTimeAgoSemantic } from '../lib/dateUtils';
 import { getValidJobUrl } from '../lib/jobUrlUtils';
-import { DownloadCvDropdown } from './DownloadCvDropdown';
 import { applicantCountLabel } from '../lib/applicantInfo';
 import {
   Briefcase,
@@ -23,7 +22,6 @@ import {
   Calendar,
   ExternalLink,
   Users,
-  EllipsisVertical,
 } from 'lucide-react';
 
 interface JobMatrixProps {
@@ -105,15 +103,12 @@ const JobCard = React.memo(function JobCard({
   const [fit, setFit] = React.useState<{ score: number; grade: string; strengths: string[]; gaps: string[]; blockers: string[]; unknowns: string[]; coverage?: string; fromCache?: boolean } | null>(null);
   const [fitLoading, setFitLoading] = React.useState(false);
   const [fitOpen, setFitOpen] = React.useState(false);
-  const [menuOpen, setMenuOpen] = React.useState(false);
   const matchRef = React.useRef<HTMLDivElement>(null);
-  const menuRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
       const t = e.target as Node;
       if (matchRef.current && !matchRef.current.contains(t)) setFitOpen(false);
-      if (menuRef.current && !menuRef.current.contains(t)) setMenuOpen(false);
     };
     document.addEventListener('mousedown', onDocClick);
     return () => document.removeEventListener('mousedown', onDocClick);
@@ -256,7 +251,7 @@ const JobCard = React.memo(function JobCard({
       </div>
 
       {/* Right: Match · View · Apply · overflow */}
-      <div className="flex items-center justify-between md:justify-end gap-3 border-t md:border-t-0 md:border-l border-slate-100 pt-3 md:pt-0 md:pl-4 shrink-0">
+      <div className="flex flex-wrap items-center justify-between md:justify-end gap-2.5 border-t md:border-t-0 md:border-l border-slate-100 pt-3 md:pt-0 md:pl-4 shrink-0">
         <div className="relative" ref={matchRef}>
           <button
             onClick={() => void openMatch()}
@@ -320,40 +315,21 @@ const JobCard = React.memo(function JobCard({
           Apply
         </button>
 
-        {/* Overflow */}
-        <div className="relative" ref={menuRef}>
-          <button
-            onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
-            aria-label="More actions"
-            aria-expanded={menuOpen}
-            className="w-9 h-9 rounded-lg inline-flex items-center justify-center text-slate-500 hover:bg-slate-100 cursor-pointer"
-          >
-            <EllipsisVertical className="w-4 h-4" />
-          </button>
-          {menuOpen && (
-            <div className="absolute right-0 top-11 z-50 w-56 bg-white border border-[var(--color-hairline)] rounded-xl p-1.5 shadow-lg text-left">
-              <a href={getValidJobUrl(job)} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-2 w-full px-2.5 py-2 rounded-lg text-xs font-semibold text-slate-700 hover:bg-[var(--color-brand-soft)]">
-                <ExternalLink className="w-3.5 h-3.5 text-slate-400" /> Open original job ↗
-              </a>
-              {job.tailoredCv && (
-                <DownloadCvDropdown jobId={job.id} buttonText="Download tailored resume" size="sm" />
-              )}
-              <button
-                onClick={() => onUpdateStatus(job.id, job.state === 'applied' ? 'pending' : 'applied')}
-                className="flex items-center gap-2 w-full px-2.5 py-2 rounded-lg text-xs font-semibold text-slate-700 hover:bg-[var(--color-brand-soft)] cursor-pointer text-left"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> {job.state === 'applied' ? 'Unmark applied' : 'Mark as applied'}
-              </button>
-              <button
-                onClick={() => { if (window.confirm('Remove this job from your library?')) void onDeleteJob(job.id); }}
-                className="flex items-center gap-2 w-full px-2.5 py-2 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50 cursor-pointer text-left"
-              >
-                <Trash2 className="w-3.5 h-3.5" /> Remove job
-              </button>
-            </div>
-          )}
-        </div>
+        {/* Mark as applied */}
+        <button
+          onClick={() => onUpdateStatus(job.id, job.state === 'applied' ? 'pending' : 'applied')}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-white hover:bg-[var(--color-brand-soft)] border border-[var(--color-hairline)] text-[var(--color-muted)] transition-colors cursor-pointer min-h-[38px]"
+        >
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> {job.state === 'applied' ? 'Unmark applied' : 'Mark as applied'}
+        </button>
+
+        {/* Remove job — no confirmation */}
+        <button
+          onClick={() => onDeleteJob(job.id)}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors cursor-pointer min-h-[38px]"
+        >
+          <Trash2 className="w-3.5 h-3.5" /> Remove
+        </button>
       </div>
     </div>
   );

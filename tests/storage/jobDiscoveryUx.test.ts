@@ -81,12 +81,18 @@ const CARD = fs.readFileSync(path.join(process.cwd(), 'src/components/JobMatrix.
 const DETAIL = fs.readFileSync(path.join(process.cwd(), 'src/components/JobDetailModal.tsx'), 'utf8');
 
 describe('Job discovery UX — card surface', () => {
-  it('primary journey is Match → View → Apply with an overflow menu', () => {
+  it('primary journey is Match → View → Apply with direct secondary actions', () => {
     expect(CARD).toContain('Check match');
     expect(CARD).toMatch(/View\s*<\/button>/);
     expect(CARD).toMatch(/Apply\s*<\/button>/);
-    expect(CARD).toContain('aria-label="More actions"');
-    expect(CARD).toContain('EllipsisVertical');
+    expect(CARD).toContain('Mark as applied');
+    expect(CARD).toContain('Remove job');
+  });
+
+  it('the card has no overflow menu and no original-job link', () => {
+    expect(CARD).not.toContain('aria-label="More actions"');
+    expect(CARD).not.toContain('EllipsisVertical');
+    expect(CARD).not.toContain('Open original job');
   });
 
   it('job card exposes title, company, location, source and posted time', () => {
@@ -107,11 +113,12 @@ describe('Job discovery UX — card surface', () => {
     expect(CARD).not.toContain('ATS Score');
   });
 
-  it('low-frequency actions live in the overflow menu', () => {
-    expect(CARD).toContain('Open original job');
+  it('Mark as applied and Remove job are direct card actions', () => {
     expect(CARD).toContain('Mark as applied');
+    expect(CARD).toContain('Unmark applied');
     expect(CARD).toContain('Remove job');
-    expect(CARD).toContain('Download tailored resume');
+    expect(CARD).toContain('onUpdateStatus');
+    expect(CARD).toContain('onDeleteJob');
   });
 
   it('match indicator shows a percentage when fit exists and never a misleading placeholder', () => {
