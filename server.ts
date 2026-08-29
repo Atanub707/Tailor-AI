@@ -3017,11 +3017,8 @@ const sanitizeAttemptDryRun = (a: any) => ({
       if (!detail) return res.status(400).json({ error: `Unknown unresolved field: ${providerFieldId}` });
       const pkg = getPackageById(userId, plan.packageId);
       if (!pkg) return res.status(404).json({ error: 'Package not found.' });
-      // Re-run mapping with a USER-supplied value for this field.
-      const { mapRequirements } = await import('./server/applicationEngine/mapper.js');
-      const { FixtureInspectionAdapter, LEVER_FIXTURES } = await import('./server/applicationEngine/fixtureAdapter.js');
-      const reqs = await new FixtureInspectionAdapter().inspect(plan.target);
-      const mapping = mapRequirements(pkg, reqs.fields);
+      // Validate against THIS plan's inspected metadata (never re-inspect).
+      // The user-supplied value is bound to the plan; no re-mapping.
       const idx = plan.mappedFields.findIndex((m) => m.providerFieldId === providerFieldId);
       if (idx !== -1) {
         plan.mappedFields[idx] = { ...plan.mappedFields[idx], value: value ?? null, source: 'USER', mappingMethod: 'USER', mappingConfidence: 'high' };

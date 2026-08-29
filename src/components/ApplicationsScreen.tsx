@@ -15,6 +15,11 @@ interface Details {
   optionalOmittedCount: number;
   consentReviewCount: number;
   events?: Array<{ eventType: string; createdAt: string }>;
+  planId?: string;
+  requiredQuestions?: Array<{ providerFieldId: string; label: string; required: boolean; type: string; options: string[]; reason: string }>;
+  consentFields?: Array<{ providerFieldId: string; label: string; classification: string }>;
+  reviewGroups?: Array<{ title: string; items: Array<{ label: string; value: string; source: string }> }>;
+  needsApproval?: boolean;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -73,6 +78,9 @@ export default function ApplicationsScreen({ onBackToJobs, initialApplicationId 
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [toast, setToast] = React.useState('');
   const [companionPaired, setCompanionPaired] = React.useState<boolean | null>(null);
+  const [answers, setAnswers] = React.useState<Record<string, string>>({});
+  const [answerState, setAnswerState] = React.useState<'idle' | 'saving'>('idle');
+  const [approving, setApproving] = React.useState(false);
   const [startingId, setStartingId] = React.useState<string | null>(null);
 
   const fetchRows = React.useCallback(async () => {
@@ -180,6 +188,73 @@ export default function ApplicationsScreen({ onBackToJobs, initialApplicationId 
     } catch (e: any) {
       setError(String(e?.message || 'Could not mark as applied.'));
     } finally { setBusy(false); }
+  };
+
+  const saveAnswer = async (row: ApplicationRow, field: { providerFieldId: string }) => {
+    if (!details?.planId) return;
+    setAnswerState('saving');
+    setError('');
+    try {
+      const res = await fetch(`/api/submission-plans/${details.planId}/answers`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ providerFieldId: field.providerFieldId, value: (answers[field.providerFieldId] ?? '').trim() || null }),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Could not save the answer.'); }
+      setToast('Answer saved.');
+      await refreshDetails(row);
+    } catch (e: any) {
+      setError(String(e?.message || 'Could not save the answer.'));
+    } finally { setAnswerState('idle'); }
+  };
+
+  const saveAllAndContinue = async (row: ApplicationRow) => {
+    if (!details?.planId) return;
+    setAnswerState('saving'); setError('');
+    try {
+      // Clear previously resolved answers first per-field via PATCH (value null resets),
+      // then apply all entered values in order.
+      for (const q of details.requiredQuestions ?? []) {
+        const val = answers[q.providerFieldId]?.trim();
+        if (val === undefined || val === '') continue;
+        const res = await fetch(`/api/submission-plans/${details.planId}/answers`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ providerFieldId: q.providerFieldId, value: val }),
+        });
+        if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Could not save an answer.'); }
+      }
+      setToast('Answers saved.');
+      await refreshDetails(row);
+    } catch (e: any) {
+      setError(String(e?.message || 'Could not save the answers.'));
+    } finally { setAnswerState('idle'); }
+  };
+
+  const refreshDetails = async (row: ApplicationRow) => {
+    try {
+      const res = await fetch(`/api/applications/${row.applicationId}/details`);
+      if (res.ok) setDetails(await res.json().then((d) => d.details));
+      await fetchRows();
+    } catch { /* details are optional */ }
+  };
+
+  const approveAndContinue = async (row: ApplicationRow) => {
+    if (!details?.planId) return;
+    setApproving(true); setError('');
+    try {
+      const res = await fetch(`/api/submission-plans/${details.planId}/approval`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ consents: [] }) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Approval failed.'); }
+      setToast('Approved ready — continuing the application.');
+      await refreshDetails(row);
+      // proceed with the existing start flow now approved
+      const started = await fetch(`/api/applications/${row.applicationId}/start`, { method: 'POST' });
+      const sd = await started.json().catch(() => ({}));
+      if (sd.application) setSelected(sd.application);
+      await refreshDetails(row);
+    } catch (e: any) {
+      setError(String(e?.message || 'Approval failed.'));
+    } finally { setApproving(false); }
   };
 
   const openOriginalApplication = (row: ApplicationRow) => {
@@ -375,6 +450,141 @@ export default function ApplicationsScreen({ onBackToJobs, initialApplicationId 
                 <div className="text-sm font-bold text-amber-900">{selected.checkpoint.title}</div>
                 <p className="mt-1 text-xs text-amber-800">{selected.checkpoint.description}</p>
                 <p className="mt-1 text-[11px] text-amber-700">Your tailored resume and application information are ready.</p>
+              </div>
+            )}
+
+            {/* ── Questions to Answer ── */}
+            {details && details.requiredQuestions && details.requiredQuestions.length > 0 && (
+              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/40 p-3.5" data-qa="questions-panel">
+                <div className="text-sm font-black text-[var(--color-ink)]">Questions to Answer</div>
+                <p className="mt-0.5 text-xs text-[var(--color-muted)]">
+                  {details.requiredQuestions.length} answer{details.requiredQuestions.length > 1 ? 's' : ''} needed before Tailor AI can continue. Only questions we could not answer from your profile appear here.
+                </p>
+                <div className="mt-3 space-y-3">
+                  {details.requiredQuestions.map((q) => (
+                    <div key={q.providerFieldId}>
+                      <label className="block text-[12px] font-bold text-[var(--color-ink)] mb-1">
+                        {q.label}
+                        {!q.required ? <span className="font-medium text-[var(--color-faint)]"> (optional)</span> : null}
+                      </label>
+                      {q.type === 'TEXTAREA' ? (
+                        <textarea
+                          className="w-full rounded-lg border border-[var(--color-hairline2)] px-3 py-2 text-sm bg-white"
+                          rows={3}
+                          placeholder="Your answer"
+                          value={answers[q.providerFieldId] ?? ''}
+                          onChange={(e) => setAnswers((a) => ({ ...a, [q.providerFieldId]: e.target.value }))}
+                        />
+                      ) : q.type === 'SINGLE_SELECT' ? (
+                        <select
+                          className="w-full rounded-lg border border-[var(--color-hairline2)] px-3 py-2 text-sm bg-white"
+                          value={answers[q.providerFieldId] ?? ''}
+                          onChange={(e) => setAnswers((a) => ({ ...a, [q.providerFieldId]: e.target.value }))}
+                        >
+                          <option value="">Select…</option>
+                          {(q.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      ) : q.type === 'MULTI_SELECT' ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {(q.options || []).map((o) => {
+                            const sel = (answers[q.providerFieldId] || '').split(',').filter(Boolean);
+                            return (
+                              <button
+                                key={o}
+                                type="button"
+                                onClick={() => {
+                                  const cur = sel.includes(o) ? sel.filter((x) => x !== o) : [...sel, o];
+                                  setAnswers((a) => ({ ...a, [q.providerFieldId]: cur.join(',') }));
+                                }}
+                                className={`px-2.5 py-1 rounded-full text-[11.5px] font-bold border transition-colors ${sel.includes(o) ? 'bg-[var(--color-brand)] text-white border-[var(--color-brand)]' : 'bg-white text-[var(--color-muted)] border-[var(--color-hairline)] hover:bg-[var(--color-brand-soft)]'}`}
+                              >
+                                {o}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : q.type === 'BOOLEAN' ? (
+                        <div className="flex gap-1.5">
+                          {['Yes', 'No'].map((o) => (
+                            <button
+                              key={o}
+                              type="button"
+                              onClick={() => setAnswers((a) => ({ ...a, [q.providerFieldId]: o }))}
+                              className={`px-3 py-1.5 rounded-full text-[11.5px] font-bold border transition-colors ${answers[q.providerFieldId] === o ? 'bg-[var(--color-brand)] text-white border-[var(--color-brand)]' : 'bg-white text-[var(--color-muted)] border-[var(--color-hairline)]'}`}
+                            >
+                              {o}
+                            </button>
+                          ))}
+                        </div>
+                      ) : q.type === 'DATE' ? (
+                        <input
+                          type="date"
+                          className="w-full rounded-lg border border-[var(--color-hairline2)] px-3 py-2 text-sm bg-white"
+                          value={answers[q.providerFieldId] ?? ''}
+                          onChange={(e) => setAnswers((a) => ({ ...a, [q.providerFieldId]: e.target.value }))}
+                        />
+                      ) : (
+                        <input
+                          type={q.type === 'NUMBER' ? 'number' : q.type === 'EMAIL' ? 'email' : 'text'}
+                          className="w-full rounded-lg border border-[var(--color-hairline2)] px-3 py-2 text-sm bg-white"
+                          placeholder="Your answer"
+                          value={answers[q.providerFieldId] ?? ''}
+                          onChange={(e) => setAnswers((a) => ({ ...a, [q.providerFieldId]: e.target.value }))}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 flex items-center gap-2">
+                  <button
+                    onClick={() => void saveAllAndContinue(selected)}
+                    disabled={answerState === 'saving'}
+                    className="px-3.5 py-2 rounded-lg text-sm font-bold bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-50"
+                  >
+                    {answerState === 'saving' ? 'Saving…' : 'Save & Continue'}
+                  </button>
+                  {answerState === 'saving' && <span className="text-xs text-[var(--color-faint)]">Save &amp; Continue re-checks the application</span>}
+                </div>
+              </div>
+            )}
+
+            {/* ── Review & Approve ── */}
+            {details?.needsApproval && !(details.requiredQuestions && details.requiredQuestions.length > 0) && (
+              <div className="mt-4 rounded-xl border border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] p-3.5" data-qa="review-panel">
+                <div className="text-sm font-black text-[var(--color-ink)]">Review before continuing</div>
+                <p className="mt-0.5 text-xs text-[var(--color-muted)]">This is what Tailor AI will use to fill the application. Nothing is submitted automatically.</p>
+                {(details.reviewGroups || []).map((grp) => (
+                  <div key={grp.title} className="mt-2">
+                    <div className="text-[10.5px] font-bold uppercase tracking-widest text-[var(--color-faint)]">{grp.title}</div>
+                    <div className="mt-1 space-y-1">
+                      {grp.items.map((it, i) => (
+                        <div key={i} className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 text-xs">
+                          <span className="text-[var(--color-muted)] truncate">{it.label}</span>
+                          <span className="text-[var(--color-ink)] font-semibold truncate max-w-[60%]">{it.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {details.resume && (
+                  <div className="mt-2 rounded-md bg-white px-2.5 py-1.5 text-xs flex items-center justify-between">
+                    <span className="text-[var(--color-muted)]">Resume</span>
+                    <a className="text-[var(--color-brand)] font-semibold underline" href={details.resume.downloadUrl} target="_blank" rel="noopener noreferrer">View exact resume</a>
+                  </div>
+                )}
+                {(details.consentFields || []).length > 0 && (
+                  <div className="mt-2 text-[11px] text-[var(--color-muted)]">
+                    {details.consentFields.length} required acknowledgement{details.consentFields.length > 1 ? 's' : ''} remain — read them on the provider form before submitting.
+                  </div>
+                )}
+                <button
+                  onClick={() => void approveAndContinue(selected)}
+                  disabled={approving}
+                  className="mt-3 w-full px-3 py-2.5 rounded-lg text-sm font-bold bg-[var(--color-cta)] text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  {approving ? 'Approving…' : 'Approve & Continue'}
+                </button>
+                <p className="mt-1.5 text-[10.5px] text-[var(--color-faint)]">Approve means you reviewed these values. It does not submit your application.</p>
               </div>
             )}
 
