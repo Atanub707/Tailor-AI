@@ -2397,6 +2397,14 @@ function computePlanStatus(plan: { manualFields: unknown[]; consentFields: unkno
   // ── Application Engine V1 (Phase 1) — provider-neutral plans ──────────
   // Prepare-only: inspection + dry-run. NO submission endpoints.
 
+const sanitizeSummary = (a: any) => ({
+  applicationId: a.applicationId, planId: a.planId, attemptId: a.attemptId,
+  jobId: a.jobId, jobTitle: a.jobTitle, company: a.company, provider: a.provider,
+  userStatus: a.userStatus,
+  checkpoint: a.checkpoint ? { type: a.checkpoint.type, reasonCode: a.checkpoint.reasonCode, title: a.checkpoint.title, description: a.checkpoint.description, provider: a.checkpoint.provider } : null,
+  availableActions: a.availableActions,
+  updatedAt: a.updatedAt,
+});
 const sanitizeApproval = (a: any) => ({
   id: a.id, planId: a.planId, packageId: a.packageId, status: a.status,
   approvedAt: a.approvedAt,
@@ -2506,6 +2514,66 @@ const sanitizeAttemptDryRun = (a: any) => ({
 
   // Ordinary unresolved answers (source=USER). Consent/EEO/UNKNOWN remain
   // review-only; READY_TO_SUBMIT plans are frozen (409).
+  // ── Application Experience V1: user-facing dashboard + handoff. ──
+  app.get('/api/applications', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { applicationSummaries } = await import('./server/applicationExperience/applicationService.js');
+      const filter = String(req.query?.filter || 'all');
+      let rows = applicationSummaries(getDb(), userId);
+      if (filter === 'action') rows = rows.filter((r) => r.userStatus === 'ACTION_REQUIRED' || r.userStatus === 'WAITING_FOR_YOU');
+      if (filter === 'applied') rows = rows.filter((r) => r.userStatus === 'APPLIED');
+      const counts = {
+        all: rows.length,
+        action: applicationSummaries(getDb(), userId).filter((r) => r.userStatus === 'ACTION_REQUIRED' || r.userStatus === 'WAITING_FOR_YOU').length,
+        applied: applicationSummaries(getDb(), userId).filter((r) => r.userStatus === 'APPLIED').length,
+      };
+      res.json({ applications: rows.map(sanitizeSummary), counts, filter });
+    } catch (err: any) {
+      res.status(500).json({ error: String(err?.message || 'Applications fetch failed.').slice(0, 300) });
+    }
+  });
+
+  app.post('/api/applications/:attemptId/handoff', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { recordHandoff } = await import('./server/applicationExperience/applicationService.js');
+      const { url, summary } = recordHandoff(getDb(), userId, req.params.attemptId);
+      res.json({ url, application: sanitizeSummary(summary) });
+    } catch (err: any) {
+      if (err?.name === 'ExperienceError') return res.status(err.code === 'NOT_FOUND' ? 404 : 409).json({ error: err.message, code: err.code });
+      res.status(500).json({ error: String(err?.message || 'Handoff failed.').slice(0, 300) });
+    }
+  });
+
+  app.post('/api/applications/:attemptId/confirm-submitted', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { confirmUserSubmitted } = await import('./server/applicationExperience/applicationService.js');
+      const summary = confirmUserSubmitted(getDb(), userId, req.params.attemptId);
+      res.json({ application: sanitizeSummary(summary) });
+    } catch (err: any) {
+      if (err?.name === 'ExperienceError') return res.status(err.code === 'NOT_FOUND' ? 404 : err.code === 'NOT_HANDED_OFF' ? 409 : 403).json({ error: err.message, code: err.code });
+      res.status(500).json({ error: String(err?.message || 'Confirmation failed.').slice(0, 300) });
+    }
+  });
+
+  app.get('/api/applications/:applicationId/details', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { applicationDetails } = await import('./server/applicationExperience/applicationDetails.js');
+      const details = applicationDetails(getDb(), userId, req.params.applicationId);
+      if (!details) return res.status(404).json({ error: 'Application not found.' });
+      res.json({ details });
+    } catch (err: any) {
+      res.status(500).json({ error: String(err?.message || 'Details fetch failed.').slice(0, 300) });
+    }
+  });
+
   // ── Execution (Phase 1): approval + attempt + LOCAL dry-run. No mutation. ──
   app.post('/api/submission-plans/:planId/approval', async (req, res) => {
     try {

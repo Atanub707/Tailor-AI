@@ -324,10 +324,6 @@ function JobPrepareApplication({ jobId, packageId, packageStatus }: { jobId: str
   const [plan, setPlan] = React.useState<any>(null);
   const [preview, setPreview] = React.useState<any>(null);
   const [error, setError] = React.useState('');
-  const [approval, setApproval] = React.useState<any>(null);
-  const [dryRun, setDryRun] = React.useState<any>(null);
-  const [execBusy, setExecBusy] = React.useState(false);
-  const [execError, setExecError] = React.useState('');
 
   const prepare = async () => {
     setState('preparing');
@@ -355,28 +351,6 @@ function JobPrepareApplication({ jobId, packageId, packageStatus }: { jobId: str
   };
 
   const statusLabel: Record<string, string> = { NEEDS_INPUT: 'Needs Input', NEEDS_REVIEW: 'Needs Review', READY_TO_SUBMIT: 'Ready for Submission', UNSUPPORTED: 'Unsupported' };
-  const approve = async () => {
-    if (!plan) return;
-    setExecBusy(true); setExecError('');
-    try {
-      const res = await fetch(`/api/submission-plans/${plan.id}/approval`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ consents: [], marketingOptIn: false }) });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Approval failed.'); }
-      const d = await res.json();
-      setApproval(d.approval);
-    } catch (e: any) { setExecError(String(e?.message || 'Approval failed.')); }
-    finally { setExecBusy(false); }
-  };
-  const runDryRun = async () => {
-    if (!approval) return;
-    setExecBusy(true); setExecError('');
-    try {
-      const res = await fetch(`/api/application-approvals/${approval.id}/prepare-execution`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ marketingOptIn: false }) });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Preparation failed.'); }
-      const d = await res.json();
-      setDryRun(d.result);
-    } catch (e: any) { setExecError(String(e?.message || 'Preparation failed.')); }
-    finally { setExecBusy(false); }
-  };
 
   const jobApplyUrlHref = preview?.inspection?.url || undefined;
   const inspectionErrorText = (msg: string) => {
@@ -403,7 +377,7 @@ function JobPrepareApplication({ jobId, packageId, packageStatus }: { jobId: str
       {error && (
         <div className="mt-1 w-64 rounded-lg bg-red-50 border border-red-200 p-2 text-[10px] text-red-700">
           <div>{inspectionErrorText(error)}</div>
-          <a href={jobApplyUrlHref ?? undefined} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-[10px] font-bold text-red-800 underline">
+          <a href={preview?.inspection?.url ?? undefined} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-[10px] font-bold text-red-800 underline">
             Open application on Lever
           </a>
         </div>
@@ -456,39 +430,11 @@ function JobPrepareApplication({ jobId, packageId, packageStatus }: { jobId: str
               {preview.eeoManual.slice(0, 3).map((m: any, i: number) => <div key={i} className="text-xs text-orange-800">• {m.label}</div>)}
             </div>
           )}
-          {preview.status === 'READY_TO_SUBMIT' && !approval && (
-            <div className="mt-2">
-              <button onClick={approve} disabled={execBusy} className="px-2.5 py-1.5 rounded-md text-xs font-medium bg-white hover:bg-[var(--color-brand-soft)] border-[1.5px] border-[var(--color-brand-line)] text-[var(--color-muted)] disabled:opacity-50">
-                {execBusy ? 'Approving…' : 'Approve for Submission'}
-              </button>
-              <div className="mt-1 text-[10px] text-[var(--color-faint)]">Submission transport is not enabled yet.</div>
+          {preview.status === 'READY_TO_SUBMIT' && (
+            <div className="mt-2 text-[10px] text-[var(--color-faint)]">
+              This application is ready. Manage it from <a href="/applications" className="font-semibold text-[var(--color-brand)] underline">Applications</a>.
             </div>
           )}
-          {approval && !dryRun && (
-            <div className="mt-2 border-t border-[var(--color-hairline)] pt-2">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">Approved — bound to exact content</div>
-              <div className="text-[10px] text-[var(--color-faint)]">Resume {approval.resumeArtifactHash?.slice(0, 12)}… · Answers {approval.mappedFieldsHash?.slice(0, 12)}… · {new Date(approval.approvedAt).toLocaleString()}</div>
-              <button onClick={runDryRun} disabled={execBusy} className="mt-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium bg-white hover:bg-[var(--color-brand-soft)] border-[1.5px] border-[var(--color-brand-line)] text-[var(--color-muted)] disabled:opacity-50">
-                {execBusy ? 'Preparing…' : 'Prepare Execution Dry Run'}
-              </button>
-            </div>
-          )}
-          {dryRun && (
-            <div className="mt-2 border-t border-[var(--color-hairline)] pt-2 space-y-1">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-faint)]">Dry Run (local only — nothing sent)</div>
-              <div className="text-[11px] text-[var(--color-ink)]">Provider: Lever · Target verified · Form {dryRun.requirementsMatch ? 'unchanged' : 'CHANGED'}</div>
-              <div className="text-[11px] text-[var(--color-ink)]">Multipart prepared locally · {dryRun.payload?.textParts?.length ?? 0} text parts · {dryRun.payload?.fileParts?.length ?? 0} file part(s)</div>
-              <div className="text-[11px] text-[var(--color-ink)]">Payload fingerprint: {dryRun.payloadFingerprint?.slice(0, 16)}…</div>
-              <div className="text-[11px] text-[var(--color-ink)]">CAPTCHA: {dryRun.captcha?.present ? 'Present (hCaptcha)' : 'Not detected'}</div>
-              <div className={`text-[11px] font-bold ${dryRun.attempt?.status === 'MANUAL_ACTION_REQUIRED' ? 'text-orange-600' : 'text-emerald-700'}`}>
-                Execution: {dryRun.attempt?.status === 'MANUAL_ACTION_REQUIRED' ? 'Manual Action Required' : dryRun.attempt?.status}
-              </div>
-              {dryRun.captcha?.present && <div className="text-[10px] text-orange-700">Lever requires hCaptcha for this application.</div>}
-              <div className="text-[10px] text-[var(--color-faint)]">Submission transport is not enabled yet. No data leaves your machine.</div>
-              <a href={jobApplyUrlHref ?? undefined} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-[10px] font-bold text-[var(--color-brand)] underline">Open application on Lever</a>
-            </div>
-          )}
-          {execError && <div className="mt-1 text-[10px] text-red-600">{execError}</div>}
         </div>
       )}
     </div>

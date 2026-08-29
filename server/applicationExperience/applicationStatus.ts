@@ -1,0 +1,169 @@
+// Application Experience V1 — user-facing status/checkpoint domain.
+// INTERNAL states stay authoritative; this layer projects them for users.
+import type { SubmissionPlan } from '../applicationEngine/contract.js';
+import type { ApplicationAttempt, AttemptStatus } from '../applicationEngine/executionContract.js';
+
+export type UserApplicationStatus =
+  | 'PREPARING'
+  | 'READY'
+  | 'APPLYING'
+  | 'ACTION_REQUIRED'
+  | 'WAITING_FOR_YOU'
+  | 'APPLIED'
+  | 'CHECK_SUBMISSION'
+  | 'FAILED';
+
+export const USER_STATUS_LABELS: Record<UserApplicationStatus, string> = {
+  PREPARING: 'Preparing',
+  READY: 'Ready',
+  APPLYING: 'Applying',
+  ACTION_REQUIRED: 'Action Required',
+  WAITING_FOR_YOU: 'Waiting for You',
+  APPLIED: 'Applied',
+  CHECK_SUBMISSION: 'Check Submission',
+  FAILED: 'Failed',
+};
+
+export type CheckpointType =
+  | 'CAPTCHA'
+  | 'LOGIN'
+  | 'MFA'
+  | 'CONSENT'
+  | 'REQUIRED_QUESTION'
+  | 'PROVIDER_CHALLENGE'
+  | 'MANUAL_SUBMISSION'
+  | 'UNKNOWN';
+
+export interface HumanCheckpoint {
+  type: CheckpointType;
+  reasonCode: string;
+  title: string;
+  description: string;
+  provider: string;
+  attemptId?: string;
+  jobId?: string;
+  externalJobId?: string;
+  actionUrl?: string;
+  createdAt?: string;
+}
+
+export type AvailableAction = 'VIEW' | 'CONTINUE_PROVIDER' | 'REOPEN_PROVIDER' | 'CONFIRM_SUBMITTED' | 'RETRY' | 'NONE';
+
+export type ApplicationEventType =
+  | 'PROVIDER_HANDOFF'
+  | 'USER_CONFIRMED_SUBMITTED'
+  | 'SUBMISSION_CONFIRMED'
+  | 'SUBMISSION_UNCONFIRMED';
+
+export interface ApplicationEvent {
+  id: string;
+  userId: string;
+  attemptId: string;
+  eventType: ApplicationEventType;
+  reasonCode?: string;
+  createdAt: string;
+  metadata: Record<string, string>; // non-sensitive only
+}
+
+/** Execution reason → generic human checkpoint (one domain router; no
+ *  duplication across API/UI). Future: LOGIN/MFA from execution modes. */
+export function humanCheckpointFrom(reasonCode: string | undefined, provider: string, plan?: SubmissionPlan): HumanCheckpoint {
+  const reason = reasonCode ?? 'UNKNOWN';
+  switch (reason) {
+    case 'CAPTCHA_REQUIRED':
+      return {
+        type: 'CAPTCHA', reasonCode: reason, provider,
+        title: 'Human verification required',
+        description: 'Your application is prepared, but ' + provider + ' requires you to complete a verification step before the application can be submitted.',
+      };
+    case 'PROVIDER_CHALLENGE':
+      return {
+        type: 'PROVIDER_CHALLENGE', reasonCode: reason, provider,
+        title: 'Security check required',
+        description: provider + ' is asking for a security check before accepting this application.',
+      };
+    case 'CONSENT_REQUIRED':
+      return {
+        type: 'CONSENT', reasonCode: reason, provider,
+        title: 'Consent required',
+        description: 'This application includes a consent step that needs your review.',
+      };
+    case 'FORM_CHANGED':
+    case 'PLAN_CHANGED':
+    case 'PACKAGE_STALE':
+      return {
+        type: 'MANUAL_SUBMISSION', reasonCode: reason, provider,
+        title: 'Application needs to be prepared again',
+        description: 'The application details changed on the provider side. Prepare it again to continue.',
+      };
+    default:
+      if (plan?.manualFields?.length) {
+        return {
+          type: 'REQUIRED_QUESTION', reasonCode: reason, provider,
+          title: 'Review required',
+          description: 'This application includes questions that need your explicit answers.',
+        };
+      }
+      return {
+        type: 'UNKNOWN', reasonCode: reason, provider,
+        title: 'Attention required',
+        description: 'This application needs your attention before it can continue.',
+      };
+  }
+}
+
+/** CENTRAL internal → user status mapper. Exhaustive; unknown → safe
+ *  CHECK_SUBMISSION fallback (never crashes, never silently Applied). */
+export function mapApplicationStatus(input: {
+  plan?: SubmissionPlan | null;
+  attempt?: ApplicationAttempt | null;
+  hasHandoffEvent: boolean;
+  hasUserConfirmedEvent: boolean;
+}): UserApplicationStatus {
+  const { plan, attempt, hasHandoffEvent, hasUserConfirmedEvent } = input;
+  if (hasUserConfirmedEvent) return 'APPLIED';
+  if (attempt) {
+    switch (attempt.status as AttemptStatus) {
+      case 'MANUAL_ACTION_REQUIRED':
+        return hasHandoffEvent ? 'WAITING_FOR_YOU' : 'ACTION_REQUIRED';
+      case 'READY_FOR_DRY_RUN':
+        return 'APPLYING';
+      case 'BLOCKED':
+        return 'FAILED';
+      case 'PREPARING':
+        return 'APPLYING';
+      case 'SUBMITTED':
+        return 'APPLIED';
+      case 'SUCCESS_UNCONFIRMED':
+        return 'CHECK_SUBMISSION';
+      case 'FAILED':
+        return 'FAILED';
+      default:
+        break; // PENDING_APPROVAL/APPROVED/CANCELLED → plan-based fallthrough
+    }
+  }
+  if (plan) {
+    if (plan.status === 'NEEDS_INPUT') return 'PREPARING';
+    if (plan.status === 'NEEDS_REVIEW') return 'ACTION_REQUIRED';
+    if (plan.status === 'READY_TO_SUBMIT') return 'READY';
+    if (plan.status === 'UNSUPPORTED') return 'FAILED';
+  }
+  return 'CHECK_SUBMISSION'; // safe fallback
+}
+
+export function availableActions(status: UserApplicationStatus, checkpointType?: CheckpointType): AvailableAction[] {
+  switch (status) {
+    case 'ACTION_REQUIRED':
+      return checkpointType === 'MANUAL_SUBMISSION' ? ['RETRY', 'VIEW'] : ['CONTINUE_PROVIDER', 'VIEW'];
+    case 'WAITING_FOR_YOU':
+      return ['REOPEN_PROVIDER', 'CONFIRM_SUBMITTED'];
+    case 'READY':
+      return ['CONTINUE_PROVIDER'];
+    case 'APPLIED':
+      return ['VIEW'];
+    case 'FAILED':
+      return ['RETRY', 'VIEW'];
+    default:
+      return ['VIEW'];
+  }
+}

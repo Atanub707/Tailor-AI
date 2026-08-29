@@ -4,7 +4,7 @@ import { sha256 } from './contract.js';
 import type { ApplicationPackage } from '../applicationPackage/packageModel.js';
 import { readPdfArtifact, sha256Bytes } from '../applicationPackage/artifactStore.js';
 import type { SubmissionPlan } from './contract.js';
-import { ensureExecutionSchema, executionKey, storeApproval, getApproval, storeAttempt, getAttempt, getAttemptsByExecutionKey, updateAttemptStatus } from './executionStore.js';
+import { ensureExecutionSchema, executionKey, storeApproval, getApproval, storeAttempt, getAttempt, getAttemptsByExecutionKey, updateAttemptStatus, updateAttemptFailure } from './executionStore.js';
 import { LeverInspectionAdapter } from './leverInspector.js';
 import { buildLeverPayload, payloadFingerprint, PayloadBuildError } from './leverPayloadBuilder.js';
 import type { MultipartPayload } from './executionContract.js';
@@ -172,11 +172,17 @@ export async function prepareExecution(input: PrepareExecutionInput): Promise<Dr
     fresh = await new LeverInspectionAdapter().inspect(input.plan.target);
   } catch (e: any) {
     if (e?.kind === 'PROVIDER_CHALLENGE' || e?.kind === 'FORM_CHANGED') {
-      if (attemptCreated) transitionAttempt(input.db, input.userId, attemptEntry.attempt.id, 'MANUAL_ACTION_REQUIRED');
+      if (attemptCreated) {
+        updateAttemptFailure(input.db, input.userId, attemptEntry.attempt.id, { kind: e.kind });
+        transitionAttempt(input.db, input.userId, attemptEntry.attempt.id, 'MANUAL_ACTION_REQUIRED');
+      }
       const attempt = getAttempt(input.db, input.userId, attemptEntry.attempt.id) ?? attemptEntry.attempt;
       return { attempt, payload: null, payloadFingerprint: null, requirementsMatch: false, captcha: { present: true }, dryRunAvailable: false, formAutomationEligible: false, submissionTransportEnabled: false, executionEligible: false, reason: e.kind };
     }
-    if (attemptCreated) transitionAttempt(input.db, input.userId, attemptEntry.attempt.id, 'BLOCKED');
+    if (attemptCreated) {
+      updateAttemptFailure(input.db, input.userId, attemptEntry.attempt.id, { kind: e?.kind ?? 'UNKNOWN' });
+      transitionAttempt(input.db, input.userId, attemptEntry.attempt.id, 'BLOCKED');
+    }
     const attempt = getAttempt(input.db, input.userId, attemptEntry.attempt.id) ?? attemptEntry.attempt;
     return { attempt, payload: null, payloadFingerprint: null, requirementsMatch: false, captcha: { present: false }, dryRunAvailable: false, formAutomationEligible: false, submissionTransportEnabled: false, executionEligible: false, reason: e?.kind ?? 'UNKNOWN' };
   }
@@ -184,7 +190,10 @@ export async function prepareExecution(input: PrepareExecutionInput): Promise<Dr
   const requirementsMatch = fresh.fingerprint === input.plan.requirementsFingerprint;
   const captcha = { present: (fresh as any).captcha?.present === true || (fresh as any).providerMetadata?.hcaptcha !== undefined, provider: 'hCaptcha' };
   if (!requirementsMatch) {
-    if (attemptCreated) transitionAttempt(input.db, input.userId, attemptEntry.attempt.id, 'BLOCKED');
+    if (attemptCreated) {
+      updateAttemptFailure(input.db, input.userId, attemptEntry.attempt.id, { kind: 'FORM_CHANGED' });
+      transitionAttempt(input.db, input.userId, attemptEntry.attempt.id, 'BLOCKED');
+    }
     const attempt = getAttempt(input.db, input.userId, attemptEntry.attempt.id) ?? attemptEntry.attempt;
     return { attempt, payload: null, payloadFingerprint: null, requirementsMatch: false, captcha, dryRunAvailable: false, formAutomationEligible: false, submissionTransportEnabled: false, executionEligible: false, reason: 'FORM_CHANGED' };
   }
@@ -207,7 +216,10 @@ export async function prepareExecution(input: PrepareExecutionInput): Promise<Dr
   payload.executionEligible = false; // Phase 1: never executable
 
   const finalStatus = captcha.present ? 'MANUAL_ACTION_REQUIRED' : 'READY_FOR_DRY_RUN';
-  if (attemptCreated) transitionAttempt(input.db, input.userId, attemptEntry.attempt.id, finalStatus);
+  if (attemptCreated) {
+    if (captcha.present) updateAttemptFailure(input.db, input.userId, attemptEntry.attempt.id, { kind: 'CAPTCHA_REQUIRED' });
+    transitionAttempt(input.db, input.userId, attemptEntry.attempt.id, finalStatus);
+  }
   const attempt = getAttempt(input.db, input.userId, attemptEntry.attempt.id) ?? attemptEntry.attempt;
 
   // Phase-1 invariant: submission transport does not exist → ALWAYS false.

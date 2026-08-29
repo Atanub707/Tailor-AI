@@ -101,6 +101,11 @@ export function getAttemptsByExecutionKey(db: Database, executionKey: string): A
   return rows.map(attemptFromRow);
 }
 
+export function updateAttemptFailure(db: Database, userId: string, attemptId: string, failure: { kind: string; message?: string; retryClass?: string; occurredAt?: string }): void {
+  db.prepare('UPDATE application_attempts SET failure_json = ?, updated_at = ? WHERE id = ? AND user_id = ?')
+    .run(JSON.stringify({ ...failure, occurredAt: failure.occurredAt ?? new Date().toISOString(), retryClass: failure.retryClass ?? 'MANUAL_ONLY' }), new Date().toISOString(), attemptId, userId);
+}
+
 export function updateAttemptStatus(db: Database, userId: string, attemptId: string, status: AttemptStatus): void {
   db.prepare('UPDATE application_attempts SET status = ?, updated_at = ? WHERE id = ? AND user_id = ?')
     .run(status, new Date().toISOString(), attemptId, userId);
