@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { HamburgerTrigger } from '../navigation';
 import { createPortal } from 'react-dom';
 import { MasterCv, TemplateId, CV_TEMPLATES } from '../types';
 import { llmErrorMessage } from '../lib/llmError';
@@ -208,12 +209,13 @@ export const MasterCvScreen: React.FC<MasterCvScreenProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="h-[calc(100vh-74px)] bg-white text-[var(--color-ink)] flex">
+    <div className="h-screen bg-white text-[var(--color-ink)] flex">
       {/* LEFT: EDITOR */}
       <div className="w-[46%] min-w-[420px] border-r border-[var(--color-hairline)] flex flex-col bg-white">
         {/* Header */}
         <div className="px-5 py-3.5 border-b border-[var(--color-hairline)] bg-white flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-2">
+            <HamburgerTrigger />
             <User className="w-5 h-5 text-[var(--color-muted)]" />
             <div>
               <h2 className="text-sm font-bold text-[var(--color-ink)] leading-tight">Master Candidate CV</h2>

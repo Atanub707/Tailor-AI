@@ -7,6 +7,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import type { ApplicantProfile } from '../types';
+import { HamburgerTrigger } from '../navigation';
 
 interface ApplicantProfileScreenProps {
   isOpen: boolean;
@@ -145,9 +146,10 @@ export const ApplicantProfileScreen: React.FC<ApplicantProfileScreenProps> = ({ 
   const p = profile;
 
   return (
-    <div className="h-[calc(100vh-74px)] overflow-y-auto bg-[var(--color-canvas)]">
+    <div className="h-screen overflow-y-auto bg-[var(--color-canvas)]">
       <div className="sticky top-0 z-10 border-b border-[var(--color-border)] bg-[var(--color-canvas)]/95 backdrop-blur">
         <div className="max-w-3xl mx-auto px-6 py-4 flex items-center gap-4">
+          <HamburgerTrigger />
           <div className="flex-1">
             <h1 className="text-lg font-bold text-[var(--color-ink)] leading-tight">Applicant Profile</h1>
             <p className="text-xs text-[var(--color-faint)]">Canonical structured facts — local only. Future Fit, Tailor &amp; Apply use this.</p>

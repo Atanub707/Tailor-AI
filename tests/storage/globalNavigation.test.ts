@@ -7,7 +7,7 @@ import path from 'node:path';
 
 const NAVBAR = fs.readFileSync(path.join(process.cwd(), 'src/components/Navbar.tsx'), 'utf8');
 const APP = fs.readFileSync(path.join(process.cwd(), 'src/App.tsx'), 'utf8');
-const NAV = fs.readFileSync(path.join(process.cwd(), 'src/navigation.ts'), 'utf8');
+const NAV = fs.readFileSync(path.join(process.cwd(), 'src/navigation.tsx'), 'utf8');
 
 // Config-driven inventory — mirrors src/navigation.ts without React imports.
 const EXPECTED_ITEMS: Array<{ id: string; label: string; route: string; group: 'library' | 'profile' | 'tools' }> = [
@@ -53,46 +53,69 @@ describe('Single source of truth — src/navigation.ts', () => {
   });
 });
 
-describe('One global shell — Navbar', () => {
-  it('renders exactly one hamburger trigger and one drawer', () => {
-    expect(NAVBAR.match(/aria-label="Open menu"/g)?.length ?? 0).toBe(1);
-    expect(NAVBAR.match(/aria-label="Close menu"/g)?.length ?? 0).toBe(1);
-    expect(NAVBAR.match(/role="dialog"/g)?.length ?? 0).toBe(1);
-    // Items are rendered from the shared config via a single DrawerItem
-    // component inside the group map — one component, ten config entries.
-    expect(NAVBAR.match(/<DrawerItem/g)?.length ?? 0).toBe(1);
+describe('Global navigation system — navigation.tsx', () => {
+  it('exactly ONE drawer (provider) and ONE shared trigger component', () => {
+    expect(NAV).toContain('export function NavigationProvider');
+    expect(NAV).toContain('export function HamburgerTrigger');
+    expect(NAV.match(/role="dialog"/g)?.length ?? 0).toBe(1);
+    expect(NAV.match(/aria-label="Close menu"/g)?.length ?? 0).toBe(1);
+    // one drawer per provider render — never per screen
+    expect(NAV.match(/<aside/g)?.length ?? 0).toBe(1);
+  });
+
+  it('trigger accessibility: aria-expanded, Escape close, backdrop close, aria-hidden when closed', () => {
+    expect(NAV).toContain('aria-expanded={isOpen}');
+    expect(NAV).toContain('onClick={close}');
+    expect(NAV).toContain('aria-hidden={!isOpen}');
+    expect(NAV).toContain("key === 'Escape'");
+  });
+
+  it('drawer items render from the shared config (NAV_ITEMS + NAV_GROUPS), never per-item literals', () => {
+    expect(NAV).toContain('NAV_ITEMS.filter');
+    expect(NAV).toContain('NAV_GROUPS.map');
+    expect(NAV).toContain('activeNavId');
     expect(NAV).toContain("id: 'settings'");
-  });
-
-  it('the trigger is accessible: aria-expanded + Escape close + backdrop close', () => {
-    expect(NAVBAR).toContain('aria-expanded={drawerOpen}');
-    expect(NAVBAR).toContain("e.key === 'Escape'");
-    expect(NAVBAR).toContain('aria-hidden={!drawerOpen}');
-  });
-
-  it('drawer navigation uses the shared config, not per-item literals', () => {
-    expect(NAVBAR).toContain("import { NAV_GROUPS, NAV_ITEMS, activeNavId } from '../navigation'");
-    expect(NAVBAR).toContain('activeNavId(pathname)');
-    expect(NAVBAR).toContain('itemsByGroup');
+    // drawer rows read labels from the config, never hand-written rows
+    expect(NAV).toContain('{item.label}');
   });
 
   it('has no internal hard navigation (window.location.href)', () => {
-    expect(NAVBAR).not.toContain('window.location.href');
-    expect(NAVBAR).not.toContain('window.location.assign');
+    expect(NAV).not.toContain('window.location.href');
+    expect(NAV).not.toContain('window.location.assign');
+    expect(NAV).not.toContain("location.href");
   });
 
-  it('brand/logo navigates to Home', () => {
+  it('Home Navbar brand navigates to Home and keeps the shared trigger', () => {
     expect(NAVBAR).toContain('onClick={onOpenHome}');
+    expect(NAVBAR).toContain('<HamburgerTrigger />');
+  });
+
+  it('navigating via the drawer closes it (conventional) and the trigger remains', () => {
+    expect(NAV).toContain('close();');
+    expect(NAV).toContain('onNavigate(item.id)');
   });
 });
 
-describe('App shell — Navbar above every screen, no overlay screens', () => {
-  it('Navbar renders once in App.tsx before screens', () => {
-    expect(APP.match(/<Navbar/g)?.length ?? 0).toBe(1);
-    const navIdx = APP.indexOf('<Navbar');
-    const screenRenderIdx = APP.lastIndexOf('isApplicationsOpen &&');
-    expect(navIdx).toBeGreaterThan(-1);
-    expect(navIdx).toBeLessThan(screenRenderIdx);
+describe('App shell — navigation system', () => {
+  it('the full Home Navbar renders on Home only', () => {
+    expect(APP).toContain("{pathname === '/' && (");
+    expect(APP).toContain('<Navbar');
+    // Feature screens never render the full Home bar (Navbar has no route condition inside it)
+    for (const file of ['SettingsModal.tsx', 'ManualJdScreen.tsx', 'ApplicationsScreen.tsx', 'ApplicantProfileScreen.tsx', 'MasterCvScreen.tsx']) {
+      const src = fs.readFileSync(path.join(process.cwd(), 'src/components', file), 'utf8');
+      expect(src).not.toContain('Created by');
+      expect(src).not.toContain('<Navbar');
+    }
+  });
+
+  it('NavigationProvider (one drawer) wraps the authenticated app and every screen integrates the shared trigger', () => {
+    expect(APP).toContain('<NavigationProvider');
+    expect(APP).toContain('onNavigate=');
+    expect(APP).toContain('</NavigationProvider>');
+    for (const file of ['SettingsModal.tsx', 'ManualJdScreen.tsx', 'ApplicationsScreen.tsx', 'ApplicantProfileScreen.tsx', 'MasterCvScreen.tsx', 'RecruitersScreen.tsx', 'JobPortalsScreen.tsx', 'LinkedInPostsScreen.tsx', 'AiSystemScreen.tsx']) {
+      const src = fs.readFileSync(path.join(process.cwd(), 'src/components', file), 'utf8');
+      expect(src).toContain('HamburgerTrigger');
+    }
   });
 
   it('every normal screen renders in-flow (no full-viewport overlay covering the app bar)', () => {
@@ -127,11 +150,11 @@ describe('No stale duplicate navigation surfaces', () => {
     }
   });
 
-  it('no screen-level Back buttons remain (hamburger is the navigation)', () => {
-    for (const file of ['SettingsModal.tsx', 'JobPortalsScreen.tsx', 'ManualJdScreen.tsx', 'RecruitersScreen.tsx', 'LinkedInPostsScreen.tsx', 'ApplicantProfileScreen.tsx']) {
+  it('screens keep their contextual headers — no full Home app bar, one trigger each', () => {
+    for (const file of ['SettingsModal.tsx', 'JobPortalsScreen.tsx', 'ManualJdScreen.tsx', 'RecruitersScreen.tsx', 'LinkedInPostsScreen.tsx', 'ApplicantProfileScreen.tsx', 'AiSystemScreen.tsx']) {
       const src = fs.readFileSync(path.join(process.cwd(), 'src/components', file), 'utf8');
-      expect(src).not.toContain('>Back<');
-      expect(src).not.toContain('← Back');
+      expect(src.match(/<HamburgerTrigger/g)?.length ?? 0).toBe(1);
+      expect(src).not.toContain('Created by');
     }
   });
 });

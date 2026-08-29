@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { HamburgerTrigger } from '../navigation';
 import { ArrowLeft, Globe, Search, ExternalLink, Sparkles, TrendingUp, X, Bookmark, Star } from 'lucide-react';
 import { JOB_PORTALS, PORTAL_CATEGORIES, JobPortal } from '../constants/jobPortals';
 
@@ -153,10 +154,11 @@ export const JobPortalsScreen: React.FC<JobPortalsScreenProps> = ({ isOpen, onCl
   };
 
   return (
-    <div className="h-[calc(100vh-74px)] bg-[#F7F8FA] text-[var(--color-ink)] flex flex-col">
+    <div className="h-screen bg-[#F7F8FA] text-[var(--color-ink)] flex flex-col">
       {/* Header */}
       <div className="relative px-6 py-3.5 border-b border-[var(--color-hairline)] bg-white/90 backdrop-blur-md flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
+          <HamburgerTrigger />
         </div>
 
         {/* Centered headline */}

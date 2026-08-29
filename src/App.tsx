@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { Navbar } from './components/Navbar';
+import { NavigationProvider } from './navigation';
 import { ScraperBar } from './components/ScraperBar';
 import { JobMatrix } from './components/JobMatrix';
 import { JobDetailModal } from './components/JobDetailModal';
@@ -550,7 +551,25 @@ export default function App() {
           onGuestLogin={handleGuestLogin}
         />
       ) : (
-        <>
+        <NavigationProvider
+          onNavigate={(id) => {
+            switch (id) {
+              case 'home': navigate('/'); break;
+              case 'applications': navigate('/applications'); break;
+              case 'applicant-profile': navigate('/applicant-profile'); break;
+              case 'master-cv': navigate('/master-cv'); break;
+              case 'recruiters': setRecruiterBadge(0); navigate('/recruiters'); break;
+              case 'job-portals': navigate('/job-portals'); break;
+              case 'linkedin-posts': navigate('/linkedin-posts'); break;
+              case 'ai-interview': navigate('/ai-interview'); break;
+              case 'manual-jd': navigate('/manual-jd'); break;
+              case 'settings': navigate('/settings'); break;
+            }
+          }}
+          badges={{ applications: applicationBadge, recruiters: recruiterBadge }}
+          user={currentUser}
+          installedVersion={installedVersion}
+        >
           <style>{`
             .update-banner{display:flex; align-items:center; gap:12px; padding:8px 16px; background:#052E16; color:#D1FAE5;
               font-size:13px; font-weight:600; flex-wrap:wrap;}
@@ -567,28 +586,18 @@ export default function App() {
             .update-banner button:hover{background:#064E3B; color:#fff;}
             .update-banner .update-cta{margin-left:0;}
           `}</style>
-          {/* Header Navigation */}
-          <Navbar
-            user={currentUser}
-            onOpenHome={() => navigate('/')}
-            onLogout={handleLogout}
-            onOpenMasterCv={() => navigate('/master-cv')}
-            onOpenApplicantProfile={() => navigate('/applicant-profile')}
-            onOpenSettings={() => navigate('/settings')}
-            onOpenManualJd={() => navigate('/manual-jd')}
-            onOpenJobPortals={() => navigate('/job-portals')}
-            onOpenRecruiters={() => {
-              setRecruiterBadge(0);
-              navigate('/recruiters');
-            }}
-            onOpenChat={() => navigate('/ai-interview')}
-            onOpenLinkedInPosts={() => navigate('/linkedin-posts')}
-            onOpenApplications={() => navigate('/applications')}
-            applicationsBadge={applicationBadge}
-            recruiterBadge={recruiterBadge}
-            installedVersion={installedVersion}
-            onTour={startTour}
-          />
+          {/* Header Navigation — the full Home app bar lives on Home only;
+              other screens render their own contextual headers with the
+              shared HamburgerTrigger (src/navigation.tsx). */}
+          {pathname === '/' && (
+            <Navbar
+              user={currentUser}
+              onOpenHome={() => navigate('/')}
+              onLogout={handleLogout}
+              installedVersion={installedVersion}
+              onTour={startTour}
+            />
+          )}
 
           {/* Update banner — a newer version was pushed to GitHub */}
           {updateInfo && !updateDismissed && (
@@ -717,7 +726,7 @@ export default function App() {
           {isAiSystemOpen && <AiSystemScreen onClose={goHome} />}
           {isLinkedInPostsOpen && <LinkedInPostsScreen onClose={goHome} />}
           {isApplicationsOpen && <ApplicationsScreen onBackToJobs={goHome} initialApplicationId={applicationDetailId} />}
-        </>
+        </NavigationProvider>
       )}
     </div>
   );

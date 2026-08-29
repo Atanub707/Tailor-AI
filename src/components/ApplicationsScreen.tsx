@@ -1,4 +1,5 @@
 import React from 'react';
+import { HamburgerTrigger } from '../navigation';
 
 interface Checkpoint { type: string; reasonCode: string; title: string; description: string; provider: string }
 interface ApplicationRow {
@@ -288,7 +289,15 @@ export default function ApplicationsScreen({ onBackToJobs, initialApplicationId 
   };
 
   return (
-    <div className="p-4 md:p-6 max-w-5xl mx-auto w-full">
+    <div className="h-screen flex flex-col">
+      <div className="flex items-center gap-3 px-4 sm:px-6 py-3 shrink-0" style={{ borderBottom: '1px solid var(--color-hairline)', background: '#fff' }}>
+        <HamburgerTrigger />
+        <h1 className="text-[15px] font-bold" style={{ color: 'var(--color-ink)' }}>Applications</h1>
+        {onBackToJobs && (
+          <button onClick={onBackToJobs} className="ml-auto text-xs font-semibold underline" style={{ color: 'var(--color-muted)' }}>← Back to jobs</button>
+        )}
+      </div>
+      <div className="p-4 md:p-6 max-w-5xl mx-auto w-full flex-1 overflow-y-auto">
       <div className="flex items-baseline justify-between flex-wrap gap-2">
         <h1 className="text-xl font-black text-[var(--color-ink)]">Applications</h1>
         {onBackToJobs && (
@@ -489,6 +498,7 @@ export default function ApplicationsScreen({ onBackToJobs, initialApplicationId 
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

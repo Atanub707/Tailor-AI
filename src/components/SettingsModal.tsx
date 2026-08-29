@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { HamburgerTrigger } from '../navigation';
 import { AppConfig, LlmProvider } from '../types';
 import { ArrowLeft, User, LockKey, PlugsConnected, Brain, RocketLaunch, EnvelopeSimple, ShieldCheck, Key, Database, CheckCircle, CaretRight, Warning, Pulse, Check, Eye, EyeSlash, ArrowSquareOut, Info, GlobeSimple } from '@phosphor-icons/react';
 import { RECOVERY_QUESTIONS } from '../constants/recoveryQuestions';
@@ -436,6 +437,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     <div className="st-screen">
       {/* ── Header ── */}
       <header className="st-hdr">
+        <HamburgerTrigger />
         <div className="st-ttl">Settings <small>Tailor CV workspace</small></div>
         <div className="st-spacer" />
         <span className={`st-status ${dirty ? 'warn' : ''}`}>
@@ -1128,7 +1130,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       <div className={`st-toast ${savedToast ? 'show' : ''}`}><CheckCircle size={15} weight="bold" /> Changes saved</div>
 
       <style>{`
-        .st-screen{position:relative; height:calc(100vh - 74px); background:var(--st-bg,#F8FAFC); color:var(--st-ink,#0F172A); display:flex; flex-direction:column; font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; --st-bg:#F9FAFB; --st-surface:#FFFFFF; --st-line:#E2E8F0; --st-line2:#CBD5E1; --st-ink:#0F172A; --st-muted:#475569; --st-faint:#64748B; --st-primary:#2563EB; --st-primary-strong:#1D4ED8; --st-primary-soft:#EFF6FF; --st-primary-line:#BFDBFE; --st-cta:#059669; --st-cta-soft:#ECFDF5; --st-cta-line:#A7F3D0; --st-danger:#DC2626; --st-danger-soft:#FEF2F2;}
+        .st-screen{position:relative; height:100vh; background:var(--st-bg,#F8FAFC); color:var(--st-ink,#0F172A); display:flex; flex-direction:column; font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; --st-bg:#F9FAFB; --st-surface:#FFFFFF; --st-line:#E2E8F0; --st-line2:#CBD5E1; --st-ink:#0F172A; --st-muted:#475569; --st-faint:#64748B; --st-primary:#2563EB; --st-primary-strong:#1D4ED8; --st-primary-soft:#EFF6FF; --st-primary-line:#BFDBFE; --st-cta:#059669; --st-cta-soft:#ECFDF5; --st-cta-line:#A7F3D0; --st-danger:#DC2626; --st-danger-soft:#FEF2F2;}
         .st-hdr{display:flex; align-items:center; gap:16px; padding:16px 28px; background:var(--st-surface); border-bottom:1px solid var(--st-line); flex-shrink:0;}
         .st-hbtn{display:inline-flex; align-items:center; gap:8px; padding:9px 15px; border-radius:10px; font-size:13px; font-weight:600; color:var(--st-muted); background:var(--st-surface); border:1px solid var(--st-line); cursor:pointer; transition:background .15s ease,color .15s ease,border-color .15s ease;}
         .st-hbtn:hover{background:var(--st-primary-soft); color:var(--st-primary); border-color:var(--st-primary-line);}
