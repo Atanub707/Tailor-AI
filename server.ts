@@ -3194,6 +3194,26 @@ const sanitizeAttemptDryRun = (a: any) => ({
   });
 
   // ── Fit Engine V1 — deterministic applicant ↔ job matching ───────────
+  // Latest verified Tailor V2 version for a job (read-only) — powers the
+  // Job Detail "Tailored Resume" tab for V2 output.
+  app.get('/api/jobs/:id/tailor-v2/latest', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { getLatestTailorVersion } = await import('./server/tailorV2/versionStore.js');
+      const v = getLatestTailorVersion(userId, req.params.id);
+      if (!v) return res.json({ version: null });
+      res.json({
+        version: v.version,
+        verification: v.verification,
+        jdTerms: (v as any).jdTerms ?? [],
+        stale: v.stale,
+        createdAt: v.createdAt,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: String(err?.message || 'Failed to load tailored version.').slice(0, 300) });
+    }
+  });
   app.post('/api/jobs/:id/fit', async (req, res) => {
     try {
       const userId = getCurrentUserId();

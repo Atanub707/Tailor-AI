@@ -25,6 +25,7 @@ import {
   Printer,
   Users,
   Eye,
+  Download,
 } from 'lucide-react';
 
 interface JobDetailModalProps {
@@ -77,6 +78,22 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
 
   // Recruiters tied to this job (server: hr_contacts by source job / recruiter URL).
   const [jobContacts, setJobContacts] = useState<{ id: string; name: string | null; email: string | null; phone: string | null; whatsapp: boolean; recruiterUrl: string | null; company: string; jobRole: string; jobCount: number }[]>([]);
+
+  const [v2Version, setV2Version] = useState<{ version: number; verification: any; jdTerms: string[]; stale: boolean } | null>(null);
+  const [v2Loading, setV2Loading] = useState(false);
+
+  useEffect(() => {
+    if (job && !job.tailoredCv) {
+      setV2Loading(true);
+      fetch(`/api/jobs/${job.id}/tailor-v2/latest`)
+        .then((r) => (r.ok ? r.json() : { version: null }))
+        .then((d) => setV2Version(d.version ? d : null))
+        .catch(() => setV2Version(null))
+        .finally(() => setV2Loading(false));
+    } else {
+      setV2Version(null);
+    }
+  }, [job?.id, job?.tailoredCv]);
 
   useEffect(() => {
     let alive = true;
@@ -484,12 +501,48 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
           {/* TAB 3: Tailored Resume */}
           {activeTab === 'tailored' && (
             <div className="space-y-6">
-              {!tailored ? (
+              {!tailored && v2Version ? (
+                <div className="space-y-6 text-xs">
+                  <div className="bg-[var(--color-ink)] border border-slate-800 text-white rounded-xl p-5 shadow-lg space-y-4">
+                    <div className="flex items-center space-x-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-[var(--color-cta)]" />
+                      <h3 className="font-bold text-sm text-white uppercase tracking-wider">Tailored Resume · Version {v2Version.version}</h3>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <span className={`px-2 py-1 rounded text-[11px] font-bold ${v2Version.verification?.passed ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'}`}>
+                        {v2Version.verification?.passed ? 'Verified against Master CV' : 'Verification warnings — review before use'}
+                      </span>
+                      {v2Version.stale && <span className="px-2 py-1 rounded text-[11px] font-bold bg-orange-500/15 text-orange-300 border border-orange-500/30">Stale — retailor to refresh</span>}
+                    </div>
+                    <p className="text-[var(--color-faint)] text-xs">
+                      Fact-verified against your Master CV: every claim, date, employer, and skill was checked. No invented facts.
+                    </p>
+                    {v2Version.jdTerms.length > 0 && (
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-faint)] mb-1.5">Job-matched keywords incorporated</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {v2Version.jdTerms.slice(0, 12).map((kw, i) => (
+                            <span key={i} className="px-2 py-0.5 rounded bg-[var(--color-brand-soft)]/15 text-cyan-200 border border-cyan-500/30 text-[11px] font-semibold">{kw}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <a
+                      href={`/api/jobs/${job.id}/tailor-v2/pdf`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-2 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--color-accent)] text-white text-xs font-bold hover:opacity-90"
+                    >
+                      <Download className="w-3.5 h-3.5" /> Download tailored resume (PDF)
+                    </a>
+                  </div>
+                </div>
+              ) : !tailored ? (
                 <div className="text-center py-10 bg-[#FAFAF9] rounded-lg border border-[var(--color-hairline)]">
                   <Sparkles className="w-8 h-8 text-[var(--color-cta)] mx-auto mb-2" />
-                  <h3 className="text-xs font-bold text-[var(--color-ink)]">No Tailored CV Created</h3>
+                  <h3 className="text-xs font-bold text-[var(--color-ink)]">No Tailored Resume</h3>
                   <p className="text-xs text-[var(--color-faint)] mt-1 max-w-md mx-auto">
-                    Generate an ATS-optimized CV incorporating missing target keywords, calibrated for Calibri 11pt formatting.
+                    Generate a fact-verified, ATS-safe tailored resume aligned to this job — claims are checked against your Master CV.
                   </p>
                   <button
                     onClick={() => onTailorJob(job.id)}
@@ -879,7 +932,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
               disabled={isLoading}
               className="px-3 py-1.5 rounded bg-[var(--color-ink)] hover:bg-[#14113B] text-white font-medium transition-colors cursor-pointer"
             >
-              Re-Tailor CV
+              Tailor Resume
             </button>
           </div>
         </div>

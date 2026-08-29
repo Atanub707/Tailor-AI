@@ -358,18 +358,22 @@ export default function App() {
   // Tailor CV Handler
   const handleTailorJob = async (jobId: string) => {
     runWithMessages(jobId, [
-      'Analyzing job requirements from description...',
-      'Matching skills with your Master CV profile...',
-      'Rewriting experience bullets with JD keywords...',
-      'Integrating missing keywords into sections...',
-      'Verifying all keywords are placed correctly...',
-      'Generating ATS-ready PDF document...',
+      'Resolving the real job description...',
+      'Analyzing requirements against your Master CV...',
+      'Rewriting experience bullets with job-matched facts...',
+      'Verifying every claim against your Master CV...',
+      'Preparing the ATS-safe tailored resume...',
     ], async () => {
-      const res = await fetch(`/api/jobs/${jobId}/tailor`, { method: 'POST' });
+      const res = await fetch(`/api/jobs/${jobId}/tailor-v2`, { method: 'POST' });
       if (res.ok) {
         const data = await res.json();
-        setJobs((prev) => prev.map((j) => (j.id === jobId ? data.job : j)));
-        if (selectedJob && selectedJob.id === jobId) setSelectedJob(data.job);
+        if (!data.verification?.passed) {
+          alert('Tailoring completed with verification warnings — review before use.');
+        }
+        await fetchJobs();
+        if (selectedJob && selectedJob.id === jobId) {
+          setSelectedJob((prev) => prev ? { ...prev, tailoredCv: prev.tailoredCv } : prev);
+        }
       } else {
         const data = await res.json().catch(() => ({}));
         alert(llmErrorMessage(data.code, data.error));
