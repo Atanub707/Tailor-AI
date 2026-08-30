@@ -231,19 +231,7 @@ const JobCard = React.memo(function JobCard({
               {job.state === 'tailored' ? 'CV Tailored' : job.state === 'matched' ? 'Matched' : 'Applied'}
             </span>
           ) : null}
-          {(job.gapAnalysis?.matchingSkills?.length ?? 0) > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 mt-2">
-              {job.gapAnalysis.matchingSkills.slice(0, 4).map((skill) => (
-                <span key={skill} className="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[10.5px] font-medium">
-                  <CheckCircle2 className="w-2.5 h-2.5 text-blue-500 mr-1" />
-                  {skill}
-                </span>
-              ))}
-              {(job.gapAnalysis.matchingSkills.length ?? 0) > 4 && (
-                <span className="text-[10.5px] text-slate-400 font-medium">+{(job.gapAnalysis.matchingSkills.length ?? 0) - 4} more</span>
-              )}
-            </div>
-          )}
+
         </div>
       </div>
 
