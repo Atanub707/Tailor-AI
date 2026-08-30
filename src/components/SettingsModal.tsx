@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { HamburgerTrigger } from '../navigation';
 import { CandidateProfilePanel } from './CandidateProfilePanel';
 import { AppConfig, LlmProvider } from '../types';
-import { ArrowLeft, User, UserCircle, LockKey, PlugsConnected, Brain, RocketLaunch, EnvelopeSimple, ShieldCheck, Key, Database, CheckCircle, CaretRight, Warning, Pulse, Check, Eye, EyeSlash, ArrowSquareOut, Info, GlobeSimple } from '@phosphor-icons/react';
+import { ArrowLeft, User, UserCircle, LockKey, PlugsConnected, Brain, RocketLaunch, EnvelopeSimple, Key, CheckCircle, CaretRight, Warning, Pulse, Check, Eye, EyeSlash, ArrowSquareOut, Info } from '@phosphor-icons/react';
 import { RECOVERY_QUESTIONS } from '../constants/recoveryQuestions';
 import { PROVIDER_BASE_URLS as LLM_PRESETS, PROVIDER_FALLBACK_MODELS } from '../constants/llmPresets';
 import { APIFY_SOURCES } from '../constants/sources';
@@ -89,40 +89,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [activePanel, setActivePanel] = useState<'candidate' | 'security' | 'integration'>('candidate');
   const [activeItab, setActiveItab] = useState<'llm' | 'apify' | 'email'>('llm');
-  const [companionPaired, setCompanionPaired] = useState<boolean | null>(null);
-  const [pairingCode, setPairingCode] = useState('');
-  const [companionBusy, setCompanionBusy] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => {
-      window.postMessage({ type: 'TAILOR_PING' }, '*');
-      const onPong = (e: MessageEvent) => {
-        if (e.data?.type !== 'TAILOR_PONG') return;
-        setCompanionPaired(e.data.paired === true);
-        window.removeEventListener('message', onPong);
-      };
-      window.addEventListener('message', onPong);
-    }, 300);
-    return () => clearTimeout(t);
-  }, []);
-  const generatePairCode = async () => {
-    setCompanionBusy(true);
-    try {
-      const res = await fetch('/api/browser-companion/pairing-code', { method: 'POST' });
-      if (!res.ok) throw new Error('Could not generate a pairing code.');
-      const d = await res.json();
-      setPairingCode(d.code);
-    } catch { setPairingCode(''); }
-    finally { setCompanionBusy(false); }
-  };
-  const unpairCompanion = async () => {
-    setCompanionBusy(true);
-    try {
-      await fetch('/api/browser-companion/unpair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pairingId: 'any' }) });
-    } catch {}
-    setCompanionPaired(false);
-    setPairingCode('');
-    setCompanionBusy(false);
-  };
 
   const [profileLangDraft, setProfileLangDraft] = useState('');
   const [profileLangOptions, setProfileLangOptions] = useState<string[]>([]);
@@ -399,62 +365,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
-              <div className="st-card">
-                <div className="st-card-head">
-                  <div className="st-card-ico red"><ShieldCheck size={17} weight="duotone" /></div>
-                  <div className="st-t"><b>Data &amp; privacy</b><span className="st-d">Everything stays on this machine.</span></div>
-                </div>
-                <div className="st-card-body">
-                  <div className="st-row">
-                    <div className="st-lbl"><b>Local SQLite database</b><span>Jobs, CVs and contacts never leave your device.</span></div>
-                    <span className="st-tag green"><Database size={12} weight="bold" /> Local only</span>
-                  </div>
-                  <div className="st-row">
-                    <div className="st-lbl"><b>API keys</b><span>Stored only in your local config.ini — never committed or logged.</span></div>
-                    <span className="st-tag green"><LockKey size={12} weight="bold" /> Local only</span>
-                  </div>
-                </div>
-              </div>
             </section>
           )}
 
           {/* ═══ INTEGRATIONS ═══ */}
           {activePanel === 'integration' && (
             <>
-            <section className="st-panel" aria-label="Browser Companion settings">
-              <div className="st-phead"><h2>Browser Companion</h2><p>Local browser assistant that fills approved applications on the real Lever page. Never submits, never solves CAPTCHAs, never touches your resume.</p></div>
-              <div className="st-card">
-                <div className="st-card-head">
-                  <div className="st-card-ico violet"><GlobeSimple size={17} weight="duotone" /></div>
-                  <div className="st-t"><b>Status</b>
-                    <span className="st-d">{companionPaired === true ? 'Paired — continue in the browser from the Applications dashboard.' : companionPaired === false ? 'Not paired.' : 'Checking…'}</span>
-                  </div>
-                  <div className="st-spacer" />
-                  <span className={`st-tag ${companionPaired === true ? 'green' : 'red'}`}>
-                    {companionPaired === true ? 'Paired' : 'Not paired'}
-                  </span>
-                </div>
-                {pairingCode && (
-                  <div className="st-card-sub">
-                    <div style={{ fontSize: 12, marginTop: 8 }}>
-                      One-time pairing code (10 minutes, single use): <b style={{ fontFamily: 'monospace', letterSpacing: 2 }}>{pairingCode}</b>
-                      <br />
-                      <span style={{ color: 'var(--st-faint, #64748B)' }}>Open the extension options and paste this code to pair this browser.</span>
-                    </div>
-                  </div>
-                )}
-                <div className="st-card-actions" style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                  <button className="st-btn primary" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', background: 'var(--st-cta, #2563eb)', color: '#fff', border: 0 }} onClick={generatePairCode} disabled={companionBusy}>
-                    {companionBusy ? '…' : pairingCode ? 'Regenerate code' : 'Pair Extension'}
-                  </button>
-                  <button className="st-btn" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: '#e2e8f0', color: '#334155', border: 0 }} onClick={unpairCompanion} disabled={companionBusy || companionPaired !== true}>
-                    Unpair
-                  </button>
-                  <span style={{ fontSize: 11, alignSelf: 'center', color: 'var(--st-faint, #64748B)' }}>Protocol v1</span>
-                </div>
-              </div>
-            </section>
-
             <section className="st-panel" aria-label="Integrations settings">
               <div className="st-phead"><h2>Integrations</h2><p>Bring-your-own keys — powers scoring, scraping and outreach.</p></div>
 
