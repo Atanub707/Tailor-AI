@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { SignOut, CaretDown, Question } from '@phosphor-icons/react';
+import { SignOut, CaretDown, Question, GearSix } from '@phosphor-icons/react';
 import { HamburgerTrigger } from '../navigation';
 
 interface NavbarProps {
   onOpenHome: () => void;
+  onOpenSettings: () => void;
   onTour?: () => void;
   user?: { id: string; email: string; name: string; isGuest: boolean } | null;
   installedVersion?: string;
@@ -12,6 +13,7 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({
   onOpenHome,
+  onOpenSettings,
   onTour,
   user,
   installedVersion,
@@ -41,11 +43,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
-      if (e.key === ',') { e.preventDefault(); onOpenHome && onOpenHome(); }
+      if (e.key === ',') { e.preventDefault(); onOpenSettings(); }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onOpenHome]);
+  }, [onOpenSettings]);
 
   if (!user) return null;
 
@@ -139,7 +141,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </div>
                 </div>
 
-                {/* Sign out */}
+                {/* Settings — moved from the hamburger to the account menu */}
+                <button role="menuitem" onClick={closeAnd(onOpenSettings)} className={ddItemCls}>
+                  <span className={ddIconCls}><GearSix size={16} weight="duotone" /></span>
+                  Settings
+                </button>
                 <div className="my-1.5 h-px bg-[var(--color-hairline)]" />
                 <button role="menuitem" onClick={closeAnd(() => onTour?.())} className={ddItemCls}>
                   <span className={ddIconCls}><Question size={16} weight="duotone" /></span>

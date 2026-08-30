@@ -600,6 +600,7 @@ export default function App() {
             <Navbar
               user={currentUser}
               onOpenHome={() => navigate('/')}
+              onOpenSettings={() => navigate('/settings')}
               onLogout={handleLogout}
               installedVersion={installedVersion}
               onTour={startTour}

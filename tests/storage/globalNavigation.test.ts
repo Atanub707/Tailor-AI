@@ -19,7 +19,6 @@ const EXPECTED_ITEMS: Array<{ id: string; label: string; route: string; group: '
   { id: 'linkedin-posts', label: 'LinkedIn Posts', route: '/linkedin-posts', group: 'tools' },
   { id: 'ai-interview', label: 'AI Interview', route: '/ai-interview', group: 'tools' },
   { id: 'manual-jd', label: 'Manual JD', route: '/manual-jd', group: 'tools' },
-  { id: 'settings', label: 'Settings', route: '/settings', group: 'tools' },
 ];
 
 describe('Single source of truth — src/navigation.ts', () => {
@@ -45,9 +44,8 @@ describe('Single source of truth — src/navigation.ts', () => {
     }
   });
 
-  it('active-state rules: applications detail keeps Applications active; settings exact', () => {
+  it('active-state rules: applications detail keeps Applications active', () => {
     expect(NAV).toContain("p === '/applications' || p.startsWith('/applications/')");
-    expect(NAV).toContain("p === '/settings'");
     expect(NAV).toContain('activeNavId');
   });
 });
@@ -73,7 +71,6 @@ describe('Global navigation system — navigation.tsx', () => {
     expect(NAV).toContain('NAV_ITEMS.filter');
     expect(NAV).toContain('NAV_GROUPS.map');
     expect(NAV).toContain('activeNavId');
-    expect(NAV).toContain("id: 'settings'");
     // drawer rows read labels from the config, never hand-written rows
     expect(NAV).toContain('{item.label}');
   });
@@ -166,6 +163,25 @@ describe('Profile consolidation', () => {
     expect(panel).not.toContain('Login &amp; Security');
     expect(panel).toContain('lastSavedJson');
     expect(settings).not.toContain('Auto-tailor minimum');
+  });
+});
+
+describe('Settings moved to the account menu', () => {
+  it('the drawer no longer lists Settings (NAV_ITEMS has no settings entry)', () => {
+    for (const item of EXPECTED_ITEMS) {
+      expect(NAV).toContain(`id: '${item.id}'`);
+    }
+    expect(NAV).not.toContain("id: 'settings'");
+  });
+
+  it('the Navbar account menu offers Settings (GearSix) and the ⌘, shortcut opens it', () => {
+    const bar = fs.readFileSync(path.join(process.cwd(), 'src/components/Navbar.tsx'), 'utf8');
+    expect(bar).toContain('GearSix');
+    expect(bar).toContain('Settings');
+    expect(bar).toContain('onOpenSettings');
+    expect(bar).toContain("e.key === ','");
+    const app = fs.readFileSync(path.join(process.cwd(), 'src/App.tsx'), 'utf8');
+    expect(app).toContain("onOpenSettings={() => navigate('/settings')}");
   });
 });
 
