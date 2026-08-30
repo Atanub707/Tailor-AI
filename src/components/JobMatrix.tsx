@@ -129,7 +129,7 @@ const JobCard = React.memo(function JobCard({
 
   // Apply (paused auto-apply): the button links directly to the job post —
   // people complete the application manually on the employer's site.
-  // "Mark as applied" keeps the tracking record.
+  // "Applied" keeps the tracking record.
   const SCORE_TONE = (score: number) => (score >= 80 ? 'text-emerald-700' : score >= 60 ? 'text-amber-700' : 'text-red-700');
 
   return (
@@ -392,7 +392,7 @@ const JobCard = React.memo(function JobCard({
           onClick={() => onUpdateStatus(job.id, job.state === 'applied' ? 'pending' : 'applied')}
           className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-white hover:bg-[var(--color-brand-soft)] border border-[var(--color-hairline)] text-[var(--color-muted)] transition-colors cursor-pointer min-h-[38px]"
         >
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> {job.state === 'applied' ? 'Unmark applied' : 'Mark as applied'}
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> {job.state === 'applied' ? 'Unmark applied' : 'Applied'}
         </button>
 
         {/* Remove job — no confirmation */}

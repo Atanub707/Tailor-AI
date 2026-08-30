@@ -88,7 +88,7 @@ describe('Job discovery UX — card surface', () => {
     expect(CARD).toContain('onClick={() => onSelectJob(job)}');
     expect(CARD).toContain('href={getValidJobUrl(job)}');
     expect(CARD).toMatch(/>\s*Apply\s*<\/a>/);
-    expect(CARD).toContain('Mark as applied');
+    expect(CARD).toContain("'Applied'");
     expect(CARD).toContain('Remove job');
   });
 
@@ -113,8 +113,8 @@ describe('Job discovery UX — card surface', () => {
     expect(CARD).not.toContain('ATS SCORE');
   });
 
-  it('Mark as applied and Remove job are direct card actions', () => {
-    expect(CARD).toContain('Mark as applied');
+  it('Applied and Remove job are direct card actions', () => {
+    expect(CARD).toContain("'Applied'");
     expect(CARD).toContain('Unmark applied');
     expect(CARD).toContain('Remove job');
     expect(CARD).toContain('onUpdateStatus');
