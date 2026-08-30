@@ -381,7 +381,14 @@ export default function App() {
         if (selectedJob && selectedJob.id === jobId) setSelectedJob(data.job);
       } else {
         const data = await res.json().catch(() => ({}));
-        alert(llmErrorMessage(data.code, data.error));
+        const msg = data.error || 'Tailor failed';
+        // JD-less posting — the job card already shows an inline notice, so
+        // no blocking dialog; keep the alert for genuine LLM failures.
+        if (msg.includes('description') || msg.includes('JD')) {
+          console.warn('Tailor skipped — posting has no usable JD:', jobId);
+        } else {
+          alert(llmErrorMessage(data.code, data.error));
+        }
         throw new Error(data.error || 'Tailor failed');
       }
     }, setTailorMessages);
