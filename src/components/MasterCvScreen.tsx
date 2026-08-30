@@ -4,8 +4,8 @@ import { createPortal } from 'react-dom';
 import { MasterCv, TemplateId, CV_TEMPLATES } from '../types';
 import { llmErrorMessage } from '../lib/llmError';
 import { MasterCvEditor } from './MasterCvEditor';
-import { CvPdfPreview, masterCvToPdfShape, compressedCvToPdfShape } from './CvPdfPreview';
-import { X, Save, CheckCircle2, Sparkles, Loader2, History, ChevronDown, FileDown, FileText, ArrowLeft, User, AlertTriangle } from 'lucide-react';
+import { CvPdfPreview, masterCvToPdfShape } from './CvPdfPreview';
+import { X, Save, CheckCircle2, Loader2, History, ChevronDown, FileDown, FileText, ArrowLeft, User, AlertTriangle } from 'lucide-react';
 
 interface MasterCvScreenProps {
   isOpen: boolean;
@@ -124,68 +124,9 @@ export const MasterCvScreen: React.FC<MasterCvScreenProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [templateMenuOpen]);
 
-  const [aiState, setAiState] = useState<'idle' | 'running' | 'result'>('idle');
-  const [compressResult, setCompressResult] = useState<any>(null);
-  const [aiError, setAiError] = useState<string | null>(null);
-  const [aiStep, setAiStep] = useState(0);
-  const [confirmOpen, setConfirmOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versions, setVersions] = useState<{ id: string; note: string; pages: number; createdAt: string }[]>([]);
-  const [pagesBefore, setPagesBefore] = useState(0);
-  const [pagesAfter, setPagesAfter] = useState(0);
-  const aiStepTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const [saveMenuOpen, setSaveMenuOpen] = useState(false);
-
-  const AI_STEPS = ['Reading the market…', 'Analyzing your CV…', 'Rewriting…', 'Verifying keywords & page count…'];
-
-  const handleAiCompress = async () => {
-    setAiState('running');
-    setAiError(null);
-    setAiStep(0);
-    aiStepTimer.current = setInterval(() => {
-      setAiStep((s) => Math.min(s + 1, AI_STEPS.length - 1));
-    }, 2500);
-    try {
-      const res = await fetch('/api/cv/ai/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setAiState('idle');
-        setAiError(data.error || 'Compression failed');
-        alert(llmErrorMessage(data.code, data.error));
-        return;
-      }
-      setCompressResult(data);
-      setAiState('result');
-    } catch (e: any) {
-      setAiState('idle');
-      setAiError(e.message || 'Compression failed');
-    } finally {
-      if (aiStepTimer.current) clearInterval(aiStepTimer.current);
-    }
-  };
-
-  const handleAcceptCompressed = async () => {
-    try {
-      const res = await fetch('/api/cv/ai/accept', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ compressedCv: compressResult.compressedCv }),
-      });
-      const data = await res.json();
-      if (!res.ok) { setAiError(data.error || 'Apply failed'); return; }
-      setFormData(data.cv);
-      setConfirmOpen(false);
-      setAiState('idle');
-      setCompressResult(null);
-      onSaveMasterCv(data.cv);
-    } catch (e: any) {
-      setAiError(e.message || 'Apply failed');
-    }
-  };
 
   const loadVersions = async () => {
     try {
@@ -200,7 +141,7 @@ export const MasterCvScreen: React.FC<MasterCvScreenProps> = ({
       const data = await res.json();
       if (res.ok && data.cv) {
         setFormData(data.cv);
-        setAiState('idle');
+        setSavedSuccess(true);
         onSaveMasterCv(data.cv);
       }
     } catch { /* ignore */ }
@@ -291,6 +232,15 @@ export const MasterCvScreen: React.FC<MasterCvScreenProps> = ({
             {/* Compact utilities */}
             <button
               type="button"
+              onClick={handleDownloadPdf}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-[var(--color-hairline)] text-[var(--color-muted)] hover:border-[var(--color-brand-line)] hover:text-[var(--color-ink)] transition-colors cursor-pointer"
+              title="Download CV as PDF"
+            >
+              <FileDown className="w-3.5 h-3.5" />
+              <span>Download PDF</span>
+            </button>
+            <button
+              type="button"
               onClick={() => { setVersionsOpen(true); loadVersions(); }}
               className="p-2 rounded-lg text-[var(--color-faint)] hover:text-[var(--color-ink)] hover:bg-[var(--color-brand-soft)] border border-transparent hover:border-[var(--color-hairline)] transition-colors cursor-pointer"
               title="CV versions & backups"
@@ -348,16 +298,6 @@ export const MasterCvScreen: React.FC<MasterCvScreenProps> = ({
               <span className="text-[11px] text-[var(--color-faint)] font-mono hidden xl:inline">.pdf</span>
             </div>
 
-            {/* AI Compress */}
-            <button
-              type="button"
-              onClick={handleAiCompress}
-              disabled={aiState === 'running'}
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold text-white bg-[var(--color-brand)] hover:bg-[var(--color-brand-strong)] disabled:opacity-50 transition-colors cursor-pointer shadow-md shadow-blue-600/20 whitespace-nowrap"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>{aiState === 'running' ? 'Compressing…' : 'AI Compress'}</span>
-            </button>
           </div>
         </div>
         <div className="flex-1 overflow-auto p-6 relative">
@@ -392,220 +332,6 @@ export const MasterCvScreen: React.FC<MasterCvScreenProps> = ({
           </div>
         </div>
       </div>
-
-      {/* AI progress overlay */}
-      {aiState === 'running' && (
-        <div className="fixed inset-0 z-50 bg-[var(--color-ink)]/40 backdrop-blur-sm flex items-center justify-center">
-          <div className="bg-white rounded-2xl shadow-2xl w-[420px] p-6">
-            <div className="flex items-center space-x-2.5">
-              <span className="w-9 h-9 rounded-xl bg-[var(--color-brand)] flex items-center justify-center">
-                <Sparkles className="w-4.5 h-4.5 text-white" />
-              </span>
-              <div>
-                <p className="text-sm font-bold text-[var(--color-ink)]">AI Compressing your CV</p>
-                <p className="text-[11px] text-[var(--color-faint)]">Analyzing against live market data</p>
-              </div>
-            </div>
-            <div className="mt-5 space-y-3">
-              {AI_STEPS.map((label, i) => (
-                <div key={label} className="flex items-center space-x-3">
-                  <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center text-[10px] font-extrabold shrink-0 ${
-                    i < aiStep ? 'border-emerald-500 bg-[var(--color-cta-soft)]0 text-white'
-                    : i === aiStep ? 'border-blue-500 text-[var(--color-brand)]'
-                    : 'border-[var(--color-hairline)] text-slate-300'
-                  }`}>
-                    {i < aiStep ? '✓' : i + 1}
-                  </span>
-                  <span className={`text-xs font-medium ${i <= aiStep ? 'text-[var(--color-ink)]' : 'text-[var(--color-faint)]'}`}>{label}</span>
-                  {i === aiStep && <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-brand)]" />}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* AI error */}
-      {aiError && aiState !== 'running' && (
-        <div className="absolute top-16 right-6 z-[70] bg-[var(--color-danger-soft)] border border-[#FECACA] text-red-700 text-xs font-semibold rounded-lg px-4 py-2.5 shadow-lg">
-          {aiError}
-        </div>
-      )}
-
-      {/* Result view: professional redesign */}
-      {aiState === 'result' && compressResult && (
-        <div className="fixed inset-0 z-20 bg-[#F7F8FA] flex flex-col">
-          {/* Sticky header */}
-          <div className="px-6 py-3.5 border-b border-[var(--color-hairline)] bg-white flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-3.5 min-w-0">
-              <span className="text-sm font-extrabold text-[var(--color-ink)] whitespace-nowrap">AI Compression Result</span>
-              <span className="inline-flex items-center gap-1.5 bg-[#FAFAF9] border border-[var(--color-hairline)] rounded-full px-3 py-1">
-                <span className="text-xs font-extrabold text-[var(--color-faint)] line-through">{pagesBefore > 0 ? `${pagesBefore} pages` : '…'}</span>
-                <span className="text-slate-300">→</span>
-                <span className="text-sm font-extrabold text-[var(--color-cta)]">{pagesAfter > 0 ? pagesAfter : '…'}</span>
-                <span className="text-xs font-extrabold text-[var(--color-cta)]">pages</span>
-                <span className="text-[10px] text-[var(--color-faint)] font-semibold">· fit for any ATS</span>
-              </span>
-            </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <button type="button" onClick={() => { setAiState('idle'); setCompressResult(null); }}
-                className="px-3.5 py-2 rounded-lg text-xs font-bold text-[var(--color-muted)] bg-white border border-[var(--color-hairline)] hover:border-[var(--color-brand-line)] cursor-pointer">
-                Cancel
-              </button>
-              <button type="button" onClick={() => setConfirmOpen(true)}
-                className="flex items-center space-x-1.5 px-4 py-2 rounded-lg text-xs font-bold text-white bg-[var(--color-brand)] hover:bg-[var(--color-brand-strong)] shadow-md shadow-blue-600/20 cursor-pointer">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Apply</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Scrollable body */}
-          <div className="flex-1 overflow-y-auto">
-            <div className="px-6 py-5">
-              {/* Outcome hero */}
-              <div className="bg-white border border-[var(--color-hairline)] rounded-2xl p-5 shadow-sm flex items-center gap-5 flex-wrap">
-                <span className="w-12 h-12 rounded-xl bg-[var(--color-brand)] flex items-center justify-center shrink-0 shadow-md shadow-blue-600/30">
-                  <Sparkles className="w-5 h-5 text-white" />
-                </span>
-                <div className="flex-1 min-w-[220px]">
-                  <p className="text-[15px] font-extrabold text-[var(--color-ink)]">Your CV is now {pagesAfter > 0 ? pagesAfter : 2} pages — concise, keyword-rich, ATS-ready</p>
-                  <p className="text-[11.5px] text-[var(--color-faint)] mt-1">
-                    Every achievement, metric, and key skill kept · tightened for impact · tailored with {compressResult.marketSummary?.topKeywords?.length ?? 0} live market keywords
-                  </p>
-                </div>
-                <div className="flex gap-7 flex-wrap">
-                  <div className="text-center min-w-[64px]">
-                    <div className="text-xl font-extrabold text-[var(--color-brand)] tabular-nums">{pagesBefore > 0 ? `${pagesBefore} → ${pagesAfter}` : '…'}</div>
-                    <div className="text-[10px] text-[var(--color-faint)] font-semibold">pages</div>
-                  </div>
-                  <div className="text-center min-w-[64px]">
-                    <div className="text-xl font-extrabold text-[var(--color-cta)]">−{Math.max(0, Math.round((1 - compressResult.wordCountAfter / Math.max(1, compressResult.wordCountBefore)) * 100))}%</div>
-                    <div className="text-[10px] text-[var(--color-faint)] font-semibold">word count</div>
-                  </div>
-                  <div className="text-center min-w-[64px]">
-                    <div className="text-xl font-extrabold text-[var(--color-cta)]">100%</div>
-                    <div className="text-[10px] text-[var(--color-faint)] font-semibold">metrics kept</div>
-                  </div>
-                  <div className="text-center min-w-[64px]">
-                    <div className="text-xl font-extrabold text-[var(--color-ink)]">+{compressResult.marketSummary?.topKeywords?.length ?? 0}</div>
-                    <div className="text-[10px] text-[var(--color-faint)] font-semibold">market keywords</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* What changed — minimal list at top */}
-              {(() => {
-                const sections = compressResult.guidance?.sections || [];
-                const allChanges = sections.flatMap((s: any) => s.changes || []);
-                if (allChanges.length === 0) return null;
-                return (
-                  <div className="mt-4 bg-white border border-[var(--color-hairline)] rounded-xl px-5 py-4 shadow-sm">
-                    <p className="text-[10px] font-extrabold uppercase tracking-widest text-[var(--color-faint)] mb-2.5">What changes</p>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-1.5">
-                      {allChanges.map((c: any, i: number) => (
-                        <div key={i} className="flex items-start gap-2 text-[11.5px] leading-relaxed">
-                          <span className={`mt-0.5 w-4 h-4 rounded flex items-center justify-center text-[8.5px] font-extrabold shrink-0 ${
-                            c.type === 'tighten' ? 'bg-[var(--color-brand-soft)] text-[var(--color-brand)]' : c.type === 'merge' ? 'bg-[var(--color-amber-soft,#FFF7ED)] text-[var(--color-amber,#C2410C)]' : 'bg-[var(--color-cta-soft)] text-[var(--color-cta)]'
-                          }`}>
-                            {c.type === 'tighten' ? '~' : c.type === 'merge' ? '+' : '✓'}
-                          </span>
-                          <span className="text-[var(--color-muted)]">
-                            <b className="text-[var(--color-ink)]">{c.type === 'tighten' ? 'Tightened' : c.type === 'merge' ? 'Merged' : 'Kept'}: </b>
-                            {c.reason}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Side-by-side: Old left, New right */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-5 items-start">
-                <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="w-2 h-2 rounded-full bg-slate-300" />
-                    <span className="text-[10.5px] font-extrabold uppercase tracking-wider text-[var(--color-faint)]">Original</span>
-                    <span className="ml-auto text-[10px] font-bold text-[var(--color-faint)]">{pagesBefore > 0 ? `${pagesBefore} pages` : ''} · {compressResult.wordCountBefore?.toLocaleString()} words</span>
-                  </div>
-                  <div className="opacity-60">
-                    <CvPdfPreview cv={masterCvToPdfShape(formData)} zoom={75} fitToWidth template={template} onPageCount={setPagesBefore} />
-                  </div>
-                </div>
-                <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="w-2 h-2 rounded-full bg-[var(--color-brand)]" />
-                    <span className="text-[10.5px] font-extrabold uppercase tracking-wider text-[var(--color-faint)]">New CV</span>
-                    <span className="text-[9px] font-extrabold text-[var(--color-brand)] bg-[var(--color-brand-soft)] border border-[var(--color-brand-line)] rounded-full px-2 py-0.5">AI ✦</span>
-                    <span className="ml-auto text-[10px] font-bold text-[var(--color-cta)]">{pagesAfter > 0 ? `${pagesAfter} pages` : ''} · {compressResult.wordCountAfter?.toLocaleString()} words</span>
-                  </div>
-                  <CvPdfPreview cv={compressedCvToPdfShape(compressResult.compressedCv)} zoom={75} fitToWidth template={template} onPageCount={setPagesAfter} />
-                  <div className="flex gap-2.5 mt-4 justify-end">
-                    <button
-                      type="button"
-                      onClick={handleDownloadPdf}
-                      className="flex items-center space-x-1.5 px-3.5 py-2 rounded-lg text-xs font-bold text-[var(--color-muted)] bg-white border border-[var(--color-hairline)] hover:border-[var(--color-brand-line)] hover:bg-[#FAFAF9] transition-colors cursor-pointer"
-                    >
-                      <FileDown className="w-3.5 h-3.5" />
-                      <span>Download new CV</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmOpen(true)}
-                      className="flex items-center space-x-1.5 px-4 py-2 rounded-lg text-xs font-bold text-white bg-[var(--color-brand)] hover:bg-[var(--color-brand-strong)] shadow-md shadow-blue-600/20 cursor-pointer"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>Apply</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Confirm modal */}
-      {confirmOpen && compressResult && (
-        <div className="fixed inset-0 z-[60] bg-[var(--color-ink)]/50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-[520px] p-6">
-            <p className="text-sm font-extrabold text-[var(--color-ink)]">Apply AI-compressed CV?</p>
-            <p className="text-[11px] text-[var(--color-faint)] mt-1">The original will be saved automatically — you can restore it anytime.</p>
-            <div className="grid grid-cols-3 gap-2.5 my-4">
-              <div className="bg-[#FAFAF9] border border-[var(--color-hairline)] rounded-xl p-3 text-center">
-                <div className="text-base font-extrabold text-[var(--color-brand)]">{pagesBefore > 0 ? `${pagesBefore} → ${pagesAfter}` : '…'}</div>
-                <div className="text-[9px] text-[var(--color-faint)] font-semibold mt-0.5">pages before → after</div>
-              </div>
-              <div className="bg-[#FAFAF9] border border-[var(--color-hairline)] rounded-xl p-3 text-center">
-                <div className="text-base font-extrabold text-[var(--color-cta)]">100%</div>
-                <div className="text-[9px] text-[var(--color-faint)] font-semibold mt-0.5">metrics preserved</div>
-              </div>
-              <div className="bg-[#FAFAF9] border border-[var(--color-hairline)] rounded-xl p-3 text-center">
-                <div className="text-base font-extrabold text-[var(--color-cta)]">+{compressResult.marketSummary?.topKeywords?.length ?? 0}</div>
-                <div className="text-[9px] text-[var(--color-faint)] font-semibold mt-0.5">market keywords added</div>
-              </div>
-            </div>
-            <div className="bg-[#FAFAF9] border border-[var(--color-hairline)] rounded-xl p-3 text-[10.5px] text-[var(--color-muted)] leading-relaxed">
-              <b className="text-[var(--color-ink)]">What changes:</b>{' '}
-              {(() => {
-                const counts: Record<string, number> = { tighten: 0, merge: 0, keep: 0 };
-                compressResult.guidance?.sections?.forEach((s: any) => (s.changes || []).forEach((c: any) => { if (counts[c.type] !== undefined) counts[c.type]++; }));
-                return `${counts.tighten} bullets tightened, ${counts.merge} merged, ${counts.keep} kept. All quantified achievements and key skills preserved.`;
-              })()}{' '}
-              Original saved as <b>“Before AI compression”</b>. You can restore it via <b>Versions</b>.
-            </div>
-            <div className="flex justify-end gap-2 mt-4">
-              <button type="button" onClick={() => setConfirmOpen(false)} className="px-3.5 py-2 rounded-lg text-xs font-bold text-[var(--color-muted)] bg-white border border-[var(--color-hairline)] hover:border-[var(--color-brand-line)] cursor-pointer">
-                Keep original
-              </button>
-              <button type="button" onClick={handleAcceptCompressed} className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-[var(--color-brand)] hover:bg-[var(--color-brand-strong)] shadow-md shadow-blue-600/20 cursor-pointer">
-                Yes, apply &amp; backup
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Versions drawer */}
       {versionsOpen && (

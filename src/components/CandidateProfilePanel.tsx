@@ -6,7 +6,6 @@ import type { ApplicantProfile } from '../types';
 // applicant_profile model. Legacy CandidateProfile is migrated lazily by the
 // server (GET /api/profile) and never independently edited here.
 interface Props {
-  user?: { id: string; email: string; name: string; isGuest: boolean } | null;
   onSaved?: () => void;
 }
 
@@ -25,9 +24,8 @@ const RELOCATE = [
   { value: 'certain-cities', label: 'Certain cities' },
 ];
 
-export function CandidateProfilePanel({ user, onSaved }: Props) {
+export function CandidateProfilePanel({ onSaved }: Props) {
   const [profile, setProfile] = React.useState<ApplicantProfile | null>(null);
-  const [saveState, setSaveState] = React.useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = React.useState('');
   const [locValue, setLocValue] = React.useState('');
 
@@ -35,29 +33,35 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
     fetch('/api/profile')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('load failed'))))
       .then((d) => { setProfile(d.profile); })
-      .catch((e) => { setSaveState('error'); setErrorMsg(String(e?.message || 'Failed to load profile.')); });
+      .catch((e) => { setErrorMsg(String(e?.message || 'Failed to load profile.')); });
   }, []);
 
   const update = (fn: (p: ApplicantProfile) => ApplicantProfile) => {
     setProfile((prev) => (prev ? fn(prev) : prev));
-    setSaveState('idle');
   };
 
-  const save = async () => {
+  // AUTOSAVE — every edit saves itself (debounced, no button, no noise).
+  // lastSavedJson guard: only PUT when the JSON actually changed, so the
+  // server round-trip can never echo-trigger a second save.
+  const lastSavedJson = React.useRef<string>('');
+  React.useEffect(() => {
     if (!profile) return;
-    setSaveState('saving'); setErrorMsg('');
-    try {
-      const res = await fetch('/api/applicant-profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(profile) });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Save failed.'); }
-      const d = await res.json();
-      setProfile(d.profile);
-      setSaveState('saved');
-      setTimeout(() => setSaveState((s2) => (s2 === 'saved' ? 'idle' : s2)), 2500);
-      onSaved?.();
-    } catch (e: any) {
-      setSaveState('error'); setErrorMsg(String(e?.message || 'Save failed.'));
-    }
-  };
+    const json = JSON.stringify(profile);
+    if (json === lastSavedJson.current) return;
+    const t = window.setTimeout(async () => {
+      try {
+        const res = await fetch('/api/applicant-profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(profile) });
+        if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Save failed.'); }
+        const d = await res.json();
+        setProfile(d.profile);
+        lastSavedJson.current = JSON.stringify(d.profile);
+        onSaved?.();
+      } catch (e: any) {
+        setErrorMsg(String(e?.message || 'Save failed.'));
+      }
+    }, 700);
+    return () => window.clearTimeout(t);
+  }, [profile]);
 
   if (!profile) {
     return <section className="st-panel" aria-label="Candidate Profile"><div className="st-phead"><h2>Candidate Profile</h2><p>One source of truth.</p></div><div className="text-sm" style={{ color: 'var(--st-faint)' }}>Loading profile…</div></section>;
@@ -259,58 +263,6 @@ export function CandidateProfilePanel({ user, onSaved }: Props) {
         </div>
       </div>
 
-      {/* SENSITIVE (optional, opt-in) */}
-      <div className="stp-card" style={{ borderColor: '#FED7AA', background: '#FFF7ED' }}>
-        <div className="stp-card-title" style={{ color: '#9A3412' }}>Sensitive (optional)</div>
-        <div className="stp-field" style={{ marginTop: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 12.5, fontWeight: 600, color: 'var(--st-ink)' }}>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={p.optionalSensitive?.enabled === true}
-              aria-label="Enable optional sensitive fields"
-              className={`stp-switch${p.optionalSensitive?.enabled === true ? ' on' : ''}`}
-              onClick={() => update((x) => ({ ...x, optionalSensitive: { ...x.optionalSensitive, enabled: !(x.optionalSensitive?.enabled === true) } }))}
-            />
-            <span>Enable optional sensitive fields (voluntary self-identification)</span>
-          </div>
-          <div className="stp-hint-inline">Disabled by default. Never inferred. ATS questions only use these when you explicitly enable them.</div>
-        </div>
-        {p.optionalSensitive?.enabled && (
-          <div className="stp-grid2">
-            <div className="stp-field"><label className="stp-label">Gender</label><input className="stp-input" value={p.optionalSensitive?.gender ?? ''} onChange={(e) => update((x) => ({ ...x, optionalSensitive: { ...x.optionalSensitive, gender: e.target.value } }))} /></div>
-            <div className="stp-field"><label className="stp-label">Race / ethnicity</label><input className="stp-input" value={p.optionalSensitive?.raceEthnicity ?? ''} onChange={(e) => update((x) => ({ ...x, optionalSensitive: { ...x.optionalSensitive, raceEthnicity: e.target.value } }))} /></div>
-            <div className="stp-field"><label className="stp-label">Veteran status</label><input className="stp-input" value={p.optionalSensitive?.veteranStatus ?? ''} onChange={(e) => update((x) => ({ ...x, optionalSensitive: { ...x.optionalSensitive, veteranStatus: e.target.value } }))} /></div>
-            <div className="stp-field"><label className="stp-label">Disability status</label><input className="stp-input" value={p.optionalSensitive?.disabilityStatus ?? ''} onChange={(e) => update((x) => ({ ...x, optionalSensitive: { ...x.optionalSensitive, disabilityStatus: e.target.value } }))} /></div>
-          </div>
-        )}
-      </div>
-
-      {/* LOGIN & SECURITY (read-only) */}
-      <div className="stp-card">
-        <div className="stp-card-title">Login &amp; Security</div>
-        <div className="stp-grid2">
-          <div className="stp-field">
-            <label className="stp-label">Sign-in Email</label>
-            <input className="stp-input" value={user?.email ?? ''} disabled />
-            <div className="stp-hint-inline">Used to access Tailor AI. Different from your Application Email.</div>
-          </div>
-          <div className="stp-field">
-            <label className="stp-label">Account Status</label>
-            <input className="stp-input" value={user?.isGuest ? 'Guest' : 'Registered'} disabled />
-            <div className="stp-hint-inline">Authentication stays separate from your candidate profile.</div>
-          </div>
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10 }} aria-live="polite">
-        <button onClick={() => void save()} disabled={saveState === 'saving'} style={{ background: 'var(--st-primary)', color: '#fff', fontWeight: 800, padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12.5 }}>
-          {saveState === 'saving' ? 'Saving…' : 'Save Candidate Profile'}
-        </button>
-        <span className="text-xs font-semibold" style={{ color: saveState === 'error' ? '#DC2626' : saveState === 'saved' ? '#059669' : 'var(--st-faint)' }}>
-          {saveState === 'saved' ? 'Saved.' : saveState === 'error' ? errorMsg : ''}
-        </span>
-      </div>
     </section>
   );
 }

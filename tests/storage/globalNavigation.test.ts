@@ -160,9 +160,11 @@ describe('Profile consolidation', () => {
     expect(settings).not.toContain("label: 'Account'");
     const panel = fs.readFileSync(path.join(process.cwd(), 'src/components/CandidateProfilePanel.tsx'), 'utf8');
     expect(panel).toContain('Application Email');
-    expect(panel).toContain('Sign-in Email');
-    expect(panel).toContain('Save Candidate Profile');
-    expect(panel).not.toContain('Changes save automatically');
+    expect(panel).not.toContain('Sign-in Email');
+    expect(panel).not.toContain('Save Candidate Profile');
+    expect(panel).not.toContain('Sensitive (optional)');
+    expect(panel).not.toContain('Login &amp; Security');
+    expect(panel).toContain('lastSavedJson');
     expect(settings).not.toContain('Auto-tailor minimum');
   });
 });
