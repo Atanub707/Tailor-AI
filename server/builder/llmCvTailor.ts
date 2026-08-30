@@ -1,7 +1,6 @@
 import { BaseCvBuilder } from './baseBuilder.js';
 import { Job, MasterCv, TailoredCv } from '../../src/types.js';
-import { ask } from '../llm/llmAdapter.js';
-import { extractJsonObject } from '../llm/jsonExtract.js';
+import { askJson } from '../llm/askJson.js';
 
 export class LlmCvTailor extends BaseCvBuilder {
   async tailorCv(
@@ -93,19 +92,7 @@ Return valid JSON only — NO markdown, NO code fences, pure JSON:
 }`;
 
     try {
-      let jsonText = await ask(prompt, 0.2);
-      let parsed;
-      try {
-        parsed = extractJsonObject(jsonText);
-      } catch (parseErr: any) {
-        // ONE retry with the syntax error surfaced — an occasional stray
-        // LLM parse failure should never fail a Tailor run visibly.
-        jsonText = await ask(
-          `${prompt}\n\nIMPORTANT: your previous response was not valid JSON (${String(parseErr?.message || parseErr).slice(0, 200)}). Return ONLY the JSON object — no thinking, no comments, no markdown, every key double-quoted.`,
-          0.2,
-        );
-        parsed = extractJsonObject(jsonText);
-      }
+      const parsed = await askJson<any>(prompt, { temperature: 0.2 });
 
       const beforeScore = job.matchScore || job.gapAnalysis?.matchScore || 50;
 

@@ -1,7 +1,6 @@
 import { BaseMatcher, MatchResult } from './baseMatcher.js';
 import { Job, MasterCv, GapAnalysis } from '../../src/types.js';
-import { ask } from '../llm/llmAdapter.js';
-import { extractJsonObject } from '../llm/jsonExtract.js';
+import { askJson } from '../llm/askJson.js';
 
 export class LlmMatcher extends BaseMatcher {
   async matchJob(job: Job, masterCv: MasterCv, earlyBlockThreshold = 30): Promise<MatchResult> {
@@ -62,8 +61,7 @@ Return valid JSON only with these exact fields — NO markdown, NO code fences, 
 }`;
 
     try {
-      const jsonText = await ask(prompt, 0.1);
-      const parsed = extractJsonObject(jsonText);
+      const parsed = await askJson<any>(prompt, { temperature: 0.1 });
 
       const score = Math.min(100, Math.max(0, Math.round(parsed.matchScore || 50)));
       const isEarlyBlocked = score < earlyBlockThreshold;

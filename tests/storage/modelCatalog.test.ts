@@ -196,3 +196,23 @@ describe('LLM JSON extraction — reasoning-model noise', () => {
     expect(() => extractJsonObject('<thinking>just prose</thinking> no object')).toThrow(/No JSON object found/);
   });
 });
+
+describe('Model-agnostic JSON pipeline — every consumer routes through askJson', () => {
+  it('Tailor V1, Score (matcher) and cvCompressor use askJson — no raw JSON.parse of LLM text', () => {
+    const tailor = fs.readFileSync(path.join(process.cwd(), 'server/builder/llmCvTailor.ts'), 'utf8');
+    const matcher = fs.readFileSync(path.join(process.cwd(), 'server/matcher/llmMatcher.ts'), 'utf8');
+    const compressor = fs.readFileSync(path.join(process.cwd(), 'server/ai/cvCompressor.ts'), 'utf8');
+    for (const src of [tailor, matcher, compressor]) {
+      expect(src).toContain("askJson<");
+      expect(src).not.toContain('extractJsonObject(');
+    }
+  });
+
+  it('askJson wraps prompts with markers, extractions segment between them', () => {
+    const askJson = fs.readFileSync(path.join(process.cwd(), 'server/llm/askJson.ts'), 'utf8');
+    expect(askJson).toContain('begin ${MARKER}');
+    expect(askJson).toContain('end ${MARKER}');
+    expect(askJson).toContain('maxRetries');
+    expect(askJson).toContain('extractJsonObject(segment)');
+  });
+});

@@ -1,5 +1,4 @@
-import { ask } from '../llm/llmAdapter.js';
-import { extractJsonObject } from '../llm/jsonExtract.js';
+import { askJson } from '../llm/askJson.js';
 import { MasterCv, TailoredCv } from '../../src/types.js';
 import { getMarketData, STOPWORDS } from './marketData.js';
 
@@ -84,12 +83,11 @@ RULES:
 - Target ${targetPages} page${targetPages > 1 ? 's' : ''} for this candidate (${level} level).
 - Be concrete and specific.`;
 
-  const analyzeRaw = await ask(analyzePrompt, 0.2);
   let guidance: CompressGuidance;
   try {
-    guidance = extractJsonObject(analyzeRaw);
+    guidance = await askJson<CompressGuidance>(analyzePrompt, { temperature: 0.2 });
   } catch {
-    throw new Error('AI returned invalid JSON: ' + analyzeRaw.slice(0, 200));
+    throw new Error('AI returned invalid JSON.');
   }
 
   // ── Phase 2: rewrite ──
@@ -122,12 +120,11 @@ STRICT RULES:
 - Weave the market keywords into bullets and skills naturally.
 - Target role: ${targetRole}. Target: ${targetPages} page${targetPages > 1 ? 's' : ''}.`;
 
-  const rewriteRaw = await ask(rewritePrompt, 0.2);
   let compressedCv: TailoredCv;
   try {
-    compressedCv = extractJsonObject(rewriteRaw);
+    compressedCv = await askJson<TailoredCv>(rewritePrompt, { temperature: 0.2 });
   } catch {
-    throw new Error('AI returned invalid JSON: ' + rewriteRaw.slice(0, 200));
+    throw new Error('AI returned invalid JSON.');
   }
 
   // ── Phase 3: verify (deterministic) ──
