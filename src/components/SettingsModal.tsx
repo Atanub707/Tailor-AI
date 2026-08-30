@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { HamburgerTrigger } from '../navigation';
 import { CandidateProfilePanel } from './CandidateProfilePanel';
 import { AppConfig, LlmProvider } from '../types';
-import { ArrowLeft, User, UserCircle, LockKey, PlugsConnected, Brain, EnvelopeSimple, Key, CheckCircle, CaretRight, Warning, Pulse, Check, Eye, EyeSlash, ArrowSquareOut, Info } from '@phosphor-icons/react';
+import { ArrowLeft, User, UserCircle, LockKey, PlugsConnected, Brain, RocketLaunch, EnvelopeSimple, Key, CheckCircle, CaretRight, Warning, Pulse, Check, Eye, EyeSlash, ArrowSquareOut, Info } from '@phosphor-icons/react';
 import { RECOVERY_QUESTIONS } from '../constants/recoveryQuestions';
 import { PROVIDER_BASE_URLS as LLM_PRESETS, PROVIDER_FALLBACK_MODELS } from '../constants/llmPresets';
 import { codes as currencyCodes, code as currencyCodeInfo } from 'currency-codes';
@@ -83,8 +83,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [testMsg, setTestMsg] = useState('');
   const [savedToast, setSavedToast] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [showApify, setShowApify] = useState(false);
   const [activePanel, setActivePanel] = useState<'candidate' | 'security' | 'integration'>('candidate');
-  const [activeItab, setActiveItab] = useState<'llm' | 'email'>('llm');
+  const [activeItab, setActiveItab] = useState<'llm' | 'apify' | 'email'>('llm');
 
   const [profileLangDraft, setProfileLangDraft] = useState('');
   const [profileLangOptions, setProfileLangOptions] = useState<string[]>([]);
@@ -266,6 +267,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const itabs = [
     { id: 'llm' as const, label: 'LLM & AI', icon: Brain },
+    { id: 'apify' as const, label: 'Apify', icon: RocketLaunch },
     { id: 'email' as const, label: 'Email (SMTP)', icon: EnvelopeSimple },
   ];
 
@@ -473,6 +475,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* APIFY */}
+              {/* APIFY — key + toggle only (cookie/source list/referral removed) */}
+              {activeItab === 'apify' && (
+                <div className="st-igroup" role="tabpanel">
+                  <div className="st-card">
+                    <div className="st-card-head">
+                      <div className="st-card-ico violet"><RocketLaunch size={17} weight="duotone" /></div>
+                      <div className="st-t"><b>Apify</b><span className="st-d">LinkedIn, Indeed, Naukri, Glassdoor &amp; Upwork scraping.</span></div>
+                      <div className="st-spacer" />
+                      <span className="st-tag green"><CheckCircle size={12} weight="bold" /> {formData.apify.enabled && formData.apify.token ? 'Configured' : 'Off'}</span>
+                    </div>
+                    <div className="st-card-body">
+                      <div className="st-row">
+                        <div className="st-lbl"><b>Use Apify sources</b><span>No more "No results found" blocks — falls back automatically.</span></div>
+                        <button className={`st-sw ${formData.apify.enabled ? 'on' : ''}`} role="switch" aria-checked={formData.apify.enabled} aria-label="Toggle Apify sources"
+                          onClick={() => setFormDataTouched({ ...formData, apify: { ...formData.apify, enabled: !formData.apify.enabled } })} />
+                      </div>
+                      {formData.apify.enabled && (
+                        <>
+                          <span className="st-flabel" htmlFor="st-apifytoken">API token</span>
+                          <div className="st-row">
+                            <div className="st-lbl"><label htmlFor="st-apifytoken"><b>Token</b><span>console.apify.com → Settings → Integrations.</span></label></div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <input className={monoCls} id="st-apifytoken" type={showApify ? 'text' : 'password'} value={formData.apify.token}
+                                onChange={(e) => setFormDataTouched({ ...formData, apify: { ...formData.apify, token: e.target.value } })} placeholder="apify_api_…" />
+                              <button className="st-eye" type="button" onClick={() => setShowApify((v) => !v)} title="Show / hide">
+                                {showApify ? <EyeSlash size={16} /> : <Eye size={16} />}
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* EMAIL */}
               {activeItab === 'email' && (
                 <div className="st-igroup" role="tabpanel">
