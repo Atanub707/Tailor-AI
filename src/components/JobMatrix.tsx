@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Job, JobState, JobSource } from '../types';
 import { formatTimeAgoSemantic } from '../lib/dateUtils';
 import { getValidJobUrl } from '../lib/jobUrlUtils';
@@ -125,6 +126,31 @@ const JobCard = React.memo(function JobCard({
     if (isScoreLoading) return;
     if (job.matchScore !== undefined && job.gapAnalysis) { setScoreOpen((o) => !o); return; }
     void onMatchJob(job.id);
+  };
+
+  // Applied → after 3s the job moves into the Applications tracker:
+  // create the package (no LLM), record a manual applied entry, then open
+  // the Applications screen. Marking unapplied stays instant/local.
+  const navigate = useNavigate();
+  const toggleApplied = async () => {
+    const next = job.state === 'applied' ? 'pending' : 'applied';
+    await onUpdateStatus(job.id, next);
+    if (next !== 'applied') return;
+    window.setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/jobs/${job.id}/application-package`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        if (res.ok) {
+          const d = await res.json();
+          const appId = d.package?.id || d.application?.applicationId;
+          if (appId) await fetch(`/api/applications/${appId}/mark-applied`, { method: 'POST' });
+        }
+      } catch { /* the job is still marked applied; tracker creation is best-effort */ }
+      navigate('/applications');
+    }, 3000);
   };
 
   // Apply (paused auto-apply): the button links directly to the job post —
@@ -371,7 +397,7 @@ const JobCard = React.memo(function JobCard({
 
         {/* Applied — always the same label; turns green once applied (click toggles) */}
         <button
-          onClick={() => onUpdateStatus(job.id, job.state === 'applied' ? 'pending' : 'applied')}
+          onClick={() => void toggleApplied()}
           title={job.state === 'applied' ? 'Mark as not applied' : 'Mark as applied'}
           aria-pressed={job.state === 'applied'}
           className={`inline-flex items-center justify-center gap-1.5 h-[38px] px-3.5 rounded-lg text-xs font-extrabold border transition-colors cursor-pointer ${

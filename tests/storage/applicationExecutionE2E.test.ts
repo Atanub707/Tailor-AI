@@ -93,11 +93,18 @@ describe('Apply — paused auto-apply: direct link to the job post', () => {
     expect(CARD).toContain('target="_blank"');
     expect(CARD).toContain('Open ${job.source} job posting to apply');
     expect(CARD).not.toContain('autoTailor: true');
-    expect(CARD).not.toContain('useNavigate');
     expect(CARD).not.toContain('window.location');
     expect(CARD).not.toContain('inline-app-status');
     expect(CARD).not.toContain('if (applying) return');
     expect(CARD).not.toContain('Could not prepare the application.');
+  });
+
+  it('the Applied toggle moves the job into Applications after 3 seconds', () => {
+    expect(CARD).toContain('toggleApplied');
+    expect(CARD).toContain("navigate('/applications')");
+    expect(CARD).toContain(', 3000');
+    expect(CARD).toContain('mark-applied');
+    expect(CARD).toContain('application-package');
   });
 
   it('the Applications drawer stays available for existing tracked applications', () => {
