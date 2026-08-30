@@ -286,7 +286,7 @@ const JobCard = React.memo(function JobCard({
             onClick={openScore}
             disabled={isScoreLoading}
             aria-label="Score this job against your CV"
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold border transition-colors cursor-pointer disabled:opacity-60 bg-white border-[var(--color-hairline)] text-[var(--color-muted)] hover:bg-[var(--color-brand-soft)] hover:border-[var(--color-brand-line)]"
+            className="inline-flex items-center justify-center gap-1.5 h-[38px] px-3.5 rounded-lg text-xs font-extrabold border transition-colors cursor-pointer disabled:opacity-60 bg-white border-[var(--color-hairline)] text-[var(--color-muted)] hover:bg-[var(--color-brand-soft)] hover:border-[var(--color-brand-line)]"
           >
             {isScoreLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-[var(--color-brand)]" />}
             <span>{job.matchScore !== undefined ? 'Re-Score' : isScoreLoading ? 'Scoring…' : 'Score'}</span>
@@ -350,7 +350,7 @@ const JobCard = React.memo(function JobCard({
           disabled={isTailorLoading}
           aria-label="Tailor candidate CV for this job"
           title="Tailor candidate CV for this job"
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white transition-colors cursor-pointer disabled:opacity-60 min-h-[38px]"
+          className="inline-flex items-center justify-center gap-1.5 h-[38px] px-3.5 rounded-lg text-xs font-extrabold bg-slate-900 hover:bg-slate-800 text-white transition-colors cursor-pointer disabled:opacity-60"
         >
           {isTailorLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-emerald-400" />}
           <span>{job.tailoredCv ? 'Re-Tailor' : 'Tailor'}</span>
@@ -382,7 +382,7 @@ const JobCard = React.memo(function JobCard({
           rel="noopener noreferrer"
           title={`Open ${job.source} job posting to apply`}
           aria-label={`Apply for ${job.title}`}
-          className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-[var(--color-cta)] hover:bg-[#047857] transition-colors cursor-pointer min-h-[38px] inline-flex items-center"
+          className="inline-flex items-center justify-center h-[38px] px-3.5 rounded-lg text-xs font-extrabold text-white bg-[var(--color-cta)] hover:bg-[#047857] transition-colors cursor-pointer"
         >
           Apply
         </a>
@@ -392,7 +392,7 @@ const JobCard = React.memo(function JobCard({
           onClick={() => onUpdateStatus(job.id, job.state === 'applied' ? 'pending' : 'applied')}
           title={job.state === 'applied' ? 'Mark as not applied' : 'Mark as applied'}
           aria-pressed={job.state === 'applied'}
-          className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer min-h-[38px] ${
+          className={`inline-flex items-center justify-center gap-1.5 h-[38px] px-3.5 rounded-lg text-xs font-extrabold border transition-colors cursor-pointer ${
             job.state === 'applied'
               ? 'bg-green-50 text-green-700 border-green-300'
               : 'bg-white text-[var(--color-muted)] border-[var(--color-hairline)] hover:border-green-300 hover:text-green-600'
@@ -407,7 +407,7 @@ const JobCard = React.memo(function JobCard({
           onClick={() => onDeleteJob(job.id)}
           aria-label="Remove job"
           title="Remove job"
-          className="inline-flex items-center px-2 py-2 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors cursor-pointer min-h-[38px]"
+          className="inline-flex items-center justify-center h-[38px] w-[38px] rounded-lg text-xs font-extrabold text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors cursor-pointer shrink-0"
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
