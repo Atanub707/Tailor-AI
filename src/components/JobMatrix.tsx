@@ -3,6 +3,7 @@ import { Job, JobState, JobSource } from '../types';
 import { formatTimeAgoSemantic } from '../lib/dateUtils';
 import { getValidJobUrl } from '../lib/jobUrlUtils';
 import { applicantCountLabel } from '../lib/applicantInfo';
+import { DownloadCvDropdown } from './DownloadCvDropdown';
 import {
   Briefcase,
   Zap,
@@ -133,17 +134,7 @@ const JobCard = React.memo(function JobCard({
   const [applying, setApplying] = React.useState(false);
   const [applyError, setApplyError] = React.useState('');
   const [applyStage, setApplyStage] = React.useState<'idle' | 'preparing' | 'tailoring'>('idle');
-  const [tailorVersion, setTailorVersion] = React.useState<number | null>(null);
-  const [tailorChecked, setTailorChecked] = React.useState(false);
   const [appRow, setAppRow] = React.useState<{ applicationId: string; userStatus: string } | null>(null);
-  React.useEffect(() => {
-    let alive = true;
-    fetch(`/api/jobs/${job.id}/tailor-v2/latest`)
-      .then((r) => (r.ok ? r.json() : { version: null }))
-      .then((d) => { if (alive) { setTailorVersion(d.version ?? null); setTailorChecked(true); } })
-      .catch(() => { if (alive) setTailorChecked(true); });
-    return () => { alive = false; };
-  }, [job.id]);
   // Refresh the inline application status whenever the drawer changes it.
   React.useEffect(() => {
     if (!appRow) return;
@@ -200,7 +191,6 @@ const JobCard = React.memo(function JobCard({
         return;
       }
       const d = await res.json().catch(() => ({}));
-      if (d.tailorVersion && typeof d.tailorVersion === 'number') setTailorVersion(d.tailorVersion);
       if (d.autoTailorError) {
         setApplyError(`Could not tailor a CV for this job — Master CV will be attached instead. ${d.autoTailorError}`);
       } else if (d.cvSource === 'MASTER_CV') {
@@ -328,6 +318,13 @@ const JobCard = React.memo(function JobCard({
               </span>
             )}
           </div>
+          {job.state === 'tailored' || job.state === 'matched' || job.state === 'applied' ? (
+            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-semibold border ${
+              job.state === 'tailored' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : job.state === 'matched' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-green-50 text-green-700 border-green-200'
+            }`}>
+              {job.state === 'tailored' ? 'CV Tailored' : job.state === 'matched' ? 'Matched' : 'Applied'}
+            </span>
+          ) : null}
           {(job.gapAnalysis?.matchingSkills?.length ?? 0) > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 mt-2">
               {job.gapAnalysis.matchingSkills.slice(0, 4).map((skill) => (
@@ -402,6 +399,25 @@ const JobCard = React.memo(function JobCard({
           </div>
         )}
 
+        {/* Tailor CV — Tailor V1: generates the actual tailored CV via the
+            standard template pipeline; Download appears once tailored. */}
+        <button
+          type="button"
+          onClick={() => onTailorJob(job.id)}
+          disabled={isTailorLoading}
+          aria-label="Tailor candidate CV for this job"
+          title="Tailor candidate CV for this job"
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white transition-colors cursor-pointer disabled:opacity-60 min-h-[38px]"
+        >
+          {isTailorLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-emerald-400" />}
+          <span>{job.tailoredCv ? 'Re-Tailor' : 'Tailor'}</span>
+        </button>
+
+        {/* Single ATS Download CV Dropdown */}
+        {job.tailoredCv && (
+          <DownloadCvDropdown jobId={job.id} buttonText="Download CV" size="sm" />
+        )}
+
         {/* Apply — primary. Stays on the list; status shows inline. */}
         <button
           type="button"
@@ -411,7 +427,7 @@ const JobCard = React.memo(function JobCard({
         >
           {applying
             ? applyStage === 'tailoring' ? 'Tailoring CV…' : 'Preparing…'
-            : tailorVersion ? `Apply (Tailored CV v${tailorVersion})` : 'Apply'}
+            : job.tailoredCv ? 'Apply (Tailored CV)' : 'Apply'}
         </button>
 
         {/* Review — opens the application detail drawer on this page */}

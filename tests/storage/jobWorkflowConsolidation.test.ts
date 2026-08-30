@@ -108,44 +108,33 @@ describe('Score vs Fit — DISTINCT engines', () => {
   });
 });
 
-describe('Tailor — ONE concept routing to Tailor V2', () => {
-  it('the normal UI has a single Tailor Resume action, wired to tailor-v2', () => {
+describe('Tailor — ONE concept: the Tailor button routes to Tailor V1', () => {
+  it('the card Tailor button and the detail Tailor Resume action both wire to /api/jobs/:id/tailor', () => {
+    expect(CARD).toContain('onTailorJob(job.id)');
+    expect(CARD).toContain('Re-Tailor');
+    expect(CARD).toContain("'Tailor'");
+    expect(CARD).toContain('DownloadCvDropdown');
+    expect(CARD).not.toContain('Tailor V2');
+    expect(CARD).not.toContain('tailor-v2');
     expect(DETAIL).toContain('Tailor Resume');
     expect(DETAIL).not.toContain('Tailor V2');
-    expect(CARD).not.toContain('Tailor Resume');
-    expect(CARD).not.toContain('Tailor V2');
-    expect(CARD).not.toContain('Re-Tailor');
-    expect(CARD).not.toContain("'Tailor'");
-    expect(APP_TSX).toContain('`/api/jobs/${jobId}/tailor-v2`');
-    expect(APP_TSX).not.toContain('`/api/jobs/${jobId}/tailor`');
+    expect(DETAIL).not.toContain('tailor-v2');
+    expect(APP_TSX).toContain('`/api/jobs/${jobId}/tailor`');
+    expect(APP_TSX).not.toContain('`/api/jobs/${jobId}/tailor-v2`');
   });
 
-  it('Tailor V2 fact verification is preserved and versions remain accessible', async () => {
-    storeTailorVersion(USER, 'wfj1', v2Version(1).content as any, { passed: true, issues: [] } as any, { masterCvUpdatedAt: 'c', profileUpdatedAt: 'p', jdHash: 'j', fitEngineVersion: 3 });
-    const v = getLatestTailorVersion(USER, 'wfj1');
-    expect(v).toBeDefined();
-    expect(v!.version).toBe(1);
-    expect(v!.verification.passed).toBe(true);
-    expect(listTailorVersions(USER, 'wfj1').length).toBe(1);
+  it('Tailor V1 stores the tailored CV on the job and exposes the download route', () => {
+    expect(SERVER).toContain("app.post('/api/jobs/:id/tailor'");
+    expect(SERVER).toContain('tailoredCv');
+    expect(SERVER).toContain("app.get('/api/jobs/:id/download-pdf'");
   });
 
-  it('the Application Package binds the exact verified V2 version deterministically', async () => {
-    const p = profile();
-    const masterCv = cv();
-    const j = job();
-    const fit = computeFit(p, masterCv, j, j.description || '');
-    const v = getLatestTailorVersion(USER, 'wfj1')!;
-    const pkg = await buildPackage({ userId: USER, job: j, jd: j.description || '', profile: p, masterCv, fit, tailoredVersion: v }, 'c');
-    expect(pkg.resumeSnapshot?.tailoredResumeVersionId).toBe(v.id);
-    expect(pkg.resumeSnapshot?.resumeUserId).toBe(USER);
-    expect(resumePdfHash(v, masterCv)).toBe(resumePdfHash(v, masterCv));
-  });
-
-  it('the detail tab renders verified V2 output with no fabricated scores', () => {
-    expect(DETAIL).toContain('/api/jobs/${job.id}/tailor-v2/latest');
-    expect(DETAIL).toContain('Verified against Master CV');
-    expect(DETAIL).toContain('/api/jobs/${job.id}/tailor-v2/pdf');
+  it('the detail tab renders the tailored CV audit with no fabricated scores', () => {
+    expect(DETAIL).toContain('ATS Tailoring Transformation Audit');
+    expect(DETAIL).toContain('Tailored CV Document Ready');
+    expect(DETAIL).toContain('DownloadCvDropdown');
     expect(DETAIL).toContain('No Tailored Resume');
+    expect(DETAIL).toContain('tailoredCv');
   });
 });
 
