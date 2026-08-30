@@ -224,13 +224,7 @@ const JobCard = React.memo(function JobCard({
               </span>
             )}
           </div>
-          {job.state === 'tailored' || job.state === 'matched' || job.state === 'applied' ? (
-            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-semibold border ${
-              job.state === 'tailored' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : job.state === 'matched' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-green-50 text-green-700 border-green-200'
-            }`}>
-              {job.state === 'tailored' ? 'CV Tailored' : job.state === 'matched' ? 'Matched' : 'Applied'}
-            </span>
-          ) : null}
+
 
         </div>
       </div>
