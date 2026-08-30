@@ -560,6 +560,22 @@ async function startServer() {
     res.json(loadConfig());
   });
 
+  // Live model catalog — proxies the provider's GET /models (opencode-go,
+  // openrouter, openai, nvidia) with a 6h server-side cache; falls back to
+  // the static preset list when the fetch fails, so the Settings model
+  // dropdown always reflects the provider's current catalog without any
+  // code edits. Result: { models, fetchedAt, stale, reason?, provider? }.
+  app.get('/api/models', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { fetchModelCatalog } = await import('./server/llm/modelCatalog.js');
+      res.json(await fetchModelCatalog());
+    } catch (err: any) {
+      res.status(500).json({ error: String(err?.message || 'Catalog fetch failed.').slice(0, 200) });
+    }
+  });
+
   // Source registry — lets clients (and API consumers) see which sources
   // are Apify-powered and what each Apify source costs per 1K jobs.
   app.get('/api/sources', (_req, res) => {

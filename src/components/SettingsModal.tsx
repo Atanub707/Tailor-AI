@@ -4,7 +4,7 @@ import { CandidateProfilePanel } from './CandidateProfilePanel';
 import { AppConfig, LlmProvider } from '../types';
 import { ArrowLeft, User, UserCircle, LockKey, PlugsConnected, Brain, RocketLaunch, EnvelopeSimple, ShieldCheck, Key, Database, CheckCircle, CaretRight, Warning, Pulse, Check, Eye, EyeSlash, ArrowSquareOut, Info, GlobeSimple } from '@phosphor-icons/react';
 import { RECOVERY_QUESTIONS } from '../constants/recoveryQuestions';
-import { PROVIDER_BASE_URLS as LLM_PRESETS } from '../constants/llmPresets';
+import { PROVIDER_BASE_URLS as LLM_PRESETS, PROVIDER_FALLBACK_MODELS } from '../constants/llmPresets';
 import { APIFY_SOURCES } from '../constants/sources';
 import { codes as currencyCodes, code as currencyCodeInfo } from 'currency-codes';
 import languagesData from 'languages/languages.json';
@@ -53,31 +53,7 @@ const PROVIDER_TAG: Record<LlmProvider, string> = {
   'nvidia': 'GPU models',
 };
 
-const PROVIDER_MODELS: Record<LlmProvider, string[]> = {
-  'opencode-go': [
-    'deepseek-v4-flash',
-    'deepseek-v4-pro',
-    'kimi-k3',
-    'kimi-k2.7-code',
-    'kimi-k2.6',
-    'qwen3.7-max',
-    'qwen3.7-plus',
-    'qwen3.6-plus',
-    'grok-4.5',
-    'glm-5.2',
-    'glm-5.1',
-    'mimo-v2.5-pro',
-    'mimo-v2.5',
-    'minimax-m3',
-    'minimax-m2.7',
-    'hy3',
-  ],
-  'openrouter': ['Custom (type below)'],
-  'openai': ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o3-mini', 'Custom (type below)'],
-  'gemini': ['gemini-3.6-flash', 'gemini-2.5-pro', 'gemini-2.0-flash', 'Custom (type below)'],
-  'anthropic': ['claude-sonnet-4-20250514', 'claude-3.5-haiku', 'claude-opus-4', 'Custom (type below)'],
-  'nvidia': ['deepseek-ai/deepseek-v4-flash', 'deepseek-ai/deepseek-v4-pro', 'meta/llama-3.3-70b-instruct', 'mistralai/mistral-large', 'Custom (type below)'],
-};
+const PROVIDER_MODELS = PROVIDER_FALLBACK_MODELS;
 
 const PROVIDER_BASE_URLS = LLM_PRESETS;
 
@@ -265,8 +241,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const selectProvider = (p: LlmProvider) => {
-    const defaults = PROVIDER_MODELS[p];
-    const defaultModel = defaults[0];
+    const fallbackDefaults = PROVIDER_MODELS[p] || [''];
+    const merged = mergedModels(p);
+    const defaultModel = (merged.find((m) => m !== 'Custom (type below)') || fallbackDefaults.find((m) => m !== 'Custom (type below)') || formData.llm.model);
     setFormDataTouched({
       ...formData,
       llm: {
@@ -298,7 +275,48 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const provider = formData.llm.provider || 'opencode-go';
-  const models = PROVIDER_MODELS[provider] || PROVIDER_MODELS['opencode-go'];
+  const staticModels = PROVIDER_MODELS[provider] || PROVIDER_MODELS['opencode-go'];
+
+  // ── Live model catalog — fetched from the provider (opencode-go,
+  // openrouter, openai, nvidia expose GET /models); the dropdown never
+  // needs a code edit when the provider adds models. ───────────────
+  const [catalog, setCatalog] = React.useState<{ models: { id: string; created: number; owned_by?: string }[]; fetchedAt: string | null; stale: boolean; reason?: string } | null>(null);
+  const [catalogLoading, setCatalogLoading] = React.useState(false);
+  const refreshCatalog = React.useCallback(async () => {
+    setCatalogLoading(true);
+    try {
+      const r = await fetch('/api/models');
+      if (r.ok) {
+        const d = await r.json();
+        setCatalog(d && Array.isArray(d.models) ? d : null);
+      }
+    } catch { /* keep last catalog */ }
+    finally { setCatalogLoading(false); }
+  }, []);
+  React.useEffect(() => { void refreshCatalog(); }, [refreshCatalog]);
+
+  const catalogLive = catalog && !catalog.stale ? catalog.models : [];
+  const mergedModels = React.useCallback((p: LlmProvider): string[] => {
+    const live = catalogLive.length ? catalogLive.map((m) => m.id) : [];
+    const base = live.length
+      ? live
+      : (PROVIDER_MODELS[p] || PROVIDER_MODELS['opencode-go']).filter((m) => m !== 'Custom (type below)');
+    const hasCustom = (PROVIDER_MODELS[p] || []).includes('Custom (type below)');
+    return hasCustom ? [...base, 'Custom (type below)'] : base;
+  }, [catalogLive]);
+
+  const models = mergedModels(provider);
+  const modelTiers = React.useMemo(() => {
+    const map = new Map<string, { free: boolean; isNew: boolean }>();
+    for (const m of catalogLive) {
+      const createdMs = m.created > 10_000_000_000 ? m.created : m.created * 1000;
+      map.set(m.id, {
+        free: /(?:^|-)(?:free|contributor)(?:-|$)|big-pickle/i.test(m.id),
+        isNew: createdMs > 0 && createdMs > Date.now() - 45 * 24 * 3600 * 1000,
+      });
+    }
+    return map;
+  }, [catalogLive]);
   const showCustomModel = !models.includes(formData.llm.model);
 
   const [emailTestState, setEmailTestState] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
@@ -544,14 +562,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                       <span className="st-flabel" htmlFor="st-llmmodel">Model</span>
                       <div className="st-row">
-                        <div className="st-lbl"><label htmlFor="st-llmmodel"><b>Model name</b><span>Pick from the provider or type a custom one.</span></label></div>
+                        <div className="st-lbl">
+                          <label htmlFor="st-llmmodel"><b>Model name</b><span>Live catalog from your provider — updates automatically when new models arrive.</span></label>
+                          <span className="st-hint" data-qa="model-catalog-status">
+                            {catalogLoading ? 'Loading catalog…'
+                              : catalogLive.length ? `Loaded ${catalogLive.length} models · ${catalog.stale ? '' : 'live'}`
+                              : 'Live catalog unavailable — showing saved list'}
+                          </span>
+                        </div>
                         <select className={inputCls} id="st-llmmodel" value={models.includes(formData.llm.model) ? formData.llm.model : 'Custom (type below)'}
                           onChange={(e) => {
                             const val = e.target.value;
                             if (val !== 'Custom (type below)') setFormDataTouched({ ...formData, llm: { ...formData.llm, model: val } });
                           }}>
-                          {models.map((m) => <option key={m} value={m}>{m}</option>)}
+                          {models.map((m) => {
+                            const tier = modelTiers.get(m);
+                            return <option key={m} value={m}>{m}{tier?.free ? ' — Free' : ''}{tier?.isNew ? ' · New' : ''}</option>;
+                          })}
                         </select>
+                        <button type="button" className="st-refresh-btn" onClick={() => void refreshCatalog()} disabled={catalogLoading} aria-label="Refresh model list" title="Refresh the live model list">
+                          {catalogLoading ? 'Loading…' : 'Refresh'}
+                        </button>
                       </div>
                       {showCustomModel && (
                         <div className="st-row">
@@ -845,6 +876,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         .st-lbl b{display:block; font-size:13px; font-weight:600; letter-spacing:-.01em;}
         .st-lbl span{display:block; font-size:11.5px; color:var(--st-faint); margin-top:2px;}
         .st-lbl label{cursor:pointer;}
+        .st-refresh-btn{margin-left:8px; padding:8px 12px; border-radius:8px; border:1px solid var(--st-line); background:#fff; font-size:11.5px; font-weight:600; color:var(--st-ink); cursor:pointer; white-space:nowrap;}
+        .st-refresh-btn:hover:not(:disabled){background:#F3F1FE;}
+        .st-refresh-btn:disabled{opacity:.55; cursor:default;}
         .st-inp{width:240px; border:1.5px solid var(--st-line2); border-radius:10px; padding:10px 13px; font-size:13px; color:var(--st-ink); background:var(--st-surface); outline:none; font-family:inherit; transition:border-color .15s ease,box-shadow .15s ease;}
         .st-inp:hover{border-color:var(--st-primary-line);}
         .st-inp:focus{border-color:var(--st-primary); box-shadow:0 0 0 3px rgba(99,102,241,.12);}

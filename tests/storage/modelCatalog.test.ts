@@ -1,0 +1,121 @@
+// Live model catalog — provider /models proxied with cache + fallback;
+// Settings UI never hardcodes the list. No network: injected fetcher.
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'model-catalog-'));
+process.env.TAILOR_DATA_DIR = tmpDir;
+
+const { fetchModelCatalog, isOpenAiCompatible, CATALOG_TTL_MS, clearModelCache } = await import('../../server/llm/modelCatalog.js');
+const { PROVIDER_FALLBACK_MODELS, PROVIDER_BASE_URLS } = await import('../../src/constants/llmPresets.js');
+
+afterAll(() => {
+  try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+});
+
+const modelsPayload = (ids: string[]) => ({ object: 'list', data: ids.map((id, i) => ({ id, object: 'model', created: 1700000000 + i, owned_by: 'zen' })) });
+
+describe('Live model catalog', () => {
+  it('every provider has a static fallback list (never empty)', () => {
+    for (const p of Object.keys(PROVIDER_BASE_URLS)) {
+      const list = PROVIDER_FALLBACK_MODELS[p as keyof typeof PROVIDER_FALLBACK_MODELS];
+      expect(Array.isArray(list)).toBe(true);
+      // openrouter is a 100+ model gateway with no stable list — custom-only
+      // fallback is its documented strategy; every other provider ships
+      // at least one concrete model.
+      if (p === 'openrouter') {
+        expect(list).toEqual(['Custom (type below)']);
+      } else {
+        expect(list.filter((m) => m !== 'Custom (type below)').length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('opencode-go is OpenAI-compatible; gemini/anthropic are not', () => {
+    expect(isOpenAiCompatible('opencode-go')).toBe(true);
+    expect(isOpenAiCompatible('openrouter')).toBe(true);
+    expect(isOpenAiCompatible('openai')).toBe(true);
+    expect(isOpenAiCompatible('nvidia')).toBe(true);
+    expect(isOpenAiCompatible('gemini')).toBe(false);
+    expect(isOpenAiCompatible('anthropic')).toBe(false);
+  });
+
+  it('fetches and parses the live catalog (id/created/owned_by), non-stale', async () => {
+    clearModelCache();
+    const fetcher = async (url: string, init: any) => {
+      expect(url).toContain('/models');
+      expect(init.headers.Authorization).toMatch(/^Bearer .+/);
+      return { ok: true, json: async () => modelsPayload(['deepseek-v4-flash', 'qwen3.8-max', 'grok-4.6']) } as any;
+    };
+    const r = await fetchModelCatalog(fetcher, { provider: 'opencode-go', baseUrl: 'https://opencode.ai/zen/go/v1', apiKey: 'k' });
+    expect(r.stale).toBe(false);
+    expect(r.provider).toBe('opencode-go');
+    expect(r.fetchedAt).toBeTruthy();
+    expect(r.models.map((m) => m.id)).toEqual(['deepseek-v4-flash', 'qwen3.8-max', 'grok-4.6']);
+    expect(r.models[0].owned_by).toBe('zen');
+  });
+
+  it('caches for the TTL — a second call does not re-fetch', async () => {
+    clearModelCache();
+    let calls = 0;
+    const fetcher = async () => {
+      calls++;
+      return { ok: true, json: async () => modelsPayload(['kimi-k3']) } as any;
+    };
+    await fetchModelCatalog(fetcher, { provider: 'opencode-go', baseUrl: 'https://opencode.ai/zen/go/v1', apiKey: 'k' });
+    await fetchModelCatalog(fetcher, { provider: 'opencode-go', baseUrl: 'https://opencode.ai/zen/go/v1', apiKey: 'k' });
+    expect(calls).toBe(1);
+    expect(CATALOG_TTL_MS).toBeGreaterThanOrEqual(6 * 60 * 60 * 1000 - 1);
+  });
+
+  it('falls back (stale) on HTTP failure, empty list or missing key — never throws', async () => {
+    clearModelCache();
+    const fail = async () => ({ ok: false, status: 429, json: async () => ({}), text: async () => '' } as any);
+    const r1 = await fetchModelCatalog(fail, { provider: 'opencode-go', baseUrl: 'https://opencode.ai/zen/go/v1', apiKey: 'k' });
+    expect(r1.stale).toBe(true);
+    expect(r1.reason).toContain('HTTP 429');
+    expect(r1.models.length).toBeGreaterThan(0);
+    clearModelCache();
+    const empty = async () => ({ ok: true, json: async () => ({ data: [] }) } as any);
+    const r2 = await fetchModelCatalog(empty, { provider: 'opencode-go', baseUrl: 'https://opencode.ai/zen/go/v1', apiKey: 'k' });
+    expect(r2.stale).toBe(true);
+    clearModelCache();
+    const r3 = await fetchModelCatalog((async () => { throw new Error('ECONNRESET'); }) as any, { provider: 'opencode-go', baseUrl: 'https://opencode.ai/zen/go/v1', apiKey: 'k' });
+    expect(r3.stale).toBe(true);
+    expect(r3.reason).toContain('ECONNRESET');
+  });
+
+  it('never calls a non-compatible provider and never skips the key', async () => {
+    clearModelCache();
+    let called = false;
+    const fetcher = async () => { called = true; return { ok: true, json: async () => modelsPayload(['x']) } as any; };
+    const r = await fetchModelCatalog(fetcher, { provider: 'gemini', baseUrl: '', apiKey: 'k' });
+    expect(r.stale).toBe(true);
+    expect(r.reason).toBe('PROVIDER_NON_COMPATIBLE');
+    expect(called).toBe(false);
+    const r2 = await fetchModelCatalog(fetcher, { provider: 'opencode-go', baseUrl: 'https://opencode.ai/zen/go/v1', apiKey: '' });
+    expect(r2.stale).toBe(true);
+    expect(r2.reason).toBe('NO_API_KEY');
+    expect(called).toBe(false);
+  });
+});
+
+describe('Settings UI wiring — live catalog', () => {
+  it('SettingsModal fetches /api/models and marks Free/New models', () => {
+    const scr = fs.readFileSync(path.join(process.cwd(), 'src/components/SettingsModal.tsx'), 'utf8');
+    expect(scr).toContain('/api/models');
+    expect(scr).toContain('Refresh model list');
+    expect(scr).toContain('— Free');
+    expect(scr).toContain('· New');
+    expect(scr).toContain('PROVIDER_FALLBACK_MODELS');
+    expect(scr).not.toContain("const PROVIDER_MODELS: Record<LlmProvider, string[]>");
+  });
+
+  it('the server exposes GET /api/models', () => {
+    const srv = fs.readFileSync(path.join(process.cwd(), 'server.ts'), 'utf8');
+    expect(srv).toContain("app.get('/api/models'");
+    expect(srv).toContain('fetchModelCatalog');
+  });
+});
