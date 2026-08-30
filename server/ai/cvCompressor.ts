@@ -1,4 +1,5 @@
 import { ask } from '../llm/llmAdapter.js';
+import { extractJsonObject } from '../llm/jsonExtract.js';
 import { MasterCv, TailoredCv } from '../../src/types.js';
 import { getMarketData, STOPWORDS } from './marketData.js';
 
@@ -86,7 +87,7 @@ RULES:
   const analyzeRaw = await ask(analyzePrompt, 0.2);
   let guidance: CompressGuidance;
   try {
-    guidance = JSON.parse(analyzeRaw);
+    guidance = extractJsonObject(analyzeRaw);
   } catch {
     throw new Error('AI returned invalid JSON: ' + analyzeRaw.slice(0, 200));
   }
@@ -124,7 +125,7 @@ STRICT RULES:
   const rewriteRaw = await ask(rewritePrompt, 0.2);
   let compressedCv: TailoredCv;
   try {
-    compressedCv = JSON.parse(rewriteRaw);
+    compressedCv = extractJsonObject(rewriteRaw);
   } catch {
     throw new Error('AI returned invalid JSON: ' + rewriteRaw.slice(0, 200));
   }

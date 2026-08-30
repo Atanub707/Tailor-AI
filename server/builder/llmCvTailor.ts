@@ -1,6 +1,7 @@
 import { BaseCvBuilder } from './baseBuilder.js';
 import { Job, MasterCv, TailoredCv } from '../../src/types.js';
 import { ask } from '../llm/llmAdapter.js';
+import { extractJsonObject } from '../llm/jsonExtract.js';
 
 export class LlmCvTailor extends BaseCvBuilder {
   async tailorCv(
@@ -93,7 +94,7 @@ Return valid JSON only — NO markdown, NO code fences, pure JSON:
 
     try {
       const jsonText = await ask(prompt, 0.2);
-      const parsed = JSON.parse(jsonText);
+      const parsed = extractJsonObject(jsonText);
 
       const beforeScore = job.matchScore || job.gapAnalysis?.matchScore || 50;
 

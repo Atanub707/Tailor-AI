@@ -119,3 +119,36 @@ describe('Settings UI wiring — live catalog', () => {
     expect(srv).toContain('fetchModelCatalog');
   });
 });
+
+const { extractJsonObject } = await import('../../server/llm/jsonExtract.js');
+
+describe('LLM JSON extraction — reasoning-model noise', () => {
+
+  it('parses clean JSON unchanged', () => {
+    expect(extractJsonObject('{"matchScore": 87, "missingSkills": ["go"]}').matchScore).toBe(87);
+  });
+
+  it('strips minimax/DeepSeek <thinking> blocks before the JSON', () => {
+    const raw = '<thinking>Let me analyze this CV against the requirements. The candidate lacks Kubernetes, GitOps and cloud security experience.</thinking>\n{"matchScore": 42, "missingSkills": ["Kubernetes", "GitOps"]}';
+    const parsed = extractJsonObject(raw);
+    expect(parsed.matchScore).toBe(42);
+    expect(parsed.missingSkills).toEqual(['Kubernetes', 'GitOps']);
+  });
+
+  it('strips markdown fences and leading prose', () => {
+    expect(extractJsonObject('```json\n{"afterScore": 91}\n```').afterScore).toBe(91);
+    expect(extractJsonObject('Here is the result:\n{"afterScore": 91}').afterScore).toBe(91);
+  });
+
+  it('survives the exact crash shape: <thinking>Let... is not valid JSON', () => {
+    const raw = '<thinking>Let me carefully check every bullet point of the candidate resume against the job description and decide how to rephrase each highlight.</thinking>\n{"candidateName": "Alex Mercer", "targetRole": "Senior Software Engineer", "professionalSummary": "Results-driven engineer", "coreCompetencies": ["Kubernetes"], "workExperience": [{"title": "Senior Software Engineer", "company": "Apex", "highlights": ["Architected platform"]}], "education": [{"degree": "B.S."}], "technicalSkills": [{"category": "Cloud", "skills": ["AWS"]}], "inExperience": ["Kubernetes"], "inSkills": [], "afterScore": 91, "auditNotes": ["Note"]}';
+    const parsed = extractJsonObject(raw);
+    expect(parsed.candidateName).toBe('Alex Mercer');
+    expect(parsed.afterScore).toBe(91);
+    expect(parsed.workExperience[0].company).toBe('Apex');
+  });
+
+  it('throws a helpful error when no JSON exists at all', () => {
+    expect(() => extractJsonObject('<thinking>just prose</thinking> no object')).toThrow(/No JSON object found/);
+  });
+});
