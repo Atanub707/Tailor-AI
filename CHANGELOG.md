@@ -1,5 +1,25 @@
 # Changelog
 
+## v2.4.2 (2026-08-30)
+
+### 🎯 Tailor & Matching
+
+- **Tailor V1 is back** — the real Tailor CV button on every job card (Tailor/Re-Tailor), the `Tailored ATS` score pill (before → after + boost badge), Download CV, and the live stage tooltip (✓/⟳) while tailoring.
+- **Model-agnostic AI pipeline (`askJson`)** — pick ANY model from the live catalog; reasoning-model quirks (`<thinking>` wrappers, unquoted keys, prose, trailing commas, `[...]` placeholders) are automatically repaired with a bounded retry. No per-model crashes.
+- **Live model catalog** — Settings pulls the provider's real model list (auto-updates, Free/New pills, Refresh button); timeout explanations and a 4-minute LLM budget.
+- Robust resume attachment names (FullName_Role_Company_CV.pdf) and honest JD-less handling.
+
+### 🧹 UI Cleanups
+
+- Uniform 38px buttons on job cards (icon-only bin 38×38), `Applied` toggles green in place, Apply links directly to the job post.
+- Master CV: AI Compress removed; Save + Download PDF moved to the right toolbar after the rename field.
+- Candidate Profile: autosave (no Save button), Sensitive/Login cards removed.
+- Settings: Browser Companion + Data & privacy + Application Accounts + Email Connections panels removed.
+
+### 🧰 Robustness
+
+- ATS index schedulers verified healthy (308k+ jobs cycling every 60s); search guidance for empty keywords; JSON extraction cascade (fences, thinking blocks, balanced-brace fallback, non-whitespace/position repairs).
+
 ## v2.4.0 (2026-08-29)
 
 ### 🧭 Simpler Job Workflow
