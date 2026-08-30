@@ -113,11 +113,17 @@ describe('Job discovery UX — card surface', () => {
     expect(CARD).not.toContain('ATS SCORE');
   });
 
-  it('Applied and Remove job are direct card actions', () => {
-    expect(CARD).toContain("'Applied'");
-    expect(CARD).toContain('Unmark applied');
-    expect(CARD).toContain('Remove job');
+  it('Applied toggles green in place — the label never changes', () => {
+    expect(CARD).toContain('<span>Applied</span>');
+    expect(CARD).not.toContain('Unmark applied');
+    expect(CARD).toContain('border-green-300');
+    expect(CARD).toContain('aria-pressed={job.state === \'applied\'}');
+    expect(CARD).toContain("title={job.state === 'applied' ? 'Mark as not applied' : 'Mark as applied'}");
     expect(CARD).toContain('onUpdateStatus');
+  });
+
+  it('Remove is a direct card action', () => {
+    expect(CARD).toContain('Remove job');
     expect(CARD).toContain('onDeleteJob');
   });
 

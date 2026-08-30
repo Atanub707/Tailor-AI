@@ -387,12 +387,19 @@ const JobCard = React.memo(function JobCard({
           Apply
         </a>
 
-        {/* Mark as applied */}
+        {/* Applied — always the same label; turns green once applied (click toggles) */}
         <button
           onClick={() => onUpdateStatus(job.id, job.state === 'applied' ? 'pending' : 'applied')}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-white hover:bg-[var(--color-brand-soft)] border border-[var(--color-hairline)] text-[var(--color-muted)] transition-colors cursor-pointer min-h-[38px]"
+          title={job.state === 'applied' ? 'Mark as not applied' : 'Mark as applied'}
+          aria-pressed={job.state === 'applied'}
+          className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer min-h-[38px] ${
+            job.state === 'applied'
+              ? 'bg-green-50 text-green-700 border-green-300'
+              : 'bg-white text-[var(--color-muted)] border-[var(--color-hairline)] hover:border-green-300 hover:text-green-600'
+          }`}
         >
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> {job.state === 'applied' ? 'Unmark applied' : 'Applied'}
+          {job.state === 'applied' ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <span className="w-3.5 h-3.5 rounded-full border border-current opacity-60" />}
+          <span>Applied</span>
         </button>
 
         {/* Remove job — no confirmation */}
