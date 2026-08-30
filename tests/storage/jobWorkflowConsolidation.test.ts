@@ -91,7 +91,8 @@ describe('Score vs Fit — DISTINCT engines', () => {
     expect(SERVER).toContain('matchScore');
     expect(SERVER).toContain('gapAnalysis');
     expect(CARD).toContain('onMatchJob(job.id)');
-    expect(CARD).toContain('{job.matchScore}% Match');
+    expect(CARD).toContain('ATS Score');
+    expect(CARD).toContain('{job.matchScore}%');
     expect(CARD).not.toContain('/api/jobs/${job.id}/fit');
     expect(CARD).not.toContain('{fit.score}% Match');
   });
@@ -99,9 +100,11 @@ describe('Score vs Fit — DISTINCT engines', () => {
   it('the job card exposes the LLM Score — on demand, cached on the job, no Fit button', () => {
     expect(CARD).toContain('Score this job against your CV');
     expect(CARD).toContain('onMatchJob(job.id)');
-    expect(CARD).toContain('{job.matchScore}% Match');
+    expect(CARD).toContain('ATS Score');
+    expect(CARD).toContain('Tailored ATS');
+    expect(CARD).toContain('{job.matchScore}%');
     expect(CARD).toContain('{job.gapAnalysis.matchScore ?? job.matchScore}% Match');
-    expect(CARD).not.toContain("'Re-Score'");
+    expect(CARD).toContain("'Re-Score'");
     expect(CARD).not.toContain('/fit');
     expect(CARD).not.toContain('Check match');
     expect(CARD).not.toContain('{fit.score}% Match');

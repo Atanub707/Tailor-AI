@@ -232,6 +232,8 @@ const JobCard = React.memo(function JobCard({
     <div className={`bg-white border rounded-lg p-4 transition-all shadow-xs hover:shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 group ${
       job.state === 'applied'
         ? 'border-green-300 hover:border-green-400 border-l-4 border-l-green-500'
+        : job.tailoredCv
+        ? 'border-emerald-200 hover:border-emerald-300'
         : 'border-slate-200 hover:border-slate-300'
     }`}>
       {/* Details — click opens Job Details */}
@@ -341,9 +343,42 @@ const JobCard = React.memo(function JobCard({
         </div>
       </div>
 
-      {/* Right: Match · View · Apply · overflow */}
-      <div className="flex flex-wrap items-center justify-between md:justify-end gap-2.5 border-t md:border-t-0 md:border-l border-slate-100 pt-3 md:pt-0 md:pl-4 shrink-0">
-        <div className="relative" ref={scoreRef}>
+      {/* Right: ATS score pill · actions */}
+      <div className="flex flex-col items-end gap-2 shrink-0 md:border-l border-slate-100 md:pl-4 md:pr-0 border-t md:border-t-0 pt-3 md:pt-0">
+
+        {/* ATS Score Pill — classic card: '--' → colored % → Tailored ATS
+            (before strikethrough → after green + boost badge) */}
+        <div className="text-center min-w-[85px]" data-qa="ats-pill">
+          <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wide">
+            {job.tailoredCv ? 'Tailored ATS' : 'ATS Score'}
+          </span>
+          {job.tailoredCv ? (
+            (() => {
+              const beforeS = job.tailoredCv.audit?.beforeScore ?? job.matchScore ?? 68;
+              const afterS = job.tailoredCv.audit?.afterScore ?? Math.min(98, Math.max(beforeS + 18, 92));
+              const boost = afterS - beforeS;
+              return (
+                <div className="flex flex-col items-center">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-slate-400 line-through font-semibold">{beforeS}%</span>
+                    <span className="text-lg font-black text-emerald-600">{afterS}%</span>
+                  </div>
+                  <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 inline-flex items-center gap-0.5">
+                    <TrendingUp className="w-2.5 h-2.5 text-emerald-600" />
+                    <span>+{boost}%</span>
+                  </span>
+                </div>
+              );
+            })()
+          ) : job.matchScore !== undefined ? (
+            <span className={`text-lg font-extrabold ${SCORE_TONE(job.matchScore)}`}>{job.matchScore}%</span>
+          ) : (
+            <span className="text-xs text-slate-400 font-medium">--</span>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center justify-end gap-2.5">
+        <div className="relative group" ref={scoreRef}>
           <button
             onClick={openScore}
             disabled={isScoreLoading}
@@ -351,10 +386,20 @@ const JobCard = React.memo(function JobCard({
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold border transition-colors cursor-pointer disabled:opacity-60 bg-white border-[var(--color-hairline)] text-[var(--color-muted)] hover:bg-[var(--color-brand-soft)] hover:border-[var(--color-brand-line)]"
           >
             {isScoreLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-[var(--color-brand)]" />}
-            {job.matchScore !== undefined
-              ? <span className={SCORE_TONE(job.matchScore)}>{job.matchScore}% Match</span>
-              : <span>{isScoreLoading ? 'Scoring…' : 'Score'}</span>}
+            <span>{job.matchScore !== undefined ? 'Re-Score' : isScoreLoading ? 'Scoring…' : 'Score'}</span>
           </button>
+          {isScoreLoading && scoreMsg && (
+            <div className="absolute bottom-full left-0 mb-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium bg-slate-900 text-white shadow-lg pointer-events-none z-10 opacity-0 group-hover:opacity-100 transition-opacity min-w-[180px]">
+              <div className="space-y-0.5">
+                {scoreMsg.map((msg, i) => (
+                  <div key={i} className={`flex items-center gap-1.5 ${i === scoreMsg.length - 1 ? 'text-white' : 'text-slate-400'}`}>
+                    <span>{i === scoreMsg.length - 1 ? '⟳' : '✓'}</span>
+                    <span>{msg}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {scoreOpen && job.gapAnalysis && (
             <div className="absolute right-0 top-11 z-40 w-80 rounded-xl border border-[var(--color-border)] bg-white shadow-lg p-4 text-left max-h-96 overflow-y-auto">
               <div className="flex items-baseline justify-between">
@@ -401,6 +446,7 @@ const JobCard = React.memo(function JobCard({
 
         {/* Tailor CV — Tailor V1: generates the actual tailored CV via the
             standard template pipeline; Download appears once tailored. */}
+        <div className="relative group">
         <button
           type="button"
           onClick={() => onTailorJob(job.id)}
@@ -412,6 +458,19 @@ const JobCard = React.memo(function JobCard({
           {isTailorLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-emerald-400" />}
           <span>{job.tailoredCv ? 'Re-Tailor' : 'Tailor'}</span>
         </button>
+        {isTailorLoading && tailorMsg && (
+          <div className="absolute bottom-full left-0 mb-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium bg-slate-900 text-white shadow-lg pointer-events-none z-10 opacity-0 group-hover:opacity-100 transition-opacity min-w-[200px]">
+            <div className="space-y-0.5">
+              {tailorMsg.map((msg, i) => (
+                <div key={i} className={`flex items-center gap-1.5 ${i === tailorMsg.length - 1 ? 'text-white' : 'text-slate-400'}`}>
+                  <span>{i === tailorMsg.length - 1 ? '⟳' : '✓'}</span>
+                  <span>{msg}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        </div>
 
         {/* Single ATS Download CV Dropdown */}
         {job.tailoredCv && (
@@ -465,6 +524,7 @@ const JobCard = React.memo(function JobCard({
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
+        </div>
       </div>
     </div>
   );

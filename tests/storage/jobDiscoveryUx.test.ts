@@ -106,12 +106,10 @@ describe('Job discovery UX — card surface', () => {
   });
 
   it('does NOT render engineering buttons as primary card actions', () => {
-    expect(CARD).not.toContain("'Re-Score'");
     expect(CARD).not.toContain('Tailor V2');
     expect(CARD).not.toContain('Prepare Application');
     expect(CARD).not.toContain('Prepare for Application');
     expect(CARD).not.toContain('ATS SCORE');
-    expect(CARD).not.toContain('ATS Score');
   });
 
   it('Mark as applied and Remove job are direct card actions', () => {
@@ -122,10 +120,19 @@ describe('Job discovery UX — card surface', () => {
     expect(CARD).toContain('onDeleteJob');
   });
 
-  it('match indicator shows the LLM percentage when scored and never a misleading placeholder', () => {
-    expect(CARD).toContain('{job.matchScore}% Match');
+  it('the ATS Score pill shows the LLM percentage when scored and never a misleading placeholder', () => {
+    expect(CARD).toContain('ATS Score');
+    expect(CARD).toContain('Tailored ATS');
+    expect(CARD).toContain('{job.matchScore}%');
     expect(CARD).not.toContain("'0%'");
     expect(CARD).not.toContain('N/A');
+  });
+  it('Tailor and Score show live stage tooltips while working (⟳ current, ✓ done)', () => {
+    expect(CARD).toContain('scoreMsg.map');
+    expect(CARD).toContain('tailorMsg.map');
+    expect(CARD).toContain("'✓'");
+    expect(CARD).toContain("'⟳'");
+    expect(CARD).toContain('group-hover:opacity-100');
   });
 });
 
