@@ -5,7 +5,6 @@ import { applicantCountLabel } from '../lib/applicantInfo';
 import { getValidJobUrl } from '../lib/jobUrlUtils';
 import { DownloadCvDropdown } from './DownloadCvDropdown';
 import { CvPdfPreview, compressedCvToPdfShape } from './CvPdfPreview';
-import { AutoApplyPreview } from './AutoApplyPreview';
 import {
   X,
   ExternalLink,
@@ -24,7 +23,6 @@ import {
   FileInput,
   Printer,
   Users,
-  Eye,
   Download,
 } from 'lucide-react';
 
@@ -53,7 +51,6 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   initialTab,
   masterCv,
 }) => {
-  const [previewOpen, setPreviewOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'details' | 'gap' | 'tailored'>(initialTab || 'details');
 
   // Emails mentioned in the raw description (client-side mirror of the
@@ -779,20 +776,6 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Layer 1 — Auto-Apply Preview (v2) */}
-                  <div className="flex items-center justify-between p-3 rounded-lg border border-amber-200 bg-amber-50/50">
-                    <div>
-                      <div className="text-[11px] font-extrabold uppercase tracking-wider text-amber-800">Auto-Apply — Preview before submit</div>
-                      <div className="text-[11px] text-amber-700">Review what will be filled, then open the real ATS form</div>
-                    </div>
-                    <button
-                      onClick={() => setPreviewOpen(true)}
-                      className="px-4 py-2 rounded-lg bg-[var(--color-ink)] text-white text-[12px] font-bold hover:bg-[#14113B] flex items-center gap-2 shrink-0"
-                    >
-                      <Eye className="w-3.5 h-3.5" /> Preview Application
-                    </button>
-                  </div>
-
                   {/* CV Live Preview — renders with the template selected in the Master CV */}
                   <div id="printable-cv" className="bg-white border border-[var(--color-hairline2)] rounded-lg p-4 shadow-sm overflow-hidden">
                     <CvPdfPreview cv={compressedCvToPdfShape(tailored)} template={cvTemplate} fitToWidth />
@@ -802,48 +785,6 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
             </div>
           )}
         </div>
-
-        {/* Layer 1 Drawer — stays mounted even when not on Tailored tab */}
-        {(() => {
-          const detectAts = (url: string) => {
-            const u = (url || '').toLowerCase();
-            if (u.includes('greenhouse.io')) return 'Greenhouse';
-            if (u.includes('lever.co')) return 'Lever';
-            if (u.includes('ashbyhq.com')) return 'Ashby';
-            if (u.includes('workable.com')) return 'Workable';
-            if (u.includes('breezy.hr')) return 'BreezyHR';
-            if (u.includes('applytojob.com')) return 'JazzHR';
-            if (u.includes('myworkdayjobs.com')) return 'Workday';
-            if (u.includes('icims.com')) return 'iCIMS';
-            return job.source || 'Unknown ATS';
-          };
-          const previewFields: Array<{ label: string; value: string; source: 'profile' | 'llm' | 'needs_review'; confidence: number }> = masterCv
-            ? [
-                { label: 'First Name', value: (masterCv.fullName || '').split(' ')[0] || '', source: 'profile', confidence: 1 },
-                { label: 'Last Name', value: (masterCv.fullName || '').split(' ').slice(1).join(' ') || '', source: 'profile', confidence: 1 },
-                { label: 'Email', value: masterCv.email || '', source: 'profile', confidence: 1 },
-                { label: 'Phone', value: masterCv.phone || '', source: 'profile', confidence: 1 },
-                { label: 'Location', value: masterCv.location || '', source: 'profile', confidence: 1 },
-                { label: 'LinkedIn', value: masterCv.linkedin || '', source: 'profile', confidence: 1 },
-                { label: 'Resume', value: `${(masterCv.fullName || 'Candidate').replace(/ /g, '_')}_${job.company || 'Company'}_CV.pdf`, source: 'profile', confidence: 1 },
-              ]
-            : [];
-          // Add one example needs_review to demonstrate the flow (until real form inspect is wired)
-          const hasCustomQ = job.description?.toLowerCase().includes('why do you want');
-          if (hasCustomQ) previewFields.push({ label: 'Why do you want to work here?', value: '', source: 'needs_review', confidence: 0 });
-          return (
-            <AutoApplyPreview
-              isOpen={previewOpen}
-              onClose={() => setPreviewOpen(false)}
-              job={{ title: job.title, company: job.company, url: job.url || job.sourceUrl || '' }}
-              ats={detectAts(job.url || job.sourceUrl || '')}
-              fields={previewFields}
-              resumeName={`${(masterCv?.fullName || 'Candidate').replace(/ /g, '_')}_${job.company || 'Company'}_CV.pdf`}
-              onOpenBrowser={() => alert('Layer 2 — headed browser preview coming next. This will open Chromium with the form pre-filled.')}
-              onSubmit={() => alert('Submit is gated until Layer 2 browser validation is complete.')}
-            />
-          );
-        })()}
 
         {/* Modal Footer Controls */}
         <div className="px-6 py-3 border-t border-[var(--color-hairline)] bg-[#FAFAF9] flex items-center justify-between text-xs">
@@ -862,12 +803,6 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
           </div>
 
           <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setPreviewOpen(true)}
-              className="px-3 py-1.5 rounded bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors cursor-pointer"
-            >
-              Preview Application (Layer 1)
-            </button>
             <button
               onClick={() => onMatchJob(job.id)}
               disabled={isLoading}
