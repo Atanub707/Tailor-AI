@@ -1,0 +1,12 @@
+const Database = require('better-sqlite3');
+const db = new Database('/app/data/ats_jobs.sqlite', { readonly: true });
+const day = new Date(Date.now() - 86400000).toISOString();
+const q = (sql, ...p) => db.prepare(sql).all(...p);
+const dev = '%devops%';
+console.log('ACTIVE posted 24h by platform:', JSON.stringify(q("SELECT ats_platform p, COUNT(*) n FROM ats_jobs WHERE is_active=1 AND posted_date >= ? GROUP BY ats_platform", day)));
+console.log('24h title LIKE devops:', JSON.stringify(q("SELECT ats_platform p, COUNT(*) n FROM ats_jobs WHERE is_active=1 AND posted_date >= ? AND lower(title) LIKE ? GROUP BY ats_platform", day, dev)));
+console.log('24h description LIKE devops:', JSON.stringify(q("SELECT ats_platform p, COUNT(*) n FROM ats_jobs WHERE is_active=1 AND posted_date >= ? AND lower(coalesce(description,'')) LIKE ? GROUP BY ats_platform", day, dev)));
+console.log('24h title OR desc LIKE devops:', JSON.stringify(q("SELECT ats_platform p, COUNT(*) n FROM ats_jobs WHERE is_active=1 AND posted_date >= ? AND (lower(title) LIKE ? OR lower(coalesce(description,'')) LIKE ?) GROUP BY ats_platform", day, dev, dev)));
+console.log('ANY date title LIKE devops:', JSON.stringify(q("SELECT ats_platform p, COUNT(*) n FROM ats_jobs WHERE is_active=1 AND lower(title) LIKE ? GROUP BY ats_platform", dev)));
+const s = q("SELECT ats_platform p, title FROM ats_jobs WHERE is_active=1 AND lower(title) LIKE ? ORDER BY posted_date DESC LIMIT 6", dev);
+console.log('samples:', JSON.stringify(s));
