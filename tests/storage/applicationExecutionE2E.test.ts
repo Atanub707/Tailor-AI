@@ -87,30 +87,20 @@ const SCREEN = fs.readFileSync(path.join(process.cwd(), 'src/components/Applicat
 const DRAWER = fs.readFileSync(path.join(process.cwd(), 'src/components/ApplicationDrawer.tsx'), 'utf8');
 const SERVER = fs.readFileSync(path.join(process.cwd(), 'server.ts'), 'utf8');
 
-describe('Apply stays on the job list — inline status, no redirect', () => {
-  it('Apply never navigates or hard-reloads — the list stays put', () => {
+describe('Apply — paused auto-apply: direct link to the job post', () => {
+  it('Apply links to the job post in a new tab — no auto-apply, no navigation', () => {
+    expect(CARD).toContain('href={getValidJobUrl(job)}');
+    expect(CARD).toContain('target="_blank"');
+    expect(CARD).toContain('Open ${job.source} job posting to apply');
+    expect(CARD).not.toContain('autoTailor: true');
     expect(CARD).not.toContain('useNavigate');
-    expect(CARD).not.toContain('navigate(');
     expect(CARD).not.toContain('window.location');
+    expect(CARD).not.toContain('inline-app-status');
+    expect(CARD).not.toContain('if (applying) return');
+    expect(CARD).not.toContain('Could not prepare the application.');
   });
 
-  it('Apply shows a loading state and guards double clicks', () => {
-    expect(CARD).toContain("type=\"button\"");
-    expect(CARD).toContain("'Preparing…'");
-    expect(CARD).toContain('if (applying) return');
-    expect(CARD).toContain('disabled={applying}');
-  });
-
-  it('Apply surfaces a human-readable error instead of failing silently', () => {
-    expect(CARD).toContain('Could not prepare the application.');
-    expect(CARD).toContain('Please try again.');
-  });
-
-  it('Apply opens the detail drawer on demand via Review, never a route change', () => {
-    expect(CARD).toContain('onReviewApplication');
-    expect(CARD).toContain('Review');
-    expect(CARD).toContain('inline-app-status');
-    expect(APP).toContain('onReviewApplication={(applicationId) => setReviewApplicationId(applicationId)}');
+  it('the Applications drawer stays available for existing tracked applications', () => {
     expect(APP).toContain('<ApplicationDrawer');
     expect(APP).toContain('initialApplicationId={applicationDetailId}');
   });
@@ -233,11 +223,10 @@ describe('Easy Flow — auto-tailor on Apply, deterministic CV attachment', () =
     expect(getLatestTailorVersion(USER, 'ej-auto-3')).toBeDefined();
   });
 
-  it('UI wiring — Apply posts autoTailor:true and shows stage feedback', () => {
+  it('UI wiring — auto-apply is paused at the card level (server endpoints intact)', () => {
     const m = fs.readFileSync(path.join(process.cwd(), 'src/components/JobMatrix.tsx'), 'utf8');
-    expect(m).toContain('autoTailor: true');
-    expect(m).toContain('Tailoring CV');
-    expect(m).toContain('Preparing');
+    expect(m).not.toContain('autoTailor: true');
+    expect(m).not.toContain('Tailoring CV…');
     const srv = fs.readFileSync(path.join(process.cwd(), 'server.ts'), 'utf8');
     expect(srv).toContain('autoTailor');
     expect(srv).toContain('cvSource');

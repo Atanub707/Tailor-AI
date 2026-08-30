@@ -127,105 +127,9 @@ const JobCard = React.memo(function JobCard({
     void onMatchJob(job.id);
   };
 
-  // Apply: orchestrate preparation in place — the job list stays put and
-  // the card shows the application status inline. The detail drawer (with
-  // questions/review/approve) opens on demand via Review — no redirect.
-  // Final provider submission stays user-triggered.
-  const [applying, setApplying] = React.useState(false);
-  const [applyError, setApplyError] = React.useState('');
-  const [applyStage, setApplyStage] = React.useState<'idle' | 'preparing' | 'tailoring'>('idle');
-  const [appRow, setAppRow] = React.useState<{ applicationId: string; userStatus: string } | null>(null);
-  // Refresh the inline application status whenever the drawer changes it.
-  React.useEffect(() => {
-    if (!appRow) return;
-    let alive = true;
-    fetch('/api/applications')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (!alive || !d) return;
-        const found = (d.applications || []).find((x: { applicationId: string }) => x.applicationId === appRow.applicationId);
-        if (found) setAppRow({ applicationId: found.applicationId, userStatus: found.userStatus });
-      })
-      .catch(() => { /* keep last known status */ });
-    return () => { alive = false; };
-  }, [appRow?.applicationId, reviewNonce]);
-  const apply = async () => {
-    if (applying) return; // double-click guard
-    setApplying(true);
-    setApplyStage('preparing');
-    setApplyError('');
-    // No job-specific tailored CV yet → the server auto-generates one; show
-    // the honest stage once the request is clearly past instant work.
-    const slowTailorTimer = window.setTimeout(() => {
-      setApplyStage((s) => (s === 'preparing' ? 'tailoring' : s));
-    }, 900);
-    // The package POST is idempotent (READY packages are reused; auto-tailor
-    // only ever runs when no version exists). A dropped connection mid-flight
-    // (server restart, network hiccup) can therefore be retried safely.
-    const postPackage = () => fetch(`/api/jobs/${job.id}/application-package`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ autoTailor: true }),
-    });
-    const isNetworkError = (e: any) => /load failed|failed to fetch|networkerror|network request|abort/i.test(String(e?.message || ''));
-    try {
-      let res: Response;
-      try {
-        res = await postPackage();
-      } catch (netErr: any) {
-        if (!isNetworkError(netErr)) throw netErr;
-        // One automatic retry after a short pause — the request is safe to repeat.
-        await new Promise((r) => window.setTimeout(r, 1500));
-        setApplyStage((s) => (s === 'preparing' ? 'tailoring' : s));
-        res = await postPackage();
-      }
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        const msg = d.error || 'Could not prepare the application.';
-        if (msg.includes('description') || msg.includes('JD')) {
-          // JD-less posting: show an inline notice instead of a dead-end alert.
-          setApplyError(msg);
-        } else {
-          alert(`Could not prepare the application. ${msg}`);
-        }
-        return;
-      }
-      const d = await res.json().catch(() => ({}));
-      if (d.autoTailorError) {
-        setApplyError(`Could not tailor a CV for this job — Master CV will be attached instead. ${d.autoTailorError}`);
-      } else if (d.cvSource === 'MASTER_CV') {
-        setApplyError('No tailored CV for this job yet — Master CV attached. You can tailor it later from Job Details.');
-      }
-      // Stay on the list — track the prepared application for the inline chip.
-      const appId = d.application?.applicationId || d.package?.id;
-      if (appId) {
-        const listRes = await fetch('/api/applications');
-        if (listRes.ok) {
-          const ld = await listRes.json();
-          const found = (ld.applications || []).find((x: { applicationId: string }) => x.applicationId === appId);
-          if (found) setAppRow({ applicationId: found.applicationId, userStatus: found.userStatus });
-          else setAppRow({ applicationId: appId, userStatus: 'PREPARING' });
-        } else {
-          setAppRow({ applicationId: appId, userStatus: 'PREPARING' });
-        }
-      }
-    } catch (err: any) {
-      if (isNetworkError(err)) {
-        // Connection never recovered after the retry — explain, don't die.
-        setApplyError('Could not reach the app server while preparing (the connection dropped). Check that Tailor AI is still running, then click Apply again — your progress is safe.');
-      } else {
-        alert(`Could not prepare the application. ${String(err?.message || 'Please try again.')}`);
-      }
-    } finally {
-      window.clearTimeout(slowTailorTimer);
-      setApplyStage('idle');
-      setApplying(false);
-    }
-  };
-  const openReview = () => {
-    if (appRow && onReviewApplication) onReviewApplication(appRow.applicationId);
-  };
-
+  // Apply (paused auto-apply): the button links directly to the job post —
+  // people complete the application manually on the employer's site.
+  // "Mark as applied" keeps the tracking record.
   const SCORE_TONE = (score: number) => (score >= 80 ? 'text-emerald-700' : score >= 60 ? 'text-amber-700' : 'text-red-700');
 
   return (
@@ -437,12 +341,6 @@ const JobCard = React.memo(function JobCard({
           )}
         </div>
 
-        {applyError && (
-          <div className="mt-1.5 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 max-w-[520px]" role="status">
-            {applyError}
-          </div>
-        )}
-
         {/* Tailor CV — Tailor V1: generates the actual tailored CV via the
             standard template pipeline; Download appears once tailored. */}
         <div className="relative group">
@@ -476,35 +374,18 @@ const JobCard = React.memo(function JobCard({
           <DownloadCvDropdown jobId={job.id} buttonText="Download CV" size="sm" />
         )}
 
-        {/* Apply — primary. Stays on the list; status shows inline. */}
-        <button
-          type="button"
-          onClick={() => void apply()}
-          disabled={applying}
-          className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-[var(--color-cta)] hover:bg-[#047857] transition-colors cursor-pointer disabled:opacity-60 min-h-[38px]"
+        {/* Apply — direct link to the job post (auto-apply paused); the
+            application is completed manually on the employer's site. */}
+        <a
+          href={getValidJobUrl(job)}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={`Open ${job.source} job posting to apply`}
+          aria-label={`Apply for ${job.title}`}
+          className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-[var(--color-cta)] hover:bg-[#047857] transition-colors cursor-pointer min-h-[38px] inline-flex items-center"
         >
-          {applying
-            ? applyStage === 'tailoring' ? 'Tailoring CV…' : 'Preparing…'
-            : job.tailoredCv ? 'Apply (Tailored CV)' : 'Apply'}
-        </button>
-
-        {/* Review — opens the application detail drawer on this page */}
-        {appRow && onReviewApplication && (
-          <button
-            type="button"
-            onClick={openReview}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold text-white bg-[var(--color-brand)] hover:opacity-90 transition-colors cursor-pointer min-h-[38px]"
-          >
-            Review
-          </button>
-        )}
-
-        {/* Inline application status chip */}
-        {appRow && (
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${(appRow.userStatus === 'ACTION_REQUIRED' ? 'bg-amber-50 text-amber-800 border-amber-200' : appRow.userStatus === 'APPLIED' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : appRow.userStatus === 'PREPARING' ? 'bg-slate-50 text-slate-700 border-slate-200' : 'bg-sky-50 text-sky-800 border-sky-200')}`} data-qa="inline-app-status">
-            {appRow.userStatus === 'ACTION_REQUIRED' ? '⚠ ' : ''}{appRow.userStatus === 'PREPARING' ? 'Preparing' : appRow.userStatus === 'READY' ? 'Ready' : appRow.userStatus === 'APPLIED' ? '✓ Applied' : appRow.userStatus === 'WAITING_FOR_YOU' ? 'Waiting for you' : appRow.userStatus === 'READY_TO_SUBMIT' ? 'Ready to submit' : appRow.userStatus === 'MANUAL_REQUIRED' ? 'Manual' : appRow.userStatus === 'CHECK_SUBMISSION' ? 'Check submission' : appRow.userStatus}
-          </span>
-        )}
+          {job.tailoredCv ? 'Apply (Tailored CV)' : 'Apply'}
+        </a>
 
         {/* Mark as applied */}
         <button

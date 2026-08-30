@@ -148,7 +148,7 @@ describe('Application preparation — orchestrated behind Apply', () => {
   });
 
   it('Apply is the single entry point and preparation endpoints remain intact', () => {
-    expect(CARD).toMatch(/Apply|Preparing…\s*<\/button>/);
+    expect(CARD).toContain('href={getValidJobUrl(job)}');
     expect(SERVER).toContain("app.post('/api/jobs/:id/application-package'");
     expect(SERVER).toContain("app.post('/api/application-packages/:packageId/plan'");
   });
