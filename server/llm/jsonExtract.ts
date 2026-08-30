@@ -15,7 +15,11 @@ export function extractJsonObject(raw: string): any {
   // 2. Strip reasoning blocks (minimax/DeepSeek style).
   text = text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, ' ').trim();
 
-  // 3. Cut everything before the first '{' and after the last '}'.
+  // 3. Repair schema echoes: some models literally print the prompt's
+  //    array notation "[...]" for arrays they couldn't fill.
+  text = text.replace(/\[\s*\.\.\.\s*\]/g, '[]');
+
+  // 4. Cut everything before the first '{' and after the last '}'.
   const first = text.indexOf('{');
   const last = text.lastIndexOf('}');
   if (first === -1 || last === -1 || last <= first) {

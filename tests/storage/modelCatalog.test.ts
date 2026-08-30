@@ -148,6 +148,14 @@ describe('LLM JSON extraction — reasoning-model noise', () => {
     expect(parsed.workExperience[0].company).toBe('Apex');
   });
 
+  it('repairs literal schema echoes — "experience": [...] becomes []', () => {
+    const raw = '{"candidateName":"Alex", "workExperience": [...], "education": [...], "coreCompetencies": ["K8s"]}';
+    const parsed = extractJsonObject(raw);
+    expect(parsed.workExperience).toEqual([]);
+    expect(parsed.education).toEqual([]);
+    expect(parsed.coreCompetencies).toEqual(['K8s']);
+  });
+
   it('throws a helpful error when no JSON exists at all', () => {
     expect(() => extractJsonObject('<thinking>just prose</thinking> no object')).toThrow(/No JSON object found/);
   });

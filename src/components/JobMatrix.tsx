@@ -344,7 +344,7 @@ const JobCard = React.memo(function JobCard({
       </div>
 
       {/* Right: ATS score pill · actions */}
-      <div className="flex flex-col items-end gap-2 shrink-0 md:border-l border-slate-100 md:pl-4 md:pr-0 border-t md:border-t-0 pt-3 md:pt-0">
+      <div className="flex flex-row flex-wrap items-center justify-between md:justify-end gap-3 shrink-0 md:border-l border-slate-100 md:pl-4 md:pr-0 border-t md:border-t-0 pt-3 md:pt-0">
 
         {/* ATS Score Pill — classic card: '--' → colored % → Tailored ATS
             (before strikethrough → after green + boost badge) */}
@@ -377,7 +377,6 @@ const JobCard = React.memo(function JobCard({
           )}
         </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-2.5">
         <div className="relative group" ref={scoreRef}>
           <button
             onClick={openScore}
@@ -524,7 +523,6 @@ const JobCard = React.memo(function JobCard({
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
-        </div>
       </div>
     </div>
   );
