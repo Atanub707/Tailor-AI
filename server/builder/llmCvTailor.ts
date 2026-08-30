@@ -93,8 +93,19 @@ Return valid JSON only — NO markdown, NO code fences, pure JSON:
 }`;
 
     try {
-      const jsonText = await ask(prompt, 0.2);
-      const parsed = extractJsonObject(jsonText);
+      let jsonText = await ask(prompt, 0.2);
+      let parsed;
+      try {
+        parsed = extractJsonObject(jsonText);
+      } catch (parseErr: any) {
+        // ONE retry with the syntax error surfaced — an occasional stray
+        // LLM parse failure should never fail a Tailor run visibly.
+        jsonText = await ask(
+          `${prompt}\n\nIMPORTANT: your previous response was not valid JSON (${String(parseErr?.message || parseErr).slice(0, 200)}). Return ONLY the JSON object — no thinking, no comments, no markdown, every key double-quoted.`,
+          0.2,
+        );
+        parsed = extractJsonObject(jsonText);
+      }
 
       const beforeScore = job.matchScore || job.gapAnalysis?.matchScore || 50;
 

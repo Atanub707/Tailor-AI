@@ -156,6 +156,42 @@ describe('LLM JSON extraction — reasoning-model noise', () => {
     expect(parsed.coreCompetencies).toEqual(['K8s']);
   });
 
+  it('repairs unquoted keys — the "Expected double-quoted property name" crash', () => {
+    const raw = '{"candidateName": "Alex", auditNotes: ["note a", "note b"], afterScore: 91, workExperience: [{"title": "SE", company: "Apex", dates: "2022 - Present"}]}';
+    const parsed = extractJsonObject(raw);
+    expect(parsed.auditNotes).toEqual(['note a', 'note b']);
+    expect(parsed.afterScore).toBe(91);
+    expect(parsed.workExperience[0].company).toBe('Apex');
+  });
+
+  it('repairs trailing commas and missing commas between members', () => {
+    const trailing = '{"a": 1, "b": [1, 2, ], }';
+    expect(extractJsonObject(trailing).b).toEqual([1, 2]);
+    const missing = '{"title": "Engineer" "company": "Veo", "skills": ["k8s"]}';
+    expect(extractJsonObject(missing).company).toBe('Veo');
+  });
+
+  it('never repairs inside string literals (apostrophes/hours stay intact)', () => {
+    const raw = '{"summary": "don\'t change {this} or 10:30pm - it\'s a string", "count": 2}';
+    const parsed = extractJsonObject(raw);
+    expect(parsed.summary).toBe("don\'t change {this} or 10:30pm - it\'s a string");
+  });
+
+  it('cuts appended prose after the object — "non-whitespace after JSON" crash', () => {
+    const raw = '{"matchScore": 87, "summaryAnalysis": "ok"} NOTE: This was done quickly. {{extra}}';
+    expect(extractJsonObject(raw).matchScore).toBe(87);
+    const raw2 = '{"a": 1} {"b": 2}';
+    expect(extractJsonObject(raw2).a).toBe(1);
+  });
+
+  it('finds the real object when prose has braces first (position-6586 shape)', () => {
+    const raw = 'Before the answer there is {prose with braces} and more text. Then the real result: {"candidateName": "Alex", "afterScore": 91, "workExperience": [{"title": "SE", "company": "Apex", "highlights": ["Architected x"]}]} — done.';
+    const parsed = extractJsonObject(raw);
+    expect(parsed.candidateName).toBe('Alex');
+    expect(parsed.afterScore).toBe(91);
+    expect(parsed.workExperience[0].company).toBe('Apex');
+  });
+
   it('throws a helpful error when no JSON exists at all', () => {
     expect(() => extractJsonObject('<thinking>just prose</thinking> no object')).toThrow(/No JSON object found/);
   });
