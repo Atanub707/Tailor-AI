@@ -384,7 +384,7 @@ const JobCard = React.memo(function JobCard({
           aria-label={`Apply for ${job.title}`}
           className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-[var(--color-cta)] hover:bg-[#047857] transition-colors cursor-pointer min-h-[38px] inline-flex items-center"
         >
-          {job.tailoredCv ? 'Apply (Tailored CV)' : 'Apply'}
+          Apply
         </a>
 
         {/* Mark as applied */}

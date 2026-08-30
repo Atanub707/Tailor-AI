@@ -87,7 +87,7 @@ describe('Job discovery UX — card surface', () => {
     expect(CARD).not.toMatch(/View\s*<\/button>/);
     expect(CARD).toContain('onClick={() => onSelectJob(job)}');
     expect(CARD).toContain('href={getValidJobUrl(job)}');
-    expect(CARD).toContain('Apply (Tailored CV)');
+    expect(CARD).toContain(">Apply</a>");
     expect(CARD).toContain('Mark as applied');
     expect(CARD).toContain('Remove job');
   });
