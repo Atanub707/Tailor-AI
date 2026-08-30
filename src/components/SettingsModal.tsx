@@ -83,6 +83,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [testMsg, setTestMsg] = useState('');
   const [savedToast, setSavedToast] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+const APIFY_REFERRAL_URL = 'https://console.apify.com/sign-up?fpr=xu9hcp';
   const [showApify, setShowApify] = useState(false);
   const [activePanel, setActivePanel] = useState<'candidate' | 'security' | 'integration'>('candidate');
   const [activeItab, setActiveItab] = useState<'llm' | 'apify' | 'email'>('llm');
@@ -503,6 +504,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 {showApify ? <EyeSlash size={16} /> : <Eye size={16} />}
                               </button>
                             </div>
+                          </div>
+                          <div className="st-referral">
+                            <div className="st-referral-txt">
+                              <b>New to Apify? Get your API token here</b>
+                              <span>Sign up in a minute — this link supports development, same price for you.</span>
+                            </div>
+                            <a className="st-referral-btn" href={formData.apify.referralUrl || APIFY_REFERRAL_URL} target="_blank" rel="noopener noreferrer">
+                              Get token <ArrowSquareOut size={13} />
+                            </a>
                           </div>
                         </>
                       )}
