@@ -230,6 +230,7 @@ function fallbackParseCvFromText(rawText: string) {
 }
 
 import { ask } from './server/llm/llmAdapter.js';
+import { askJson } from './server/llm/askJson.js';
 import { startInterview, askNextQuestion, scoreAnswer, buildScorecard, getInterviewSession, getRoleOptions, getJobsForRole } from './server/interview.js';
 import { saveInterviewSession, getInterviewHistory, getInterviewSessionRecord } from './server/storage/fileStorage.js';
 import nodemailer from 'nodemailer';
@@ -2124,8 +2125,7 @@ Rules — this must feel human, not AI:
 Return valid JSON only, no markdown:
 { "subject": string (max 8 words, no fluff), "body": string }`;
 
-      const raw = await ask(prompt, 0.5);
-      const parsed = JSON.parse(raw);
+      const parsed = await askJson<{ subject: string; body: string }>(prompt, { temperature: 0.5 });
       const body = String(parsed.body || '').trim();
       // Deterministic signature: candidate name, then their saved phone and
       // portfolio URL (from the Master CV) — each line only when it exists.

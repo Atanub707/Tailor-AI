@@ -17,7 +17,6 @@ export interface NavigationItem {
   icon: Icon;
   route: string;
   group: NavGroupId;
-  hint?: string;
   badgeKey?: 'applications' | 'recruiters';
   activeFor: (pathname: string) => boolean;
 }
@@ -33,10 +32,10 @@ export const NAV_ITEMS: NavigationItem[] = [
   { id: 'applications', label: 'Applications', icon: SuitcaseSimple, route: '/applications', group: 'library', badgeKey: 'applications', activeFor: (p) => p === '/applications' || p.startsWith('/applications/') },
   { id: 'master-cv', label: 'Master CV', icon: IdentificationBadge, route: '/master-cv', group: 'profile', activeFor: (p) => p === '/master-cv' },
   { id: 'recruiters', label: 'Recruiters', icon: Tray, route: '/recruiters', group: 'tools', badgeKey: 'recruiters', activeFor: (p) => p === '/recruiters' },
-  { id: 'job-portals', label: 'Job Portals', icon: GlobeSimple, route: '/job-portals', group: 'tools', hint: '190+', activeFor: (p) => p === '/job-portals' },
+  { id: 'job-portals', label: 'Job Portals', icon: GlobeSimple, route: '/job-portals', group: 'tools', activeFor: (p) => p === '/job-portals' },
   { id: 'linkedin-posts', label: 'LinkedIn Posts', icon: PaperPlaneTilt, route: '/linkedin-posts', group: 'tools', activeFor: (p) => p === '/linkedin-posts' },
   { id: 'ai-interview', label: 'AI Interview', icon: ChatCircleDots, route: '/ai-interview', group: 'tools', activeFor: (p) => p === '/ai-interview' },
-  { id: 'manual-jd', label: 'Manual JD', icon: FileText, route: '/manual-jd', group: 'tools', hint: '⌘J', activeFor: (p) => p === '/manual-jd' },
+  { id: 'manual-jd', label: 'Manual JD', icon: FileText, route: '/manual-jd', group: 'tools', activeFor: (p) => p === '/manual-jd' },
 ];
 
 /** Resolve the active navigation item id for a pathname (null = no match). */
@@ -164,7 +163,6 @@ export function NavigationProvider({ onNavigate, badges = {}, user, installedVer
                       {badges[item.badgeKey]! > 99 ? '99+' : badges[item.badgeKey]}
                     </span>
                   )}
-                  {item.hint && !item.badgeKey && <span className="ml-auto text-[10.5px] font-semibold" style={{ color: 'var(--color-faint)' }}>{item.hint}</span>}
                 </button>
               ))}
             </React.Fragment>
