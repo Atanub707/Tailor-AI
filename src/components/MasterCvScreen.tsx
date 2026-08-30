@@ -177,68 +177,10 @@ export const MasterCvScreen: React.FC<MasterCvScreenProps> = ({
               </span>
             )}
 
-            {/* Save split-button: Save | dropdown (Download PDF) */}
-            <div className="relative">
-              <div className="flex items-stretch">
-                <button
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  id="btn-save-master-cv"
-                  className="px-3 py-1.5 rounded-l-lg text-xs font-semibold bg-[var(--color-brand)] hover:bg-[var(--color-brand-strong)] text-white transition-colors flex items-center space-x-1.5 cursor-pointer shadow-xs"
-                >
-                  <Save className="w-3.5 h-3.5" />
-                  <span>{isSaving ? 'Saving...' : 'Save'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSaveMenuOpen((v) => !v)}
-                  className="px-1.5 py-1.5 rounded-r-lg text-white bg-[var(--color-brand)] hover:bg-[var(--color-brand-strong)] border-l border-blue-500 transition-colors cursor-pointer"
-                  title="More options"
-                >
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${saveMenuOpen ? 'rotate-180' : ''}`} />
-                </button>
-              </div>
-
-              {saveMenuOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setSaveMenuOpen(false)} />
-                  <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-[var(--color-hairline)] rounded-xl shadow-lg z-50 p-1.5">
-                    <div className="px-2.5 pt-1.5 pb-1 text-[10px] font-bold uppercase tracking-widest text-[var(--color-faint)]">
-                      Export
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => { setSaveMenuOpen(false); handleDownloadPdf(); }}
-                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium text-[var(--color-muted)] hover:bg-[var(--color-brand-soft)] cursor-pointer text-left"
-                    >
-                      <FileDown className="w-4 h-4 text-[var(--color-faint)]" />
-                      Download PDF
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setSaveMenuOpen(false); handleSave(); }}
-                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium text-[var(--color-muted)] hover:bg-[var(--color-brand-soft)] cursor-pointer text-left"
-                    >
-                      <Save className="w-4 h-4 text-[var(--color-faint)]" />
-                      Save changes
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-
             <span className="w-px h-5 bg-slate-200 mx-1" />
 
             {/* Compact utilities */}
-            <button
-              type="button"
-              onClick={handleDownloadPdf}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-[var(--color-hairline)] text-[var(--color-muted)] hover:border-[var(--color-brand-line)] hover:text-[var(--color-ink)] transition-colors cursor-pointer"
-              title="Download CV as PDF"
-            >
-              <FileDown className="w-3.5 h-3.5" />
-              <span>Download PDF</span>
-            </button>
+
             <button
               type="button"
               onClick={() => { setVersionsOpen(true); loadVersions(); }}
@@ -296,6 +238,57 @@ export const MasterCvScreen: React.FC<MasterCvScreenProps> = ({
                 title="Rename the downloaded PDF (extension .pdf added automatically)"
               />
               <span className="text-[11px] text-[var(--color-faint)] font-mono hidden xl:inline">.pdf</span>
+
+            {/* Save split-button: Save | dropdown (Download PDF) */}
+            <div className="relative">
+              <div className="flex items-stretch">
+                <button
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  id="btn-save-master-cv"
+                  className="px-3 py-1.5 rounded-l-lg text-xs font-semibold bg-[var(--color-brand)] hover:bg-[var(--color-brand-strong)] text-white transition-colors flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{isSaving ? 'Saving...' : 'Save'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSaveMenuOpen((v) => !v)}
+                  className="px-1.5 py-1.5 rounded-r-lg text-white bg-[var(--color-brand)] hover:bg-[var(--color-brand-strong)] border-l border-blue-500 transition-colors cursor-pointer"
+                  title="More options"
+                >
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${saveMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+              </div>
+
+              {saveMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setSaveMenuOpen(false)} />
+                  <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-[var(--color-hairline)] rounded-xl shadow-lg z-50 p-1.5">
+                    <div className="px-2.5 pt-1.5 pb-1 text-[10px] font-bold uppercase tracking-widest text-[var(--color-faint)]">
+                      Export
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { setSaveMenuOpen(false); handleDownloadPdf(); }}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium text-[var(--color-muted)] hover:bg-[var(--color-brand-soft)] cursor-pointer text-left"
+                    >
+                      <FileDown className="w-4 h-4 text-[var(--color-faint)]" />
+                      Download PDF
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSaveMenuOpen(false); handleSave(); }}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium text-[var(--color-muted)] hover:bg-[var(--color-brand-soft)] cursor-pointer text-left"
+                    >
+                      <Save className="w-4 h-4 text-[var(--color-faint)]" />
+                      Save changes
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
             </div>
 
           </div>
