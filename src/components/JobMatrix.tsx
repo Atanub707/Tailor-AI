@@ -106,34 +106,24 @@ const JobCard = React.memo(function JobCard({
   const timeAgoStr = formatTimeAgoSemantic(job.postedDate, job.postedDateSemantics);
   const isScoreLoading = scoreMsg !== null;
   const isTailorLoading = tailorMsg !== null;
-  const [fit, setFit] = React.useState<{ score: number; grade: string; strengths: string[]; gaps: string[]; blockers: string[]; unknowns: string[]; coverage?: string; fromCache?: boolean } | null>(null);
-  const [fitLoading, setFitLoading] = React.useState(false);
-  const [fitOpen, setFitOpen] = React.useState(false);
-  const matchRef = React.useRef<HTMLDivElement>(null);
+  const [scoreOpen, setScoreOpen] = React.useState(false);
+  const scoreRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
       const t = e.target as Node;
-      if (matchRef.current && !matchRef.current.contains(t)) setFitOpen(false);
+      if (scoreRef.current && !scoreRef.current.contains(t)) setScoreOpen(false);
     };
     document.addEventListener('mousedown', onDocClick);
     return () => document.removeEventListener('mousedown', onDocClick);
   }, []);
 
-  // Match: deterministic candidate fit — computed on demand, cached server-side.
-  const openMatch = async () => {
-    if (fitOpen) { setFitOpen(false); return; }
-    if (fit && !fitLoading) { setFitOpen(true); return; }
-    setFitLoading(true);
-    try {
-      const res = await fetch(`/api/jobs/${job.id}/fit`, { method: 'POST' });
-      if (res.ok) {
-        const d = await res.json();
-        setFit({ score: d.score, grade: d.grade, strengths: d.strengths || [], gaps: d.gaps || [], blockers: d.blockers || [], unknowns: d.unknowns || [], coverage: d.coverage, fromCache: d.fromCache });
-        setFitOpen(true);
-      }
-    } catch { /* match unavailable — leave indicator neutral */ }
-    finally { setFitLoading(false); }
+  // Score: LLM resume↔JD comparison — click to score, click again for the
+  // analysis. Already-scored jobs open instantly (score is cached on the job).
+  const openScore = () => {
+    if (isScoreLoading) return;
+    if (job.matchScore !== undefined && job.gapAnalysis) { setScoreOpen((o) => !o); return; }
+    void onMatchJob(job.id);
   };
 
   // Apply: orchestrate preparation in place — the job list stays put and
@@ -246,7 +236,7 @@ const JobCard = React.memo(function JobCard({
     if (appRow && onReviewApplication) onReviewApplication(appRow.applicationId);
   };
 
-  const FIT_GRADE_COLOR: Record<string, string> = { Excellent: 'text-emerald-700', Strong: 'text-emerald-700', Good: 'text-amber-700', Partial: 'text-orange-700', Weak: 'text-red-700' };
+  const SCORE_TONE = (score: number) => (score >= 80 ? 'text-emerald-700' : score >= 60 ? 'text-amber-700' : 'text-red-700');
 
   return (
     <div className={`bg-white border rounded-lg p-4 transition-all shadow-xs hover:shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 group ${
@@ -356,47 +346,51 @@ const JobCard = React.memo(function JobCard({
 
       {/* Right: Match · View · Apply · overflow */}
       <div className="flex flex-wrap items-center justify-between md:justify-end gap-2.5 border-t md:border-t-0 md:border-l border-slate-100 pt-3 md:pt-0 md:pl-4 shrink-0">
-        <div className="relative" ref={matchRef}>
+        <div className="relative" ref={scoreRef}>
           <button
-            onClick={() => void openMatch()}
-            disabled={fitLoading}
-            aria-label="Check candidate match for this job"
+            onClick={openScore}
+            disabled={isScoreLoading}
+            aria-label="Score this job against your CV"
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold border transition-colors cursor-pointer disabled:opacity-60 bg-white border-[var(--color-hairline)] text-[var(--color-muted)] hover:bg-[var(--color-brand-soft)] hover:border-[var(--color-brand-line)]"
           >
-            {fitLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-            {fit ? (
-              <>
-                <span className={`${FIT_GRADE_COLOR[fit.grade] || 'text-slate-700'}`}>{fit.score}% Match</span>
-                <span className="text-[9px] uppercase tracking-wide text-[var(--color-faint)]">{fit.grade}</span>
-              </>
-            ) : (
-              <span>Check match</span>
-            )}
+            {isScoreLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-[var(--color-brand)]" />}
+            {job.matchScore !== undefined
+              ? <span className={SCORE_TONE(job.matchScore)}>{job.matchScore}% Match</span>
+              : <span>{isScoreLoading ? 'Scoring…' : 'Score'}</span>}
           </button>
-          {fitOpen && fit && (
+          {scoreOpen && job.gapAnalysis && (
             <div className="absolute right-0 top-11 z-40 w-80 rounded-xl border border-[var(--color-border)] bg-white shadow-lg p-4 text-left max-h-96 overflow-y-auto">
               <div className="flex items-baseline justify-between">
-                <span className="text-sm font-bold text-[var(--color-ink)]">{fit.score}% Match</span>
-                <span className={`text-xs font-black ${FIT_GRADE_COLOR[fit.grade] || 'text-slate-700'}`}>{fit.grade}</span>
+                <span className="text-sm font-bold text-[var(--color-ink)]">{job.gapAnalysis.matchScore ?? job.matchScore}% Match</span>
+                <span className="text-[10px] uppercase tracking-wide text-[var(--color-faint)]">AI Score</span>
               </div>
-              {fit.coverage && <div className="text-[11px] text-[var(--color-faint)]">Coverage: {fit.coverage}</div>}
-              {fit.strengths.length > 0 && (
+              {job.gapAnalysis.summaryAnalysis && (
+                <p className="mt-2 text-xs text-[var(--color-muted)] leading-relaxed">{job.gapAnalysis.summaryAnalysis.slice(0, 300)}{job.gapAnalysis.summaryAnalysis.length > 300 ? '…' : ''}</p>
+              )}
+              {job.gapAnalysis.salaryFit && job.gapAnalysis.salaryFit !== 'unknown' && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-semibold bg-sky-50 text-sky-800 border border-sky-200">Salary: {job.gapAnalysis.salaryFit}</span>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-semibold bg-violet-50 text-violet-800 border border-violet-200">Experience: {job.gapAnalysis.experienceFit}</span>
+                </div>
+              )}
+              {(job.gapAnalysis.matchingSkills?.length ?? 0) > 0 && (
                 <div className="mt-2"><div className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">Strengths</div>
-                  {fit.strengths.slice(0, 5).map((s, i) => <div key={i} className="text-xs text-[var(--color-ink)]">• {s}</div>)}
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {job.gapAnalysis.matchingSkills.slice(0, 8).map((s, i) => <span key={i} className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-100 text-[10.5px] font-semibold">{s}</span>)}
+                  </div>
                 </div>
               )}
-              {fit.gaps.length > 0 && (
+              {(job.gapAnalysis.missingSkills?.length ?? 0) > 0 && (
                 <div className="mt-2"><div className="text-[10px] font-bold uppercase tracking-widest text-amber-700">Gaps</div>
-                  {fit.gaps.slice(0, 5).map((s, i) => <div key={i} className="text-xs text-amber-800">• {s}</div>)}
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {job.gapAnalysis.missingSkills.slice(0, 8).map((s, i) => <span key={i} className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-100 text-[10.5px] font-semibold">{s}</span>)}
+                  </div>
                 </div>
               )}
-              {fit.blockers.length > 0 && (
-                <div className="mt-2"><div className="text-[10px] font-bold uppercase tracking-widest text-red-700">Blockers</div>
-                  {fit.blockers.slice(0, 3).map((s, i) => <div key={i} className="text-xs text-red-800">• {s}</div>)}
+              {(job.gapAnalysis.keyRecommendations?.length ?? 0) > 0 && (
+                <div className="mt-2"><div className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-faint)]">Recommendations</div>
+                  {job.gapAnalysis.keyRecommendations.slice(0, 3).map((r, i) => <div key={i} className="text-xs text-[var(--color-ink)] mt-0.5">• {r}</div>)}
                 </div>
-              )}
-              {fit.unknowns.length > 0 && (
-                <div className="mt-2 text-[11px] text-[var(--color-faint)]">{fit.unknowns.length} unknown factor{fit.unknowns.length > 1 ? 's' : ''}</div>
               )}
             </div>
           )}

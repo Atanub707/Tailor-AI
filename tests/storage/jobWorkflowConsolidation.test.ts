@@ -86,22 +86,25 @@ describe('Score vs Fit — DISTINCT engines', () => {
     expect(Array.isArray(r1.blockers)).toBe(true);
   });
 
-  it('Score is a separate LLM resume↔JD metric — matchScore + gapAnalysis, not fit', () => {
+  it('Score is the LLM resume↔JD metric — matchScore + gapAnalysis, distinct from fit', () => {
     expect(SERVER).toContain("app.post('/api/jobs/:id/match'");
     expect(SERVER).toContain('matchScore');
     expect(SERVER).toContain('gapAnalysis');
-    expect(CARD).not.toContain("'Score'");
-    expect(CARD).not.toContain('/match');
-    expect(CARD).toContain('/api/jobs/${job.id}/fit');
+    expect(CARD).toContain('onMatchJob(job.id)');
+    expect(CARD).toContain('{job.matchScore}% Match');
+    expect(CARD).not.toContain('/api/jobs/${job.id}/fit');
+    expect(CARD).not.toContain('{fit.score}% Match');
   });
 
-  it('the job card exposes exactly one metric — Candidate Fit (no Score button)', () => {
-    expect(CARD).not.toMatch(/'Score'/);
-    expect(CARD).not.toMatch(/>Score</);
+  it('the job card exposes the LLM Score — on demand, cached on the job, no Fit button', () => {
+    expect(CARD).toContain('Score this job against your CV');
+    expect(CARD).toContain('onMatchJob(job.id)');
+    expect(CARD).toContain('{job.matchScore}% Match');
+    expect(CARD).toContain('{job.gapAnalysis.matchScore ?? job.matchScore}% Match');
     expect(CARD).not.toContain("'Re-Score'");
-    expect(CARD).not.toContain('/match');
-    expect(CARD).toContain('Check match');
-    expect(CARD).toContain('{fit.score}% Match');
+    expect(CARD).not.toContain('/fit');
+    expect(CARD).not.toContain('Check match');
+    expect(CARD).not.toContain('{fit.score}% Match');
   });
 });
 

@@ -81,8 +81,9 @@ const CARD = fs.readFileSync(path.join(process.cwd(), 'src/components/JobMatrix.
 const DETAIL = fs.readFileSync(path.join(process.cwd(), 'src/components/JobDetailModal.tsx'), 'utf8');
 
 describe('Job discovery UX — card surface', () => {
-  it('primary journey is Match → Apply (title opens details) with direct secondary actions', () => {
-    expect(CARD).toContain('Check match');
+  it('primary journey is Score → Apply (title opens details) with direct secondary actions', () => {
+    expect(CARD).toContain('Score this job against your CV');
+    expect(CARD).toContain('onMatchJob(job.id)');
     expect(CARD).not.toMatch(/View\s*<\/button>/);
     expect(CARD).toContain('onClick={() => onSelectJob(job)}');
     expect(CARD).toMatch(/Apply|Preparing…\s*<\/button>/);
@@ -105,7 +106,6 @@ describe('Job discovery UX — card surface', () => {
   });
 
   it('does NOT render engineering buttons as primary card actions', () => {
-    expect(CARD).not.toContain("'Score'");
     expect(CARD).not.toContain("'Re-Score'");
     expect(CARD).not.toContain('Tailor V2');
     expect(CARD).not.toContain('Prepare Application');
@@ -122,8 +122,8 @@ describe('Job discovery UX — card surface', () => {
     expect(CARD).toContain('onDeleteJob');
   });
 
-  it('match indicator shows a percentage when fit exists and never a misleading placeholder', () => {
-    expect(CARD).toContain('{fit.score}% Match');
+  it('match indicator shows the LLM percentage when scored and never a misleading placeholder', () => {
+    expect(CARD).toContain('{job.matchScore}% Match');
     expect(CARD).not.toContain("'0%'");
     expect(CARD).not.toContain('N/A');
   });
