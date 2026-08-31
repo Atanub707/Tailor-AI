@@ -1,3 +1,4 @@
+import { hiddenUrls } from './hiddenJobs.js';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -949,6 +950,12 @@ export function saveNewJobs(newJobs: Job[]): { added: Job[]; skipped: number; ne
   const userId = getCurrentUserId();
   if (!userId) return { added: [], skipped: 0, newContacts: [] };
   const d = getDb();
+  // DELETED-JOBS GUARD: jobs the user removed stay removed — their URLs are
+  // excluded here so a new search can never re-persist them.
+  const hidden = hiddenUrls(d, userId);
+  if (hidden.size) {
+    newJobs = newJobs.filter((j) => !hidden.has(String(j.url || '').toLowerCase().trim()));
+  }
   const existingUrls = new Set((d.prepare('SELECT data FROM jobs WHERE user_id = ?').all(userId) as { data: string }[])
     .map((r) => { try { return (JSON.parse(r.data) as Job).url?.toLowerCase().trim(); } catch { return ''; } })
     .filter(Boolean));

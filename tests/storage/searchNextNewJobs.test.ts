@@ -8,7 +8,7 @@ import path from 'node:path';
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'search-next-'));
 process.env.TAILOR_DATA_DIR = tmpDir;
 
-const { getDb, runWithUser, getUserJobFingerprints, saveNewJobs } = await import('../../server/storage/fileStorage.js');
+const { getDb, runWithUser, getUserJobFingerprints, saveNewJobs, deleteJobFromStorage } = await import('../../server/storage/fileStorage.js');
 const { ensureV2Tables } = await import('../../server/storage/v2Tables.js');
 const { ensureAtsIndexSchema, upsertAtsJobs, queryAtsCandidates, clearAtsIndex } = await import('../../server/ats-index/atsRepository.js');
 const { runV2Search } = await import('../../server/search/searchOrchestrator.js');
@@ -16,6 +16,8 @@ const { clearSearchCache } = await import('../../server/search/searchCache.js');
 const { greenhouseIndexProvider, leverIndexProvider, ashbyIndexProvider } = await import('../../server/providers/greenhouseIndexProvider.js');
 import type { AtsJobRow } from '../../server/ats-index/atsRepository.js';
 import type { Job } from '../../src/types.js';
+
+const { hiddenUrls, hideJob, unhideJob, clearHidden } = await import('../../server/storage/hiddenJobs.js');
 
 const USER = 'search-user';
 const H = 3600e3;
@@ -307,3 +309,48 @@ function detectWm(j: any): string {
   if (/\bon-?site\b/.test(s)) return 'onsite';
   return 'unknown';
 }
+describe('Deleted jobs stay deleted — hidden-jobs guard', () => {
+
+  it('a removed job is not re-persisted by a new search of the same keywords', () => {
+    runWithUser(USER, () => {
+      const j = { id: 'hid-1', title: 'DevOps Engineer', company: 'Veo', url: 'https://jobs.lever.co/veo/hid-1/apply', source: 'Lever' } as any;
+      saveNewJobs([{ ...j }]);
+      expect(getUserJobFingerprints(USER).has('hid-1')).toBe(true);
+      // user removes the job: the row is deleted AND a hidden marker is kept
+      deleteJobFromStorage('hid-1');
+      hideJob(getDb(), USER, j);
+      expect(getUserJobFingerprints(USER).has('hid-1')).toBe(false);
+      // search again with the same payload → must NOT re-add
+      const { added } = saveNewJobs([{ ...j }]);
+      expect(added.length).toBe(0);
+      expect(getUserJobFingerprints(USER).has('hid-1')).toBe(false);
+    });
+  });
+
+  it('hidden is per-user — another user still receives the job', () => {
+    const OTHER = 'hidden-other-user';
+    runWithUser(OTHER, () => {
+      const j = { id: 'hid-2', title: 'SRE', url: 'https://jobs.lever.co/x/hid-2/apply' } as any;
+      const { added } = saveNewJobs([{ ...j }]);
+      expect(added.length).toBe(1);
+    });
+  });
+
+  it('unhide allows the job to return on a future search (not the current list)', () => {
+    runWithUser(USER, () => {
+      const j = { id: 'hid-3', title: 'Platform', url: 'https://jobs.lever.co/x/hid-3/apply' } as any;
+      hideJob(getDb(), USER, j);
+      expect(hiddenUrls(getDb(), USER).has('https://jobs.lever.co/x/hid-3/apply')).toBe(true);
+      expect(unhideJob(getDb(), USER, 'hid-3')).toBe(true);
+      expect(hiddenUrls(getDb(), USER).has('https://jobs.lever.co/x/hid-3/apply')).toBe(false);
+    });
+  });
+
+  it('clearHidden resets the hidden list', () => {
+    runWithUser(USER, () => {
+      hideJob(getDb(), USER, { id: 'hid-4', url: 'https://x.example/hid-4' } as any);
+      expect(clearHidden(getDb(), USER)).toBeGreaterThan(0);
+      expect(hiddenUrls(getDb(), USER).size).toBe(0);
+    });
+  });
+});

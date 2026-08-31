@@ -90,6 +90,7 @@ const JobCard = React.memo(function JobCard({
   onUpdateStatus,
   onReviewApplication,
   reviewNonce,
+  onJobRemoved,
 }: {
   job: Job;
   scoreMsg: string[] | null;
@@ -103,6 +104,7 @@ const JobCard = React.memo(function JobCard({
   onUpdateStatus: (jobId: string, state: JobState) => Promise<void>;
   onReviewApplication?: (applicationId: string) => void;
   reviewNonce?: number;
+  onJobRemoved?: (job: { id: string; label: string }) => void;
 }) {
   const timeAgoStr = formatTimeAgoSemantic(job.postedDate, job.postedDateSemantics);
   const isScoreLoading = scoreMsg !== null;
@@ -121,6 +123,11 @@ const JobCard = React.memo(function JobCard({
 
   // Score: LLM resume↔JD comparison — click to score, click again for the
   // analysis. Already-scored jobs open instantly (score is cached on the job).
+  const handleRemove = async () => {
+    await onDeleteJob(job.id);
+    onJobRemoved?.({ id: job.id, label: job.title || job.company || 'this job' });
+  };
+
   const openScore = () => {
     if (isScoreLoading) return;
     if (job.matchScore !== undefined && job.gapAnalysis) { setScoreOpen((o) => !o); return; }
@@ -389,7 +396,7 @@ const JobCard = React.memo(function JobCard({
 
         {/* Remove job — no confirmation */}
         <button
-          onClick={() => onDeleteJob(job.id)}
+          onClick={() => void handleRemove()}
           aria-label="Remove job"
           title="Remove job"
           className="inline-flex items-center justify-center h-[38px] w-[38px] rounded-lg text-xs font-extrabold text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors cursor-pointer shrink-0"
@@ -428,6 +435,20 @@ export const JobMatrix: React.FC<JobMatrixProps> = ({
   scoreMessages,
   tailorMessages,
 }) => {
+  const [removedToast, setRemovedToast] = React.useState<{ id: string; label: string } | null>(null);
+  const removeUndoTimer = React.useRef<number | null>(null);
+  const onJobRemoved = (job: { id: string; label: string }) => {
+    setRemovedToast(job);
+    if (removeUndoTimer.current) window.clearTimeout(removeUndoTimer.current);
+    removeUndoTimer.current = window.setTimeout(() => setRemovedToast(null), 6000);
+  };
+  const undoRemove = async () => {
+    if (!removedToast) return;
+    try { await fetch(`/api/jobs/${removedToast.id}/unhide`, { method: 'POST' }); } catch { /* best-effort */ }
+    setRemovedToast(null);
+  };
+  React.useEffect(() => () => { if (removeUndoTimer.current) window.clearTimeout(removeUndoTimer.current); }, []);
+
   const pendingCount = stats.pending;
   const tailoredCount = stats.tailored;
   const appliedCount = stats.applied;
@@ -641,13 +662,25 @@ export const JobMatrix: React.FC<JobMatrixProps> = ({
                 onUpdateStatus={onUpdateStatus}
                 onReviewApplication={onReviewApplication}
                 reviewNonce={reviewNonce}
+                onJobRemoved={onJobRemoved}
               />
             );
           })}
         </div>
       )}
 
+      {/* Removed · Undo toast — list-level so it survives the deleted card */}
+      {removedToast && (
+        <div className="fixed bottom-5 right-5 z-[80] flex items-center gap-3 rounded-xl bg-[var(--color-ink)] text-white pl-4 pr-2 py-2 text-xs font-bold shadow-xl" role="status">
+          <span className="max-w-[260px] truncate">{removedToast.label} removed — it won't appear in new searches.</span>
+          <button onClick={() => void undoRemove()} className="px-2.5 py-1.5 rounded-lg bg-white text-[var(--color-ink)] font-extrabold cursor-pointer hover:bg-[var(--color-brand-soft)]">
+            Undo
+          </button>
+        </div>
+      )}
+
       {/* Pagination */}
+
       {paginatedJobs.length > 0 && (
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white border border-slate-200 rounded-lg px-4 py-3 shadow-xs text-xs">
           <div className="flex items-center space-x-3 text-slate-600">

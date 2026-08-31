@@ -115,6 +115,7 @@ import {
   getPostsDailyUsage,
   addPostsDailyUsage,
 } from './server/storage/fileStorage.js';
+import { hideCurrentUserJob, unhideCurrentUserJob, clearCurrentUserHidden } from './server/storage/hiddenJobs.js';
 import { ScraperFactory } from './server/scraper/scraperFactory.js';
 import { LinkedInPostsScraper } from './server/scraper/linkedInPostsScraper.js';
 import { LlmMatcher } from './server/matcher/llmMatcher.js';
@@ -3880,18 +3881,28 @@ const sanitizeAttemptDryRun = (a: any) => ({
 
   // Delete Job
   app.delete('/api/jobs/:id', (req, res) => {
+    const job = getJobById(req.params.id);
     const deleted = deleteJobFromStorage(req.params.id);
     if (!deleted) {
       res.status(404).json({ error: 'Job not found.' });
       return;
     }
+    // DELETED = GONE FOREVER: record the job as hidden so no future search
+    // can re-persist it into this user's list.
+    hideCurrentUserJob({ id: req.params.id, url: job?.url, title: job?.title, source: job?.source });
     res.json({ success: true });
   });
 
-  // Clear All Jobs
+  // Undo a delete — removes the hidden marker; the job may return on a FUTURE
+  // search (it does not re-insert into the current list).
+  app.post('/api/jobs/:id/unhide', (req, res) => {
+    res.json({ success: unhideCurrentUserJob(req.params.id) });
+  });
+
+  // Clear All Jobs — also resets the hidden list (true fresh start).
   app.delete('/api/jobs', (req, res) => {
     const count = deleteAllJobs();
-    res.json({ success: true, deletedCount: count });
+    res.json({ success: true, deletedCount: count, hiddenCleared: clearCurrentUserHidden() });
   });
 
   // Download ATS .pdf CV
