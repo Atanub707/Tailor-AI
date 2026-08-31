@@ -115,11 +115,11 @@ import {
   getPostsDailyUsage,
   addPostsDailyUsage,
 } from './server/storage/fileStorage.js';
+import { hideCurrentUserJob, unhideCurrentUserJob, clearCurrentUserHidden } from './server/storage/hiddenJobs.js';
 import { ScraperFactory } from './server/scraper/scraperFactory.js';
 import { LinkedInPostsScraper } from './server/scraper/linkedInPostsScraper.js';
 import { LlmMatcher } from './server/matcher/llmMatcher.js';
 import { hasApiKeyConfigured, mapLlmError } from './server/llm/apiKeyGuard.js';
-import { LlmCvTailor } from './server/builder/llmCvTailor.js';
 import { generatePdfBuffer, generatePlainTextCv } from './server/builder/docxGenerator.js';
 import { JobFilterQueryParams, Job, MasterCv } from './src/types.js';
 import { SOURCES } from './src/constants/sources.js';
@@ -230,6 +230,7 @@ function fallbackParseCvFromText(rawText: string) {
 }
 
 import { ask } from './server/llm/llmAdapter.js';
+import { askJson } from './server/llm/askJson.js';
 import { startInterview, askNextQuestion, scoreAnswer, buildScorecard, getInterviewSession, getRoleOptions, getJobsForRole } from './server/interview.js';
 import { saveInterviewSession, getInterviewHistory, getInterviewSessionRecord } from './server/storage/fileStorage.js';
 import nodemailer from 'nodemailer';
@@ -560,6 +561,22 @@ async function startServer() {
     res.json(loadConfig());
   });
 
+  // Live model catalog — proxies the provider's GET /models (opencode-go,
+  // openrouter, openai, nvidia) with a 6h server-side cache; falls back to
+  // the static preset list when the fetch fails, so the Settings model
+  // dropdown always reflects the provider's current catalog without any
+  // code edits. Result: { models, fetchedAt, stale, reason?, provider? }.
+  app.get('/api/models', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { fetchModelCatalog } = await import('./server/llm/modelCatalog.js');
+      res.json(await fetchModelCatalog());
+    } catch (err: any) {
+      res.status(500).json({ error: String(err?.message || 'Catalog fetch failed.').slice(0, 200) });
+    }
+  });
+
   // Source registry — lets clients (and API consumers) see which sources
   // are Apify-powered and what each Apify source costs per 1K jobs.
   app.get('/api/sources', (_req, res) => {
@@ -740,17 +757,25 @@ async function startServer() {
     }
   });
 
-  app.get('/api/profile', (req, res) => {
+  app.get('/api/profile', async (req, res) => {
     try {
       const userId = getCurrentUserId();
       if (!userId) return res.status(401).json({ error: 'Not signed in.' });
-      res.json({ profile: getCandidateProfile() });
+      const { getApplicantProfile: loadCanonical, saveApplicantProfile: saveCanonical, migrateLegacyCandidateProfile } = await import('./server/storage/applicantProfile.js');
+      const legacy = getCandidateProfile();
+      let canonical = loadCanonical(userId);
+      const migration = canonical ? migrateLegacyCandidateProfile(canonical, legacy) : { migrated: false, conflicts: {} as Record<string, string> };
+      if (migration.migrated && canonical) {
+        saveCanonical(canonical, userId);
+        canonical = loadCanonical(userId);
+      }
+      res.json({ profile: canonical, conflicts: migration.conflicts });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  app.put('/api/profile', (req, res) => {
+  app.put('/api/profile', async (req, res) => {
     try {
       const userId = getCurrentUserId();
       if (!userId) return res.status(401).json({ error: 'Not signed in.' });
@@ -775,8 +800,39 @@ async function startServer() {
         needsSponsorship: bool(p.needsSponsorship), languages: arr(p.languages),
         preferredCompanySize: str(p.preferredCompanySize), recruiterNote: str(p.recruiterNote),
       };
-      saveCandidateProfile(clean);
-      res.json({ success: true, profile: getCandidateProfile() });
+      // CANONICAL write-through: legacy CandidateProfile store is no longer an
+      // independently editable source — the profile PATCH route writes the
+      // canonical applicant_profile (keep the legacy store untouched for
+      // backward-compatible reads during the deprecation window).
+      const { saveApplicantProfile: saveCanonical, getApplicantProfile: loadCanonical, defaultApplicantProfile } = await import('./server/storage/applicantProfile.js');
+      let canonical = loadCanonical(userId);
+      if (!canonical) canonical = defaultApplicantProfile();
+      const applyStr = (k: string, v: string) => {
+        if (v === undefined) return;
+        const key = k === 'noticePeriod' ? 'noticePeriod' : k === 'availableFrom' ? 'earliestStartDate' : k;
+        if (key === 'earliestStartDate' || key === 'jobSearchStatus' || key === 'preferredCompanySize' || key === 'recruiterNote' || key === 'salaryCurrency') {
+          (canonical as any).preferences = { ...(canonical as any).preferences, [key]: v };
+        }
+      };
+      (canonical as any).preferences = { ...(canonical as any).preferences };
+      if (clean.noticePeriod) (canonical as any).preferences.noticePeriod = clean.noticePeriod;
+      if (clean.availableFrom) (canonical as any).preferences.earliestStartDate = clean.availableFrom;
+      if (clean.jobSearchStatus) (canonical as any).preferences.jobSearchStatus = clean.jobSearchStatus;
+      if (clean.preferredCompanySize) (canonical as any).preferences.preferredCompanySize = clean.preferredCompanySize;
+      if (clean.recruiterNote) (canonical as any).preferences.recruiterNote = clean.recruiterNote;
+      if (clean.salaryCurrency) (canonical as any).preferences.salaryCurrency = clean.salaryCurrency;
+      if (clean.currentSalary) (canonical as any).preferences.currentSalary = Number(clean.currentSalary) || undefined;
+      if (clean.expectedSalaryMin) (canonical as any).preferences.minimumSalary = Number(clean.expectedSalaryMin) || undefined;
+      if (clean.expectedSalaryMax) (canonical as any).preferences.targetSalary = Number(clean.expectedSalaryMax) || undefined;
+      if (clean.willingToTravelPct) (canonical as any).preferences.travelPercentage = Number(clean.willingToTravelPct) || undefined;
+      if (clean.languages && clean.languages.length) (canonical as any).preferences.languages = clean.languages;
+      if (clean.preferredLocations && clean.preferredLocations.length) (canonical as any).locationPrefs = { ...(canonical as any).locationPrefs, preferredLocations: clean.preferredLocations };
+      if (clean.employmentTypes && clean.employmentTypes.length) (canonical as any).preferences.preferredEmploymentTypes = clean.employmentTypes;
+      if (clean.willingToRelocate && clean.willingToRelocate !== 'no') (canonical as any).locationPrefs = { ...(canonical as any).locationPrefs, willingToRelocate: clean.willingToRelocate };
+      if (clean.needsSponsorship !== undefined && clean.needsSponsorship !== null) (canonical as any).workAuthorization = { ...(canonical as any).workAuthorization, requiresSponsorship: clean.needsSponsorship ? 'yes' : 'no' };
+      if (clean.workAuthorization) (canonical as any).workAuthorization = { ...(canonical as any).workAuthorization, country: clean.workAuthorization };
+      saveCanonical(canonical, userId);
+      res.json({ success: true, profile: loadCanonical(userId) });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -1991,8 +2047,10 @@ Return valid JSON only — NO markdown, NO code fences:
         return;
       }
       const masterCv = getMasterCv();
-      const profile = getCandidateProfile();
-      const profileText = buildProfileText(profile);
+      const legacy = getCandidateProfile();
+      const { getApplicantProfile: loadCanonicalProfile } = await import('./server/storage/applicantProfile.js');
+      const profile = loadCanonicalProfile(getCurrentUserId());
+      const profileText = buildProfileText(profile, masterCv, legacy);
       const job = contact?.sourceJobId ? getJobById(contact.sourceJobId) : undefined;
       // Manual emails (no contact): derive a greeting from the address if it
       // looks like a personal name, otherwise fall back to "there".
@@ -2067,8 +2125,7 @@ Rules — this must feel human, not AI:
 Return valid JSON only, no markdown:
 { "subject": string (max 8 words, no fluff), "body": string }`;
 
-      const raw = await ask(prompt, 0.5);
-      const parsed = JSON.parse(raw);
+      const parsed = await askJson<{ subject: string; body: string }>(prompt, { temperature: 0.5 });
       const body = String(parsed.body || '').trim();
       // Deterministic signature: candidate name, then their saved phone and
       // portfolio URL (from the Master CV) — each line only when it exists.
@@ -2976,11 +3033,8 @@ const sanitizeAttemptDryRun = (a: any) => ({
       if (!detail) return res.status(400).json({ error: `Unknown unresolved field: ${providerFieldId}` });
       const pkg = getPackageById(userId, plan.packageId);
       if (!pkg) return res.status(404).json({ error: 'Package not found.' });
-      // Re-run mapping with a USER-supplied value for this field.
-      const { mapRequirements } = await import('./server/applicationEngine/mapper.js');
-      const { FixtureInspectionAdapter, LEVER_FIXTURES } = await import('./server/applicationEngine/fixtureAdapter.js');
-      const reqs = await new FixtureInspectionAdapter().inspect(plan.target);
-      const mapping = mapRequirements(pkg, reqs.fields);
+      // Validate against THIS plan's inspected metadata (never re-inspect).
+      // The user-supplied value is bound to the plan; no re-mapping.
       const idx = plan.mappedFields.findIndex((m) => m.providerFieldId === providerFieldId);
       if (idx !== -1) {
         plan.mappedFields[idx] = { ...plan.mappedFields[idx], value: value ?? null, source: 'USER', mappingMethod: 'USER', mappingConfidence: 'high' };
@@ -3033,21 +3087,43 @@ const sanitizeAttemptDryRun = (a: any) => ({
       const job = getJobById(req.params.id);
       if (!job) return res.status(404).json({ error: 'Job not found.' });
       const ctx = await packageContext(userId, job);
+      // EASY FLOW: auto-tailor on Apply — when no job-specific Tailor V2 CV
+      // exists yet, generate one before building the package so the attached
+      // resume is always the tailored CV. One LLM call per job (the version
+      // store caches it forever). Never blocks apply: on failure we fall back
+      // to the Master CV and report cvSource so the UI can say so.
+      let tailored = ctx.tailored;
+      let autoTailored = false;
+      let autoTailorError: string | undefined;
+      if (req.body?.autoTailor === true && !tailored) {
+        try {
+          const { runTailorV2 } = await import('./server/tailorV2/tailorV2Engine.js');
+          const { jdHash } = await import('./server/fit/fitCache.js');
+          const result = await runTailorV2(
+            userId, ctx.masterCv, ctx.profile, ctx.fullJob, ctx.jd, ctx.fit,
+            { masterCvUpdatedAt: ctx.deps.getMasterCvUpdatedAt(userId), profileUpdatedAt: ctx.profile.updatedAt, jdHash: jdHash(ctx.jd), fitEngineVersion: ctx.fit.version }
+          );
+          tailored = ctx.deps.getLatestTailorVersion(userId, job.id) ?? tailored;
+          autoTailored = Boolean(result?.version);
+        } catch (tailorErr: any) {
+          autoTailorError = String(tailorErr?.message || 'Tailor V2 failed.').slice(0, 160);
+        }
+      }
       const { buildPackage, computePackageKeys } = await import('./server/applicationPackage/packageEngine.js');
       const { getLatestPackage, storePackage, packageInputFingerprint } = await import('./server/applicationPackage/packageStore.js');
       const latest = getLatestPackage(userId, job.id);
-      const keys = computePackageKeys({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredVersion: ctx.tailored });
+      const keys = computePackageKeys({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredVersion: tailored });
       keys.masterCvUpdatedAt = ctx.deps.getMasterCvUpdatedAt(userId);
       const fp = packageInputFingerprint(keys);
       // Reuse only a READY package — a DRAFT one (missing prerequisites at
       // build time) is rebuilt so current engine policy applies.
       if (latest && latest.status === 'READY' && latest.inputFingerprint === fp) {
-        res.json({ package: latest, reused: true });
+        res.json({ package: latest, reused: true, cvSource: latest.resumeSnapshot?.source ?? null, autoTailored, autoTailorError, tailorVersion: tailored?.version ?? null });
         return;
       }
-      const pkg = await buildPackage({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredVersion: ctx.tailored }, ctx.deps.getMasterCvUpdatedAt(userId));
+      const pkg = await buildPackage({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredVersion: tailored }, ctx.deps.getMasterCvUpdatedAt(userId));
       storePackage(pkg);
-      res.json({ package: pkg, reused: false });
+      res.json({ package: pkg, reused: false, cvSource: pkg.resumeSnapshot?.source ?? null, autoTailored, autoTailorError, tailorVersion: tailored?.version ?? null });
     } catch (err: any) {
       res.status(500).json({ error: String(err?.message || 'Package preparation failed.').slice(0, 300) });
     }
@@ -3347,10 +3423,10 @@ const sanitizeAttemptDryRun = (a: any) => ({
       }
 
       const masterCv = getMasterCv();
-      const tailorEngine = new LlmCvTailor();
-      let tailoredCv: Awaited<ReturnType<typeof tailorEngine.tailorCv>>;
+      const { tailorJobWithV2 } = await import('./server/tailorV2/tailorService.js');
+      let tailoredResult: Awaited<ReturnType<typeof tailorJobWithV2>>;
       try {
-        tailoredCv = await tailorEngine.tailorCv(jobToTailor, masterCv);
+        tailoredResult = await tailorJobWithV2(jobToTailor);
       } catch (llmErr: any) {
         const { LLMError } = await import('./server/llm/llmErrors.js');
         if (llmErr instanceof LLMError) {
@@ -3358,19 +3434,27 @@ const sanitizeAttemptDryRun = (a: any) => ({
           res.status(status).json({ error: llmErr.message, code: llmErr.code });
           return;
         }
+        if (llmErr?.name === 'TailorVerificationFailedError') {
+          res.status(422).json({
+            error: "Tailoring couldn't produce a verified resume from your existing candidate information. Your master resume was left unchanged.",
+            code: 'verification_failed',
+          });
+          return;
+        }
         throw llmErr;
       }
 
       const updatedJob = updateJobInStorage({
         ...jobToTailor,
-        tailoredCv,
+        tailoredCv: tailoredResult.tailoredCv,
         state: 'tailored',
         tailoredAt: new Date().toISOString(),
       });
 
       res.json({
         success: true,
-        tailoredCv,
+        tailoredCv: tailoredResult.tailoredCv,
+        version: tailoredResult.version,
         job: updatedJob,
       });
     } catch (err: any) {
@@ -3396,10 +3480,13 @@ const sanitizeAttemptDryRun = (a: any) => ({
       );
 
       const masterCv = getMasterCv();
-      const tailorEngine = new LlmCvTailor();
+      const { tailorJobWithV2 } = await import('./server/tailorV2/tailorService.js');
 
       // Process concurrently (bounded) so a large batch finishes fast
-      // and the rest of the app keeps working.
+      // and the rest of the app keeps working. Every job runs through the
+      // SAME canonical V2 pipeline: own fact ledger, own generation, own
+      // verification, fail closed. One job's evidence never contaminates
+      // another. No V1 fallback.
       const CONCURRENCY = 3;
       const tailoredResults: any[] = [];
       let cursor = 0;
@@ -3408,18 +3495,18 @@ const sanitizeAttemptDryRun = (a: any) => ({
         while (cursor < candidateJobs.length) {
           const job = candidateJobs[cursor++];
           try {
-            const tailoredCv = await tailorEngine.tailorCv(job, masterCv);
+            const tailoredResult = await tailorJobWithV2(job);
 
             const updated = updateJobInStorage({
               ...job,
-              tailoredCv,
+              tailoredCv: tailoredResult.tailoredCv,
               state: 'tailored',
               tailoredAt: new Date().toISOString(),
             });
 
             tailoredResults.push(updated);
           } catch (err) {
-            console.warn(`Batch tailor failed for job ${job.id}:`, err);
+            console.warn(`Batch tailor skipped for job ${job.id}:`, err?.name === 'TailorVerificationFailedError' ? 'factual verification failed — resume not published' : err);
           }
         }
       };
@@ -3545,12 +3632,14 @@ const sanitizeAttemptDryRun = (a: any) => ({
         ...(matchScore !== undefined ? { matchScore: Number(matchScore) } : {}),
       };
 
-      const tailorEngine = new LlmCvTailor();
-      const tailoredCv = await tailorEngine.tailorCv(
-        virtualJob,
-        masterCv,
-        Array.isArray(includeSkills) && includeSkills.length > 0 ? { includeSkills } : undefined
-      );
+      const { tailorJobWithV2 } = await import('./server/tailorV2/tailorService.js');
+      // Manual JD Tailor runs the SAME canonical V2 pipeline. The manual JD
+      // is DATA ONLY — it can influence emphasis and gap reporting, never
+      // candidate facts. includeSkills (user's chip selection) is accepted
+      // for API compatibility; unsupported selections surface as
+      // notIntegrable gaps because the verifier rejects JD-only facts.
+      const tailoredResult = await tailorJobWithV2(virtualJob);
+      const tailoredCv = tailoredResult.tailoredCv;
 
       const token = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       manualResults.set(token, {
@@ -3577,7 +3666,7 @@ const sanitizeAttemptDryRun = (a: any) => ({
       });
 
       // Diff payload for the UI's "what we add & why" panel
-      const audit = tailoredCv.audit;
+      const audit = tailoredResult.audit;
       const diffPayload = {
         beforeScore: audit?.beforeScore ?? 0,
         afterScore: audit?.afterScore ?? 0,
@@ -3804,18 +3893,28 @@ const sanitizeAttemptDryRun = (a: any) => ({
 
   // Delete Job
   app.delete('/api/jobs/:id', (req, res) => {
+    const job = getJobById(req.params.id);
     const deleted = deleteJobFromStorage(req.params.id);
     if (!deleted) {
       res.status(404).json({ error: 'Job not found.' });
       return;
     }
+    // DELETED = GONE FOREVER: record the job as hidden so no future search
+    // can re-persist it into this user's list.
+    hideCurrentUserJob({ id: req.params.id, url: job?.url, title: job?.title, source: job?.source });
     res.json({ success: true });
   });
 
-  // Clear All Jobs
+  // Undo a delete — removes the hidden marker; the job may return on a FUTURE
+  // search (it does not re-insert into the current list).
+  app.post('/api/jobs/:id/unhide', (req, res) => {
+    res.json({ success: unhideCurrentUserJob(req.params.id) });
+  });
+
+  // Clear All Jobs — also resets the hidden list (true fresh start).
   app.delete('/api/jobs', (req, res) => {
     const count = deleteAllJobs();
-    res.json({ success: true, deletedCount: count });
+    res.json({ success: true, deletedCount: count, hiddenCleared: clearCurrentUserHidden() });
   });
 
   // Download ATS .pdf CV

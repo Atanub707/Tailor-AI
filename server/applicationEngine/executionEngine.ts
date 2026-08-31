@@ -1,6 +1,7 @@
 // Execution engine — provider-neutral orchestration. Phase 1: approval +
 // attempt + fresh reinspection + local dry-run. NO mutation transport.
 import { sha256 } from './contract.js';
+import { resumeAttachmentFilename } from './resumeNaming.js';
 import type { ApplicationPackage } from '../applicationPackage/packageModel.js';
 import { readPdfArtifact, sha256Bytes } from '../applicationPackage/artifactStore.js';
 import type { SubmissionPlan } from './contract.js';
@@ -79,7 +80,8 @@ export function verifyResumeArtifact(pkg: ApplicationPackage): { ok: true; resum
     if (actual !== hash) return { ok: false, reason: 'RESUME_ARTIFACT_INVALID' };
     const head = bytes.subarray(0, 5).toString('ascii');
     if (!head.startsWith('%PDF')) return { ok: false, reason: 'RESUME_ARTIFACT_INVALID' };
-    const filename = `resume-${hash.slice(0, 12)}.pdf`;
+    // Human-readable, recruiter-friendly attachment name — never the hash.
+    const filename = resumeAttachmentFilename(pkg);
     return { ok: true, resume: { filename, mimeType: 'application/pdf', size: bytes.length, sha256: actual, artifactReference: `artifact:${hash}` } };
   } catch {
     return { ok: false, reason: 'RESUME_ARTIFACT_INVALID' };

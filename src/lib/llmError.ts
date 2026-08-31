@@ -11,7 +11,7 @@ export function llmErrorMessage(code: string | undefined, raw: string): string {
     case 'invalid_model':
       return 'The model name or endpoint was not found — check the model and base URL in Settings.';
     case 'timeout':
-      return "The AI provider didn't respond in time. Check your AI provider and try again.";
+      return "The AI provider didn't respond in time. This usually happens during the provider's peak hours when big requests (like tailoring a CV) queue up. Wait a few minutes and try again — or pick a different model (e.g. minimax-m3 or a Free model) in Settings, which are not affected by DeepSeek peak hours.";
     case 'network':
       return "Couldn't reach the configured AI provider. Check your network/endpoint and try again.";
     case 'rate_limit':

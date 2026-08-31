@@ -54,6 +54,15 @@ export function resolveDeterministicAnswers(cv: MasterCv, profile: ApplicantProf
   push('reasonForChange', 'Reason for change', appDefaults.reasonForChange, 'PROFILE');
   push('whyInterested', 'Why interested (default)', appDefaults.whyInterestedDefault, 'PROFILE');
   push('preferredContactMethod', 'Preferred contact method', appDefaults.preferredContactMethod, 'PROFILE');
+  push('referralSource', 'How did you hear about this job', appDefaults.referralSource, 'PROFILE');
+  push('hasReferralsAtCompany', 'Knows someone at the company', appDefaults.hasReferralsAtCompany === 'yes' ? true : appDefaults.hasReferralsAtCompany === 'no' ? false : null, 'PROFILE');
+  push('onsiteAvailability', 'Available for on-site work', appDefaults.onsiteAvailability === 'yes' ? true : appDefaults.onsiteAvailability === 'no' ? false : null, 'PROFILE');
+
+  const sensitive = profile.optionalSensitive ?? {};
+  // HARD SAFETY: accessibility needs are only ever resolved when the user
+  // explicitly opted in AND stated a disability/accessibility status.
+  // "Prefer not to say" stays unanswered — never inferred.
+  push('accessibilityNeeds', 'Accessibility needs', sensitive.enabled === true && sensitive.disabilityStatus ? sensitive.disabilityStatus : null, 'PROFILE');
 
   return out;
 }

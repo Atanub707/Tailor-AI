@@ -20,6 +20,10 @@ services:
       - ./config.ini:/app/config.ini
     environment:
       - DISABLE_HMR=true
+      # LLM request budget — deepseek-v4-flash via opencode-go commonly
+      # takes 85-120s+ (Tailor V1 makes two back-to-back calls); 4 minutes
+      # covers the observed variance. Clamp to sane values in code.
+      - LLM_REQUEST_TIMEOUT_MS=300000
       # Normal intended runtime: Greenhouse searches use the LOCAL INDEX
       # (ENABLE_LOCAL_ATS_INDEX=true). Set false for rollback/testing.
       - ENABLE_LOCAL_ATS_INDEX=true

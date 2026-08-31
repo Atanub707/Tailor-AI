@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { HamburgerTrigger } from '../navigation';
 import { X, ArrowLeft, Loader2, Sparkles, Download, FileText, CheckCircle2, ArrowRight, History, Trash2, AlertTriangle, Plus, PenLine, Ban, ChevronsLeftRight, Wand2, PencilLine } from 'lucide-react';
 import { llmErrorMessage } from '../lib/llmError';
 import { MasterCv } from '../types';
@@ -647,10 +648,11 @@ export const ManualJdScreen: React.FC<ManualJdScreenProps> = ({ isOpen, onClose,
   };
 
   return (
-    <div className="h-[calc(100vh-74px)] bg-[#FAFAF9] text-[var(--color-muted)] flex flex-col font-sans">
+    <div className="h-screen bg-[#FAFAF9] text-[var(--color-muted)] flex flex-col font-sans">
       {/* Page header — title left, compact segmented stages center, actions right */}
       <header className="px-4 sm:px-5 py-2.5 border-b border-[var(--color-hairline)] bg-white flex items-center gap-3 shrink-0">
         <div className="flex items-center gap-2.5 min-w-0">
+          <HamburgerTrigger />
           <div className="min-w-0">
             <h1 className="text-[13px] font-bold text-[var(--color-ink)] leading-tight">Manual JD</h1>
             <p className="text-[10px] text-[var(--color-faint)] font-medium">Paste a JD — get a tailored CV</p>

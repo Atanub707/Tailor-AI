@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { Navbar } from './components/Navbar';
+import { NavigationProvider } from './navigation';
 import { ScraperBar } from './components/ScraperBar';
 import { JobMatrix } from './components/JobMatrix';
 import { JobDetailModal } from './components/JobDetailModal';
@@ -12,7 +13,6 @@ import { JobPortalsScreen } from './components/JobPortalsScreen';
 import { RecruitersScreen } from './components/RecruitersScreen';
 import { AiSystemScreen } from './components/AiSystemScreen';
 import { LinkedInPostsScreen } from './components/LinkedInPostsScreen';
-import ApplicationsScreen from './components/ApplicationsScreen';
 import { OnboardingTour, startTour } from './components/OnboardingTour';
 import { LoginScreen } from './components/LoginScreen';
 import { Job, JobState, MasterCv, AppConfig, JobSource, TemplateId } from './types';
@@ -29,38 +29,23 @@ export default function App() {
   const isSettingsOpen = pathname === '/settings';
   const isRecruitersOpen = pathname === '/recruiters';
   const isMasterCvOpen = pathname === '/master-cv';
+  // Applicant Profile is consolidated into Settings → Application Profile.
   const isApplicantProfileOpen = pathname === '/applicant-profile';
+  if (pathname === '/applicant-profile') return <Navigate to="/settings" replace />;
   const isManualJdOpen = pathname === '/manual-jd';
   const isJobPortalsOpen = pathname === '/job-portals';
   const isAiSystemOpen = pathname === '/ai-interview';
   const isLinkedInPostsOpen = pathname === '/linkedin-posts';
-  const isApplicationsOpen = pathname === '/applications' || pathname.startsWith('/applications/');
-  // Canonical per-application route: /applications/:applicationId — reloads
-  // land back on the same application's detail view.
-  const applicationDetailId = pathname.startsWith('/applications/') ? decodeURIComponent(pathname.slice('/applications/'.length)) : undefined;
 
   // Unknown paths (stale bookmarks, typos) land on the dashboard instead of
   // a blank screen. Done BEFORE any screen renders.
-  const knownPaths = ['/', '/settings', '/recruiters', '/master-cv', '/applicant-profile', '/manual-jd', '/job-portals', '/ai-interview', '/linkedin-posts', '/applications'];
-  const knownPrefixes = ['/applications/'];
-  if (!knownPaths.includes(pathname) && !knownPrefixes.some((p) => pathname.startsWith(p))) return <Navigate to="/" replace />;
-
+  const knownPaths = ['/', '/settings', '/recruiters', '/master-cv', '/applicant-profile', '/manual-jd', '/job-portals', '/ai-interview', '/linkedin-posts'];
+  const knownPrefixes: string[] = [];
   const [jobs, setJobs] = useState<Job[]>([]);
   const [masterCv, setMasterCv] = useState<MasterCv | null>(null);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [currentUser, setCurrentUser] = useState<{ id: string; email: string; name: string; isGuest: boolean } | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [applicationBadge, setApplicationBadge] = useState(0);
-  React.useEffect(() => {
-    if (!currentUser) return;
-    let alive = true;
-    fetch('/api/applications?filter=action')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (alive && d) setApplicationBadge(d.counts.action ?? 0); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [currentUser, pathname]);
-
   // Active filters and views
   const [activeStateTab, setActiveStateTab] = useState<'all' | JobState>('all');
   // Current-search view: when set, the job list shows ONLY the jobs of this
@@ -364,23 +349,25 @@ export default function App() {
     runWithMessages(jobId, [
       'Resolving the real job description...',
       'Analyzing requirements against your Master CV...',
-      'Rewriting experience bullets with job-matched facts...',
-      'Verifying every claim against your Master CV...',
-      'Preparing the ATS-safe tailored resume...',
+      'Generating ATS-optimized tailoring...',
+      'Applying the CV template...',
+      'Preparing the tailored resume...',
     ], async () => {
-      const res = await fetch(`/api/jobs/${jobId}/tailor-v2`, { method: 'POST' });
+      const res = await fetch(`/api/jobs/${jobId}/tailor`, { method: 'POST' });
       if (res.ok) {
         const data = await res.json();
-        if (!data.verification?.passed) {
-          alert('Tailoring completed with verification warnings — review before use.');
-        }
-        await fetchJobs();
-        if (selectedJob && selectedJob.id === jobId) {
-          setSelectedJob((prev) => prev ? { ...prev, tailoredCv: prev.tailoredCv } : prev);
-        }
+        setJobs((prev) => prev.map((j) => (j.id === jobId ? data.job : j)));
+        if (selectedJob && selectedJob.id === jobId) setSelectedJob(data.job);
       } else {
         const data = await res.json().catch(() => ({}));
-        alert(llmErrorMessage(data.code, data.error));
+        const msg = data.error || 'Tailor failed';
+        // JD-less posting — the job card already shows an inline notice, so
+        // no blocking dialog; keep the alert for genuine LLM failures.
+        if (msg.includes('description') || msg.includes('JD')) {
+          console.warn('Tailor skipped — posting has no usable JD:', jobId);
+        } else {
+          alert(llmErrorMessage(data.code, data.error));
+        }
         throw new Error(data.error || 'Tailor failed');
       }
     }, setTailorMessages);
@@ -538,6 +525,10 @@ export default function App() {
       console.error('Save config error:', err);
     }
   };
+  // Unknown paths (stale bookmarks, typos) land on the dashboard instead of
+  // a blank screen. MUST run after every hook to keep hook order stable.
+  if (!knownPaths.includes(pathname) && !knownPrefixes.some((p) => pathname.startsWith(p))) return <Navigate to="/" replace />;
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased selection:bg-blue-600 selection:text-white">
       <OnboardingTour ready={!!currentUser && !authLoading} />
@@ -550,7 +541,24 @@ export default function App() {
           onGuestLogin={handleGuestLogin}
         />
       ) : (
-        <>
+        <NavigationProvider
+          onNavigate={(id) => {
+            switch (id) {
+              case 'home': navigate('/'); break;
+              case 'applicant-profile': navigate('/applicant-profile'); break;
+              case 'master-cv': navigate('/master-cv'); break;
+              case 'recruiters': setRecruiterBadge(0); navigate('/recruiters'); break;
+              case 'job-portals': navigate('/job-portals'); break;
+              case 'linkedin-posts': navigate('/linkedin-posts'); break;
+              case 'ai-interview': navigate('/ai-interview'); break;
+              case 'manual-jd': navigate('/manual-jd'); break;
+              case 'settings': navigate('/settings'); break;
+            }
+          }}
+          badges={{ recruiters: recruiterBadge }}
+          user={currentUser}
+          installedVersion={installedVersion}
+        >
           <style>{`
             .update-banner{display:flex; align-items:center; gap:12px; padding:8px 16px; background:#052E16; color:#D1FAE5;
               font-size:13px; font-weight:600; flex-wrap:wrap;}
@@ -567,28 +575,19 @@ export default function App() {
             .update-banner button:hover{background:#064E3B; color:#fff;}
             .update-banner .update-cta{margin-left:0;}
           `}</style>
-          {/* Header Navigation */}
-          <Navbar
-            user={currentUser}
-            onOpenHome={() => navigate('/')}
-            onLogout={handleLogout}
-            onOpenMasterCv={() => navigate('/master-cv')}
-            onOpenApplicantProfile={() => navigate('/applicant-profile')}
-            onOpenSettings={() => navigate('/settings')}
-            onOpenManualJd={() => navigate('/manual-jd')}
-            onOpenJobPortals={() => navigate('/job-portals')}
-            onOpenRecruiters={() => {
-              setRecruiterBadge(0);
-              navigate('/recruiters');
-            }}
-            onOpenChat={() => navigate('/ai-interview')}
-            onOpenLinkedInPosts={() => navigate('/linkedin-posts')}
-            onOpenApplications={() => navigate('/applications')}
-            applicationsBadge={applicationBadge}
-            recruiterBadge={recruiterBadge}
-            installedVersion={installedVersion}
-            onTour={startTour}
-          />
+          {/* Header Navigation — the full Home app bar lives on Home only;
+              other screens render their own contextual headers with the
+              shared HamburgerTrigger (src/navigation.tsx). */}
+          {pathname === '/' && (
+            <Navbar
+              user={currentUser}
+              onOpenHome={() => navigate('/')}
+              onOpenSettings={() => navigate('/settings')}
+              onLogout={handleLogout}
+              installedVersion={installedVersion}
+              onTour={startTour}
+            />
+          )}
 
           {/* Update banner — a newer version was pushed to GitHub */}
           {updateInfo && !updateDismissed && (
@@ -613,6 +612,8 @@ export default function App() {
             </div>
           )}
 
+          {pathname === '/' && (
+            <>
           {/* Live Job Search Bar */}
           <ScraperBar
             onScrape={handleScrape}
@@ -653,6 +654,8 @@ export default function App() {
               tailorMessages={tailorMessages}
             />
           </main>
+            </>
+          )}
 
           {/* Job Details & Tailored CV Modal */}
           <JobDetailModal
@@ -716,8 +719,7 @@ export default function App() {
           {/* AI Interview */}
           {isAiSystemOpen && <AiSystemScreen onClose={goHome} />}
           {isLinkedInPostsOpen && <LinkedInPostsScreen onClose={goHome} />}
-          {isApplicationsOpen && <ApplicationsScreen onBackToJobs={goHome} initialApplicationId={applicationDetailId} />}
-        </>
+        </NavigationProvider>
       )}
     </div>
   );

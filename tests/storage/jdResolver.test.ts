@@ -145,7 +145,7 @@ describe('JD resolver', () => {
 
   it('non-Greenhouse job without a JD is surfaced honestly, never fabricated', async () => {
     const job = baseJob({ id: 'lev-1', fingerprint: 'lev-1', externalId: 'lev-1', source: 'Lever', atsPlatform: 'lever', url: 'https://jobs.lever.co/x/1', applyUrl: 'https://jobs.lever.co/x/1' });
-    await expect(ensureJobDescription(job)).rejects.toThrow(/Couldn't load the full job description/);
+    await expect(ensureJobDescription(job)).rejects.toThrow(/doesn't include a usable description/);
   });
 
   it('meaningful-JD threshold is conservative', () => {

@@ -1,5 +1,63 @@
 # Changelog
 
+## v2.6.0 (2026-08-31)
+
+### 🗑️ Deleted jobs stay deleted
+
+- Removed jobs never reappear: every search now filters out per-user hidden jobs, so a deleted job (from any source — job boards, Greenhouse, Lever, Ashby) cannot re-enter your list on a new search.
+- Remove shows a 6-second "Removed — it won't appear in new searches" toast with Undo (undo un-hides for a future search without re-adding to the current list).
+- Clear All also resets the hidden list for a true fresh start.
+
+## v2.5.0 (2026-08-31)
+
+### 🧹 Removed
+
+- **Applications screen removed** — `/applications` UI and drawer deleted; the Applied button is now a simple status toggle (mark applied → green, no navigation, no tracker).
+- Redirect guard hardened: stale/unknown URLs (including `/applications`) now land on Home without a React hooks-order crash.
+- Server-side application APIs remain (untested UI consumers only).
+
+## v2.4.3 (2026-08-30)
+
+### 📋 Applications redesign
+
+- Rebuilt the Applications screen to the approved mockup: overview stat tiles (All / Action Required / Waiting / Applied), pill filter tabs with counts, search + sort controls, grouped application cards with color status rails, provider chips, status pills, one primary action per status, options button, and a friendly empty state with CTA.
+- **Applied toggle moves across** — clicking "Applied" on a job card marks it and after 3 seconds creates the tracker entry (no LLM) and navigates to Applications, where it appears as an Applied row.
+- Fixed: plan-less applications ignored the manual confirmation event and stayed "Preparing" — manual applied records now resolve correctly.
+
+### ⚙️ Settings & UI cleanups
+
+- Settings moved into the account menu (guest chip) with the ⌘, shortcut intact; ⌘ symbols removed from the drawer.
+- Apify integration trimmed (toggle + token only, referral restored) — li_at cookie and price list removed.
+- Browser Companion / Data & privacy / Application Accounts / Email Connections panels removed from Settings.
+- Master CV: AI compress removed; Save + Download PDF moved to the right toolbar after the PDF-name field.
+- Job cards: uniform 38px buttons, ATS pill inline left of Re-Tailor, Tailored/Matched badges and skill chips removed, View button dropped (title opens details), Applied toggle turns green.
+
+### 🧠 Model-agnostic AI pipeline
+
+- New askJson pipeline (markers + JSON repair cascade + bounded retry) used by Tailor, Score, CV Compressor and email drafting — any model (minimax, kimi, qwen…) works without per-model fixes.
+- /api/emails/draft now drafts successfully (was plain JSON.parse → "Failed to draft email").
+- Live model catalog in Settings (auto-updates, Free/New pills, refresh); 4-minute LLM budget with peak-hour guidance.
+
+## v2.4.2 (2026-08-30)
+
+### 🎯 Tailor & Matching
+
+- **Tailor V1 is back** — the real Tailor CV button on every job card (Tailor/Re-Tailor), the `Tailored ATS` score pill (before → after + boost badge), Download CV, and the live stage tooltip (✓/⟳) while tailoring.
+- **Model-agnostic AI pipeline (`askJson`)** — pick ANY model from the live catalog; reasoning-model quirks (`<thinking>` wrappers, unquoted keys, prose, trailing commas, `[...]` placeholders) are automatically repaired with a bounded retry. No per-model crashes.
+- **Live model catalog** — Settings pulls the provider's real model list (auto-updates, Free/New pills, Refresh button); timeout explanations and a 4-minute LLM budget.
+- Robust resume attachment names (FullName_Role_Company_CV.pdf) and honest JD-less handling.
+
+### 🧹 UI Cleanups
+
+- Uniform 38px buttons on job cards (icon-only bin 38×38), `Applied` toggles green in place, Apply links directly to the job post.
+- Master CV: AI Compress removed; Save + Download PDF moved to the right toolbar after the rename field.
+- Candidate Profile: autosave (no Save button), Sensitive/Login cards removed.
+- Settings: Browser Companion + Data & privacy + Application Accounts + Email Connections panels removed.
+
+### 🧰 Robustness
+
+- ATS index schedulers verified healthy (308k+ jobs cycling every 60s); search guidance for empty keywords; JSON extraction cascade (fences, thinking blocks, balanced-brace fallback, non-whitespace/position repairs).
+
 ## v2.4.0 (2026-08-29)
 
 ### 🧭 Simpler Job Workflow

@@ -515,3 +515,46 @@ describe('No fake success in Phase 1', () => {
     resetInspectionState();
   });
 });
+const { resumeAttachmentFilename } = await import('../../server/applicationEngine/resumeNaming.js');
+
+describe('Resume attachment naming — professional, never a hash', () => {
+  const namePkg = (over: (p: any) => void) => {
+    const p: any = {
+      answers: [
+        { key: 'fullName', value: 'Ravi Kumar', source: 'PROFILE', status: 'RESOLVED' },
+      ],
+      jobSnapshot: { title: 'Senior Platform Engineer', company: 'Veo' },
+      applicantSnapshot: { personal: {} },
+    };
+    over(p);
+    return p;
+  };
+
+  it('builds FullName_Role_Company_CV.pdf from package facts', () => {
+    expect(resumeAttachmentFilename(namePkg(() => {}))).toBe('Ravi_Kumar_Senior_Platform_Engineer_Veo_CV.pdf');
+  });
+
+  it('sanitizes unsafe characters and falls back to Candidate', () => {
+    expect(resumeAttachmentFilename(namePkg((p) => { p.jobSnapshot.title = 'DevOps Engineer (Remote/../etc)'; p.jobSnapshot.company = 'CI&T S.A.'; })))
+      .toBe('Ravi_Kumar_DevOps_Engineer_Remote_etc_CI_T_S_A_CV.pdf');
+    expect(resumeAttachmentFilename(namePkg((p) => { p.answers = []; p.jobSnapshot = { title: 'x/y', company: '' }; })))
+      .toBe('Candidate_x_y_CV.pdf');
+  });
+
+  it('output is always safe for form upload validation ([A-Za-z0-9_].pdf)', () => {
+    const name = resumeAttachmentFilename(namePkg((p) => { p.jobSnapshot.title = 'A/B\\C"D'; p.jobSnapshot.company = '..\\evil'; }));
+    expect(name).toMatch(/^[A-Za-z0-9_]+\.pdf$/);
+    expect(name).not.toContain('..');
+    expect(name).not.toMatch(/^resume-[0-9a-f]{12}/);
+  });
+});
+
+describe('Attached resume name — end-to-end artifact naming', () => {
+  it('verifyResumeArtifact names the upload Ravi_Kumar_Platform_Engineer_Veo_CV.pdf', async () => {
+    const { verifyResumeArtifact } = await import('../../server/applicationEngine/executionEngine.js');
+    const { pkg } = await makeReady(USER);
+    const check = verifyResumeArtifact(pkg);
+    expect(check.ok).toBe(true);
+    if (check.ok) expect(check.resume.filename).toBe('Ravi_Kumar_Platform_Engineer_Veo_CV.pdf');
+  });
+});

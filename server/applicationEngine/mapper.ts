@@ -9,7 +9,7 @@ import type { MappedField } from './contract.js';
 
 export interface MappingResult {
   mapped: MappedField[];
-  unresolved: Array<{ providerFieldId: string; label: string; required: boolean; reason: string }>;
+  unresolved: Array<{ providerFieldId: string; label: string; required: boolean; reason: string; type?: ApplicationField['type']; options?: string[]; category?: ApplicationField['category'] }>;
   consent: Array<{ providerFieldId: string; label: string; required: boolean; status: 'REQUIRES_REVIEW'; classification: import('./executionContract.js').ConsentClassification }>;
   manual: Array<{ providerFieldId: string; label: string; required: boolean; reason: string }>;
   files: Array<{ kind: 'RESUME' | 'COVER_LETTER' | 'OTHER'; artifactSha?: string }>;
@@ -35,6 +35,10 @@ const ALIAS_TO_CANONICAL: Array<{ aliases: string[]; canonical: string }> = [
   { aliases: ['will you now or in the future require sponsorship', 'requires sponsorship', 'visa sponsorship', 'do you require sponsorship'], canonical: 'requiresSponsorship' },
   { aliases: ['notice period'], canonical: 'noticePeriod' },
   { aliases: ['expected salary', 'salary expectation', 'desired salary'], canonical: 'targetSalary' },
+  { aliases: ['how did you hear about', 'how did you find out about', 'where did you hear about', 'how did you learn about', 'referral source', 'source of referral'], canonical: 'referralSource' },
+  { aliases: ['relatives', 'friends or relatives', 'any relatives', 'do you have any relatives', 'currently work at'], canonical: 'hasReferralsAtCompany' },
+  { aliases: ['availability for on-site work', 'available for on-site', 'willing to work on-site', 'on-site work at the', 'onsite availability', 'work on site'], canonical: 'onsiteAvailability' },
+  { aliases: ['accessibility for the selection process', 'accessibility needs', 'accessibility accommodation', 'require any type of accessibility', 'disability accommodation'], canonical: 'accessibilityNeeds' },
   { aliases: ['resume', 'resume/cv', 'cv'], canonical: 'resume' },
   { aliases: ['cover letter'], canonical: 'coverLetter' },
 ];
@@ -42,7 +46,10 @@ const ALIAS_TO_CANONICAL: Array<{ aliases: string[]; canonical: string }> = [
 function aliasKey(label: string): string | undefined {
   const l = String(label || '').toLowerCase().trim().replace(/\s+/g, ' ');
   for (const e of ALIAS_TO_CANONICAL) {
-    if (e.aliases.some((a) => l === a || l.startsWith(a))) return e.canonical;
+    // Exact or prefix match for every alias; multi-word aliases (3+ words)
+    // additionally match anywhere in the label — deterministic phrase
+    // containment, never fuzzy single-keyword matching.
+    if (e.aliases.some((a) => l === a || l.startsWith(a) || (a.split(/\s+/).length >= 3 && l.includes(a)))) return e.canonical;
   }
   return undefined;
 }
@@ -104,6 +111,10 @@ export function mapRequirements(pkg: ApplicationPackage, fields: ApplicationFiel
   const consent: MappingResult['consent'] = [];
   const manual: MappingResult['manual'] = [];
   const files: MappingResult['files'] = [];
+  const uItem = (f: ApplicationField, reason: string) => ({
+    providerFieldId: f.providerFieldId, label: f.label, required: f.required, reason,
+    type: f.type, options: f.options, category: f.category,
+  });
 
   for (const f of fields) {
     // HARD SAFETY: EEO fields are never auto-mapped.
@@ -127,7 +138,7 @@ export function mapRequirements(pkg: ApplicationPackage, fields: ApplicationFiel
         });
         files.push({ kind: 'RESUME', artifactSha: art });
       } else {
-        unresolved.push({ providerFieldId: f.providerFieldId, label: f.label, required: f.required, reason: 'package has no verified PDF artifact' });
+        unresolved.push(uItem(f, 'package has no verified PDF artifact'));
       }
       continue;
     }
@@ -144,13 +155,13 @@ export function mapRequirements(pkg: ApplicationPackage, fields: ApplicationFiel
       const currency = String(answerFor(pkg, 'salaryCurrency')?.value ?? '');
       const period = String(answerFor(pkg, 'salaryPeriod')?.value ?? '');
       if (answer && !sameCurrencyPeriod(currency, currency, period, f.label)) {
-        unresolved.push({ providerFieldId: f.providerFieldId, label: f.label, required: f.required, reason: 'salary currency/period mismatch — no FX conversion' });
+        unresolved.push(uItem(f, 'salary currency/period mismatch — no FX conversion'));
         continue;
       }
     }
 
     if (!answer || answer.value === null || answer.value === undefined) {
-      unresolved.push({ providerFieldId: f.providerFieldId, label: f.label, required: f.required, reason: 'no resolved package answer' });
+      unresolved.push(uItem(f, 'no resolved package answer'));
       continue;
     }
 
@@ -161,18 +172,22 @@ export function mapRequirements(pkg: ApplicationPackage, fields: ApplicationFiel
       if (typeof answer.value === 'boolean') {
         const mappedBool = boolToSelect(answer.value, f.options);
         if (!mappedBool) {
-          unresolved.push({ providerFieldId: f.providerFieldId, label: f.label, required: f.required, reason: 'no matching select option' });
+          unresolved.push(uItem(f, 'no matching select option'));
           continue;
         }
         value = mappedBool;
       } else if (typeof answer.value === 'string') {
         const option = selectOptionMatch(answer.value, f.options) ?? (f.options?.includes(answer.value) ? answer.value : undefined);
         if (!option) {
-          unresolved.push({ providerFieldId: f.providerFieldId, label: f.label, required: f.required, reason: `no exact/deterministic select option for "${answer.value}"` });
+          unresolved.push(uItem(f, `no exact/deterministic select option for "${answer.value}"`));
           continue;
         }
         value = option;
       }
+    } else if (typeof value === 'boolean') {
+      // Deterministic: a boolean canonical answer written into a free-text
+      // field becomes the literal "Yes"/"No" — never raw true/false.
+      value = value ? 'Yes' : 'No';
     }
 
     const method = f.normalizedKey === canonical ? 'EXACT' : canonical ? 'ALIAS' : 'DETERMINISTIC';

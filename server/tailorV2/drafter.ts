@@ -4,6 +4,7 @@
 
 import type { MasterCv, ApplicantProfile, Job } from '../../src/types.js';
 import { ask } from '../llm/llmAdapter.js';
+import { extractJsonObject } from '../llm/jsonExtract.js';
 import { buildCandidateFactLedger } from './candidateLedger.js';
 import type { FitResult } from '../fit/fitEngine.js';
 
@@ -17,10 +18,9 @@ export interface TailorDraft {
 }
 
 export function parseDraftJson(raw: string): TailorDraft {
-  let text = String(raw || '').trim();
-  // Strip markdown fences if the LLM wrapped the JSON.
-  text = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
-  const parsed = JSON.parse(text) as TailorDraft;
+  // Reasoning models wrap JSON in <thinking>…</thinking> blocks or fences —
+  // extractJsonObject strips both and parses the first balanced object.
+  const parsed = extractJsonObject(raw) as TailorDraft;
   if (!parsed || typeof parsed !== 'object') throw new Error('Structured response is not an object.');
   if (!Array.isArray(parsed.skills)) parsed.skills = [];
   if (!Array.isArray(parsed.experience)) parsed.experience = [];

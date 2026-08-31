@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { MagnifyingGlass, MapPin, Play, CaretDown, CheckCircle, Info } from '@phosphor-icons/react';
+import { MagnifyingGlass, MapPin, Play, CaretDown, CheckCircle, Warning, Info } from '@phosphor-icons/react';
 import { JobSource } from '../types';
 import { getRoleSuggestions, getKeywordSuggestions } from '../constants/suggestions';
 import { getSourceFlag, getSourceCountry, getSourceMeta } from '../constants/sourceMeta';
@@ -47,6 +47,7 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
   const [maxJobsPerSource, setMaxJobsPerSource] = useState<number>(10);
   const [under10Applicants, setUnder10Applicants] = useState(false);
   const [scrapeSuccessMsg, setScrapeSuccessMsg] = useState<string | null>(null);
+  const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [scrapeNewContacts, setScrapeNewContacts] = useState<{ name: string | null; email: string | null; phone: string | null; whatsapp: boolean; recruiterUrl: string | null }[]>([]);
   const [selectedSources, setSelectedSources] = useState<JobSource[]>(['LinkedIn']);
 
@@ -70,7 +71,14 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!keywords.trim()) return;
+    setScrapeError(null);
+    if (!keywords.trim()) {
+      // Never go silent — an empty keyword search was a dead end with no
+      // feedback. Tell the user what to type instead.
+      setScrapeSuccessMsg(null);
+      setScrapeError('Enter a role, skill, or job title — e.g. \"DevOps Engineer\" or \"Kubernetes\". Search runs instantly once keywords are set.');
+      return;
+    }
 
     setScrapeSuccessMsg(null);
     setScrapeNewContacts([]);
@@ -187,7 +195,7 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
             autoComplete="off"
             name="ats-search-keywords"
             className="flex-1 border-none outline-none bg-transparent text-[15px] font-semibold text-[var(--color-ink)] placeholder:text-[var(--color-faint)] placeholder:font-normal py-2"
-            required
+            aria-required="true"
           />
           <button
             type="submit"
@@ -377,6 +385,12 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
         </div>
 
         {/* ── Scrape result banner (own row — never overlaps the source chips) ── */}
+        {scrapeError && (
+          <div className="flex items-start gap-2 w-full bg-[#FEF2F2] border border-[#FECACA] rounded-[12px] px-3.5 py-2.5 text-[12.5px] font-semibold text-[#991B1B]">
+            <Warning size={16} className="shrink-0 mt-[1px]" style={{ color: '#DC2626' }} weight="fill" />
+            <span>{scrapeError}</span>
+          </div>
+        )}
         {scrapeSuccessMsg && (
           <div className="flex items-start gap-2 w-full bg-[var(--color-cta-soft)] border border-[var(--color-cta-line)] rounded-[12px] px-3.5 py-2.5 text-[12.5px] font-semibold text-[#065F46]">
             <CheckCircle size={16} className="shrink-0 mt-[1px]" style={{ color: 'var(--color-cta)' }} weight="fill" />

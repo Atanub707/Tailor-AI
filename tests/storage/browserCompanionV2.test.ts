@@ -198,7 +198,7 @@ describe('Resume endpoint security matrix', () => {
   it('serves EXACT artifact bytes with correct headers semantics', () => {
     const { bytes, filename } = serveSessionResume(getDb(), resumeToken, sessionId);
     expect(bytes.subarray(0, 5).toString('ascii')).toBe('%PDF-');
-    expect(filename).toBe(`resume-${filename.match(/([0-9a-f]{12})/)![1]}.pdf`);
+    expect(filename).toBe('Ravi_Kumar_Platform_Engineer_Veo_CV.pdf');
     expect(bytes.length).toBeGreaterThan(1000);
   });
   it('wrong session token / wrong session id denied; missing bearer denied', () => {

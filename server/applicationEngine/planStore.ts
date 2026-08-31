@@ -41,12 +41,22 @@ export function nextPlanRevision(userId: string, packageId: string): number {
 
 export function storePlan(plan: SubmissionPlan): SubmissionPlan {
   ensurePlanSchema();
-  getDb()
-    .prepare(`
-      INSERT INTO submission_plans (id, user_id, package_id, package_snapshot_hash, provider, requirements_fingerprint, plan_fingerprint, status, data, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-    .run(plan.id, plan.userId, plan.packageId, plan.packageSnapshotHash, plan.provider, plan.requirementsFingerprint, plan.planFingerprint, plan.status, JSON.stringify(plan), plan.createdAt, plan.updatedAt);
+  // UPSERT: repeated answer saves re-persist the same plan id (idempotent);
+  // a plain INSERT would raise UNIQUE constraint failures on updates.
+  getDb().prepare(`
+    INSERT INTO submission_plans (
+      id, user_id, package_id, package_snapshot_hash, provider,
+      requirements_fingerprint, plan_fingerprint, status, data, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      package_snapshot_hash = excluded.package_snapshot_hash,
+      provider = excluded.provider,
+      requirements_fingerprint = excluded.requirements_fingerprint,
+      plan_fingerprint = excluded.plan_fingerprint,
+      status = excluded.status,
+      data = excluded.data,
+      updated_at = excluded.updated_at
+  `).run(plan.id, plan.userId, plan.packageId, plan.packageSnapshotHash, plan.provider, plan.requirementsFingerprint, plan.planFingerprint, plan.status, JSON.stringify(plan), plan.createdAt, plan.updatedAt);
   return plan;
 }
 

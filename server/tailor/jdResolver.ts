@@ -122,7 +122,7 @@ export async function ensureJobDescription(job: Job): Promise<Job> {
     // Other providers (e.g. Lever) supply descriptions in their list payloads;
     // if one is genuinely missing, surface honestly rather than fabricating.
     if (!isMeaningfulDescription(job.description)) {
-      throw new JDResolutionError("Couldn't load the full job description for this job. Please try again or open the job posting.");
+      throw new JDResolutionError("This job posting doesn't include a usable description from the employer, so an application can't be prepared against it. Open the posting via View to review it, or apply for the role manually.");
     }
     return job;
   }

@@ -82,7 +82,7 @@ export interface SubmissionPlan {
   mappedFields: MappedField[];
   files: Array<{ kind: 'RESUME' | 'COVER_LETTER' | 'OTHER'; artifactSha?: string }>;
   unresolvedFields: string[];
-  unresolvedDetails: Array<{ providerFieldId: string; label: string; required: boolean; reason: string }>;
+  unresolvedDetails: Array<{ providerFieldId: string; label: string; required: boolean; reason: string; type?: ApplicationField['type']; options?: string[]; category?: ApplicationField['category'] }>;
   consentFields: Array<{ providerFieldId: string; label: string; required: boolean; status: 'REQUIRES_REVIEW'; classification: import('./executionContract.js').ConsentClassification }>;
   manualFields: Array<{ providerFieldId: string; label: string; required: boolean; reason: string }>;
   status: PlanStatus;

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { HamburgerTrigger } from '../navigation';
 import { X, MagnifyingGlass, ArrowSquareOut, Sparkle } from '@phosphor-icons/react';
 import { ArrowLeft } from 'lucide-react';
 
@@ -215,6 +216,7 @@ export const LinkedInPostsScreen: React.FC<{ onClose: () => void }> = ({ onClose
   return (
     <div className="lp-screen">
       <header className="lp-hdr">
+        <HamburgerTrigger />
         <div className="lp-hdr-logo"><span className="lp-orb" aria-hidden="true"></span></div>
         <div className="lp-hdr-ttl">
           <b>LinkedIn Posts</b>
@@ -343,7 +345,7 @@ export const LinkedInPostsScreen: React.FC<{ onClose: () => void }> = ({ onClose
       </div>
 
       <style>{`
-        .lp-screen{position:fixed; inset:0; z-index:55; background:#F7F8FA; color:#0F172A; display:flex; flex-direction:column;
+        .lp-screen{position:relative; height:100vh; background:#F7F8FA; color:#0F172A; display:flex; flex-direction:column;
           font-family:'Plus Jakarta Sans',system-ui,-apple-system,sans-serif;}
         .lp-hdr{display:flex; align-items:center; gap:13px; padding:0 28px; height:64px; border-bottom:1px solid #E2E8F0;
           background:rgba(255,255,255,.82); backdrop-filter:blur(12px); flex-shrink:0;}

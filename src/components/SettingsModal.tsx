@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { HamburgerTrigger } from '../navigation';
+import { CandidateProfilePanel } from './CandidateProfilePanel';
 import { AppConfig, LlmProvider } from '../types';
-import { ArrowLeft, User, LockKey, PlugsConnected, Brain, RocketLaunch, EnvelopeSimple, ShieldCheck, Key, Database, CheckCircle, CaretRight, Warning, Pulse, Check, Eye, EyeSlash, ArrowSquareOut, Info, GlobeSimple } from '@phosphor-icons/react';
+import { ArrowLeft, User, UserCircle, LockKey, PlugsConnected, Brain, RocketLaunch, EnvelopeSimple, Key, CheckCircle, CaretRight, Warning, Pulse, Check, Eye, EyeSlash, ArrowSquareOut, Info } from '@phosphor-icons/react';
 import { RECOVERY_QUESTIONS } from '../constants/recoveryQuestions';
-import { PROVIDER_BASE_URLS as LLM_PRESETS } from '../constants/llmPresets';
-import { APIFY_SOURCES } from '../constants/sources';
-import { searchLocations } from '../lib/locations';
+import { PROVIDER_BASE_URLS as LLM_PRESETS, PROVIDER_FALLBACK_MODELS } from '../constants/llmPresets';
 import { codes as currencyCodes, code as currencyCodeInfo } from 'currency-codes';
 import languagesData from 'languages/languages.json';
 import pkg from '../../package.json';
@@ -20,28 +20,7 @@ const ALL_LANGUAGE_NAMES = (Object.values(languagesData.lang) as [string, string
   .map((v) => v[0])
   .filter(Boolean);
 
-interface CandidateProfile {
-  workModes: string[];
-  preferredLocations: string[];
-  noticePeriod: string;
-  availableFrom: string;
-  employmentTypes: string[];
-  yearsExperience: string;
-  currentRole: string;
-  currentCompany: string;
-  currentSalary: string;
-  expectedSalaryMin: string;
-  expectedSalaryMax: string;
-  salaryCurrency: string;
-  jobSearchStatus: string;
-  willingToRelocate: 'yes' | 'no' | 'certain-cities';
-  willingToTravelPct: string;
-  workAuthorization: string;
-  needsSponsorship: boolean;
-  languages: string[];
-  preferredCompanySize: string;
-  recruiterNote: string;
-}
+
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -53,7 +32,6 @@ interface SettingsModalProps {
 }
 
 const OPENCODE_REFERRAL_URL = 'https://opencode.ai/go?ref=TTETM6S7H5';
-const APIFY_REFERRAL_URL = 'https://console.apify.com/sign-up?fpr=xu9hcp';
 
 const PROVIDER_LABELS: Record<LlmProvider, string> = {
   'opencode-go': 'OpenCode Go',
@@ -73,31 +51,7 @@ const PROVIDER_TAG: Record<LlmProvider, string> = {
   'nvidia': 'GPU models',
 };
 
-const PROVIDER_MODELS: Record<LlmProvider, string[]> = {
-  'opencode-go': [
-    'deepseek-v4-flash',
-    'deepseek-v4-pro',
-    'kimi-k3',
-    'kimi-k2.7-code',
-    'kimi-k2.6',
-    'qwen3.7-max',
-    'qwen3.7-plus',
-    'qwen3.6-plus',
-    'grok-4.5',
-    'glm-5.2',
-    'glm-5.1',
-    'mimo-v2.5-pro',
-    'mimo-v2.5',
-    'minimax-m3',
-    'minimax-m2.7',
-    'hy3',
-  ],
-  'openrouter': ['Custom (type below)'],
-  'openai': ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o3-mini', 'Custom (type below)'],
-  'gemini': ['gemini-3.6-flash', 'gemini-2.5-pro', 'gemini-2.0-flash', 'Custom (type below)'],
-  'anthropic': ['claude-sonnet-4-20250514', 'claude-3.5-haiku', 'claude-opus-4', 'Custom (type below)'],
-  'nvidia': ['deepseek-ai/deepseek-v4-flash', 'deepseek-ai/deepseek-v4-pro', 'meta/llama-3.3-70b-instruct', 'mistralai/mistral-large', 'Custom (type below)'],
-};
+const PROVIDER_MODELS = PROVIDER_FALLBACK_MODELS;
 
 const PROVIDER_BASE_URLS = LLM_PRESETS;
 
@@ -125,149 +79,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const setFormDataTouched = (v: AppConfig) => { setDirty(true); setFormData(v); };
   const [isSaving, setIsSaving] = useState(false);
   const [showKey, setShowKey] = useState(false);
-  const [showApify, setShowApify] = useState(false);
-  const [showLiAt, setShowLiAt] = useState(false);
   const [testState, setTestState] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
   const [testMsg, setTestMsg] = useState('');
   const [savedToast, setSavedToast] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [activePanel, setActivePanel] = useState<'account' | 'security' | 'integration'>('account');
+const APIFY_REFERRAL_URL = 'https://console.apify.com/sign-up?fpr=xu9hcp';
+  const [showApify, setShowApify] = useState(false);
+  const [activePanel, setActivePanel] = useState<'candidate' | 'security' | 'integration'>('candidate');
   const [activeItab, setActiveItab] = useState<'llm' | 'apify' | 'email'>('llm');
-  const [companionPaired, setCompanionPaired] = useState<boolean | null>(null);
-  const [appPasswordConfigured, setAppPasswordConfigured] = useState(false);
-  const [appPasswordStatus, setAppPasswordStatus] = useState('');
-  const [gmailConnected, setGmailConnected] = useState(false);
-  const [msConnected, setMsConnected] = useState(false);
-  useEffect(() => {
-    fetch('/api/credentials/application-password/status').then((r) => (r.ok ? r.json() : null)).then((d) => { if (d) setAppPasswordConfigured(d.configured === true); }).catch(() => {});
-    fetch('/api/mail/status').then((r) => (r.ok ? r.json() : null)).then((d) => {
-      if (d?.connections) {
-        setGmailConnected(d.connections.some((c: any) => c.connector === 'gmail' && c.status !== 'disconnected'));
-        setMsConnected(d.connections.some((c: any) => c.connector === 'microsoft' && c.status !== 'disconnected'));
-      }
-    }).catch(() => {});
-  }, []);
-  const generateAppPassword = async () => {
-    const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
-    const bytes = new Uint8Array(20);
-    crypto.getRandomValues(bytes);
-    const password = [...bytes].map((b) => charset[b % charset.length]).join('');
-    const res = await fetch('/api/credentials/application-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
-    if (res.ok) { setAppPasswordConfigured(true); setAppPasswordStatus('Generated and saved. Existing ATS accounts keep their old passwords.'); }
-    else setAppPasswordStatus('Could not save.');
-  };
-  const setOwnAppPassword = async () => {
-    const value = window.prompt('Set your own application password (min 12 chars). Do not reuse your email or banking password.');
-    if (!value) return;
-    if (value.length < 12) { setAppPasswordStatus('Minimum 12 characters.'); return; }
-    const res = await fetch('/api/credentials/application-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: value }) });
-    setAppPasswordStatus(res.ok ? 'Saved.' : 'Could not save.');
-    if (res.ok) setAppPasswordConfigured(true);
-  };
-  const removeAppPassword = async () => {
-    await fetch('/api/credentials/application-password', { method: 'DELETE' });
-    setAppPasswordConfigured(false);
-    setAppPasswordStatus('Removed.');
-  };
-  const connectMail = async (connector: string) => {
-    const res = await fetch('/api/mail/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ connector }) });
-    if (res.ok) { if (connector === 'gmail') setGmailConnected(true); else setMsConnected(true); }
-  };
-  const disconnectMail = async (connector: string) => {
-    const res = await fetch('/api/mail/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ connector }) });
-    void res;
-    if (connector === 'gmail') setGmailConnected(false); else setMsConnected(false);
-  };
-  const syncMail = async (connector: string) => {
-    const res = await fetch('/api/mail/sync-now', { method: 'POST' });
-    const d = await res.json().catch(() => ({}));
-    setAppPasswordStatus(d.error ? 'Sync unavailable (mailbox not authorized).' : `Synced: ${d.scanned ?? 0} scanned.`);
-  };
-  const [pairingCode, setPairingCode] = useState('');
-  const [companionBusy, setCompanionBusy] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => {
-      window.postMessage({ type: 'TAILOR_PING' }, '*');
-      const onPong = (e: MessageEvent) => {
-        if (e.data?.type !== 'TAILOR_PONG') return;
-        setCompanionPaired(e.data.paired === true);
-        window.removeEventListener('message', onPong);
-      };
-      window.addEventListener('message', onPong);
-    }, 300);
-    return () => clearTimeout(t);
-  }, []);
-  const generatePairCode = async () => {
-    setCompanionBusy(true);
-    try {
-      const res = await fetch('/api/browser-companion/pairing-code', { method: 'POST' });
-      if (!res.ok) throw new Error('Could not generate a pairing code.');
-      const d = await res.json();
-      setPairingCode(d.code);
-    } catch { setPairingCode(''); }
-    finally { setCompanionBusy(false); }
-  };
-  const unpairCompanion = async () => {
-    setCompanionBusy(true);
-    try {
-      await fetch('/api/browser-companion/unpair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pairingId: 'any' }) });
-    } catch {}
-    setCompanionPaired(false);
-    setPairingCode('');
-    setCompanionBusy(false);
-  };
-
-  // Job preferences (candidate profile)
-  const [candidateProfile, setCandidateProfile] = useState<CandidateProfile | null>(null);
-  const [profileLocOptions, setProfileLocOptions] = useState<string[]>([]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    fetch('/api/profile').then((r) => r.json()).then((d) => setCandidateProfile(d.profile || null)).catch(() => setCandidateProfile(null));
-  }, [isOpen]);
-
-  // Saves the job preferences with the main "Save changes" flow — the
-  // cleaned profile rides along with the config save.
-  const saveCandidateProfileWithConfig = async (): Promise<boolean> => {
-    if (!candidateProfile) return true;
-    const clean = {
-      ...candidateProfile,
-      preferredLocations: candidateProfile.preferredLocations.map((s) => s.trim()).filter(Boolean),
-      languages: candidateProfile.languages.map((s) => s.trim()).filter(Boolean),
-    };
-    const res = await fetch('/api/profile', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profile: clean }),
-    });
-    return res.ok;
-  };
-
-  const [profileLocDraft, setProfileLocDraft] = useState('');
-
-  const onProfileLocationInput = (v: string) => {
-    setProfileLocDraft(v);
-    if (v.trim().length >= 1) {
-      searchLocations(v.trim(), 8).then((list) => setProfileLocOptions(list.map((l) => l.label)));
-    } else {
-      setProfileLocOptions([]);
-    }
-  };
-
-  const addPreferredLocation = (raw: string) => {
-    const loc = raw.trim();
-    if (!loc) return;
-    setCandidateProfile((p) => p && {
-      ...p,
-      preferredLocations: p.preferredLocations.includes(loc) ? p.preferredLocations : [...p.preferredLocations, loc],
-    });
-    setProfileLocDraft('');
-    setProfileLocOptions([]);
-  };
-
-  const removePreferredLocation = (loc: string) => {
-    setCandidateProfile((p) => p && { ...p, preferredLocations: p.preferredLocations.filter((x) => x !== loc) });
-  };
 
   const [profileLangDraft, setProfileLangDraft] = useState('');
   const [profileLangOptions, setProfileLangOptions] = useState<string[]>([]);
@@ -283,21 +102,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     } else {
       setProfileLangOptions([]);
     }
-  };
-
-  const addPreferredLanguage = (raw: string) => {
-    const lang = raw.trim();
-    if (!lang) return;
-    setCandidateProfile((p) => p && {
-      ...p,
-      languages: p.languages.includes(lang) ? p.languages : [...p.languages, lang],
-    });
-    setProfileLangDraft('');
-    setProfileLangOptions([]);
-  };
-
-  const removePreferredLanguage = (lang: string) => {
-    setCandidateProfile((p) => p && { ...p, languages: p.languages.filter((x) => x !== lang) });
   };
 
   // Recovery questions (password accounts only)
@@ -341,8 +145,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setSaveError(null);
     try {
       await onSaveConfig(formData);
-      const profileOk = await saveCandidateProfileWithConfig();
-      if (!profileOk) throw new Error('Could not save job preferences.');
       setDirty(false);
       setSavedToast(true);
       setTimeout(() => setSavedToast(false), 2400);
@@ -354,8 +156,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const selectProvider = (p: LlmProvider) => {
-    const defaults = PROVIDER_MODELS[p];
-    const defaultModel = defaults[0];
+    const fallbackDefaults = PROVIDER_MODELS[p] || [''];
+    const merged = mergedModels(p);
+    const defaultModel = (merged.find((m) => m !== 'Custom (type below)') || fallbackDefaults.find((m) => m !== 'Custom (type below)') || formData.llm.model);
     setFormDataTouched({
       ...formData,
       llm: {
@@ -387,7 +190,48 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const provider = formData.llm.provider || 'opencode-go';
-  const models = PROVIDER_MODELS[provider] || PROVIDER_MODELS['opencode-go'];
+  const staticModels = PROVIDER_MODELS[provider] || PROVIDER_MODELS['opencode-go'];
+
+  // ── Live model catalog — fetched from the provider (opencode-go,
+  // openrouter, openai, nvidia expose GET /models); the dropdown never
+  // needs a code edit when the provider adds models. ───────────────
+  const [catalog, setCatalog] = React.useState<{ models: { id: string; created: number; owned_by?: string }[]; fetchedAt: string | null; stale: boolean; reason?: string } | null>(null);
+  const [catalogLoading, setCatalogLoading] = React.useState(false);
+  const refreshCatalog = React.useCallback(async () => {
+    setCatalogLoading(true);
+    try {
+      const r = await fetch('/api/models');
+      if (r.ok) {
+        const d = await r.json();
+        setCatalog(d && Array.isArray(d.models) ? d : null);
+      }
+    } catch { /* keep last catalog */ }
+    finally { setCatalogLoading(false); }
+  }, []);
+  React.useEffect(() => { void refreshCatalog(); }, [refreshCatalog]);
+
+  const catalogLive = catalog && !catalog.stale ? catalog.models : [];
+  const mergedModels = React.useCallback((p: LlmProvider): string[] => {
+    const live = catalogLive.length ? catalogLive.map((m) => m.id) : [];
+    const base = live.length
+      ? live
+      : (PROVIDER_MODELS[p] || PROVIDER_MODELS['opencode-go']).filter((m) => m !== 'Custom (type below)');
+    const hasCustom = (PROVIDER_MODELS[p] || []).includes('Custom (type below)');
+    return hasCustom ? [...base, 'Custom (type below)'] : base;
+  }, [catalogLive]);
+
+  const models = mergedModels(provider);
+  const modelTiers = React.useMemo(() => {
+    const map = new Map<string, { free: boolean; isNew: boolean }>();
+    for (const m of catalogLive) {
+      const createdMs = m.created > 10_000_000_000 ? m.created : m.created * 1000;
+      map.set(m.id, {
+        free: /(?:^|-)(?:free|contributor)(?:-|$)|big-pickle/i.test(m.id),
+        isNew: createdMs > 0 && createdMs > Date.now() - 45 * 24 * 3600 * 1000,
+      });
+    }
+    return map;
+  }, [catalogLive]);
   const showCustomModel = !models.includes(formData.llm.model);
 
   const [emailTestState, setEmailTestState] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
@@ -417,7 +261,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const isGuest = !!user?.isGuest;
 
   const panels = [
-    { id: 'account' as const, label: 'Account', icon: User },
+    { id: 'candidate' as const, label: 'Candidate Profile', icon: UserCircle },
     { id: 'security' as const, label: 'Security', icon: LockKey },
     { id: 'integration' as const, label: 'Integrations', icon: PlugsConnected, count: 3 },
   ];
@@ -436,11 +280,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     <div className="st-screen">
       {/* ── Header ── */}
       <header className="st-hdr">
+        <HamburgerTrigger />
         <div className="st-ttl">Settings <small>Tailor CV workspace</small></div>
         <div className="st-spacer" />
-        <span className={`st-status ${dirty ? 'warn' : ''}`}>
-          {dirty ? <><Info size={13} weight="bold" /> Unsaved changes</> : <><CheckCircle size={13} weight="bold" /> All saved</>}
-        </span>
+
       </header>
 
       {/* ── Layout ── */}
@@ -457,7 +300,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </button>
           ))}
           <div className="st-side-note">
-            Tailor CV v{pkg.version} — created by <b>Atanu Biswas</b><br />© 2026 Atanu Biswas · All rights reserved.
           </div>
         </aside>
 
@@ -465,252 +307,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <main className="st-content">
 
           {/* ═══ ACCOUNT ═══ */}
-          {activePanel === 'account' && (
-            <section className="st-panel" aria-label="Account settings">
-              <div className="st-phead"><h2>Account</h2><p>Your profile, contact details and matching preferences.</p></div>
-
-              <div className="st-card">
-                <div className="st-card-head">
-                  <div className="st-avatar">{initials}</div>
-                  <div className="st-t">
-                    <b>{user?.name || 'Local user'}</b>
-                    <span className="st-d">{user?.email || '—'}{!isGuest && user ? ' · Registered account' : isGuest ? ' · Guest session' : ''}</span>
-                  </div>
-                  <div className="st-spacer" />
-                  <span className="st-tag green"><CheckCircle size={12} weight="bold" /> {isGuest ? 'Guest' : 'Registered'}</span>
-                </div>
-                <div className="st-card-body">
-                  <label className="st-flabel" htmlFor="st-fname">Profile</label>
-                  <div className="st-row">
-                    <div className="st-lbl"><label htmlFor="st-fname"><b>Full name</b><span>Used in tailored CVs and email signatures — edit in the Applicant Profile.</span></label></div>
-                    <input className={inputCls} id="st-fname" type="text" value={user?.name || ''} disabled />
-                  </div>
-                  <div className="st-row">
-                    <div className="st-lbl"><label htmlFor="st-femail"><b>Email address</b><span>Login identifier — cannot be changed.</span></label></div>
-                    <input className={inputCls} id="st-femail" type="text" value={user?.email || ''} disabled />
-                  </div>
-                  <div className="st-row">
-                    <div className="st-lbl"><b>Profile details</b><span>Location, phone, portfolio URL and your full CV live in the Master CV screen.</span></div>
-                    {onOpenMasterCv && (
-                      <button className="st-btn sm" onClick={() => { onClose(); onOpenMasterCv?.(); }}><ArrowSquareOut size={14} weight="bold" /> Open Master CV</button>
-                    )}
-                  </div>
-                  <label className="st-flabel" htmlFor="st-fmin">Matching preferences</label>
-                  <div className="st-row">
-                    <div className="st-lbl"><label htmlFor="st-fmin"><b>Auto-tailor minimum</b><span>Minimum match % to tailor automatically.</span></label></div>
-                    <input className={smallCls} id="st-fmin" type="text" value={formData.thresholds.minMatchForTailor}
-                      onChange={(e) => setFormDataTouched({ ...formData, thresholds: { ...formData.thresholds, minMatchForTailor: Number(e.target.value) || 0 } })} />
-                  </div>
-                  <div className="st-row">
-                    <div className="st-lbl"><label htmlFor="st-fblock"><b>Early block</b><span>Scores below this are blocked from tailoring.</span></label></div>
-                    <input className={smallCls} id="st-fblock" type="text" value={formData.thresholds.earlyBlockThreshold}
-                      onChange={(e) => setFormDataTouched({ ...formData, thresholds: { ...formData.thresholds, earlyBlockThreshold: Number(e.target.value) || 0 } })} />
-                  </div>
-                </div>
-              </div>
-
-              {candidateProfile && (
-                <div className="stp-card" style={{ marginTop: 18 }}>
-                  <div className="stp-card-title">Job Preferences</div>
-                  <p className="stp-card-sub">Extra details for the AI — used alongside your CV when drafting cold emails and matching jobs. Nothing here goes on your CV.</p>
-
-                  <div className="stp-grid2">
-                    <div className="stp-field">
-                      <label className="stp-label">Work mode preference</label>
-                      <div className="stp-chips">
-                        {['remote', 'onsite', 'hybrid', 'flexible'].map((m) => (
-                          <button key={m} type="button" className={`stp-chip ${candidateProfile.workModes.includes(m) ? 'on' : ''}`}
-                            onClick={() => setCandidateProfile((p) => p && { ...p, workModes: p.workModes.includes(m) ? p.workModes.filter((x) => x !== m) : [...p.workModes, m] })}>
-                            {m[0].toUpperCase() + m.slice(1)}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Preferred locations</label>
-                      <div className="stp-locbox">
-                        {candidateProfile.preferredLocations.map((loc) => (
-                          <span key={loc} className="stp-loc-chip">
-                            {loc}
-                            <button type="button" className="stp-loc-x" aria-label={`Remove ${loc}`} onClick={() => removePreferredLocation(loc)}>×</button>
-                          </span>
-                        ))}
-                        <input
-                          list="profile-locations"
-                          className="stp-loc-input"
-                          placeholder={candidateProfile.preferredLocations.length ? 'Add another (type & pick or press Enter)…' : 'Type to search locations — e.g. Kolkata, Remote…'}
-                          value={profileLocDraft}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            if (profileLocOptions.includes(v)) { addPreferredLocation(v); } else { onProfileLocationInput(v); }
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') { e.preventDefault(); addPreferredLocation(profileLocDraft); }
-                          }}
-                        />
-                      </div>
-                      <datalist id="profile-locations">{profileLocOptions.map((o) => <option key={o} value={o} />)}</datalist>
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Notice period</label>
-                      <select className="stp-input" value={candidateProfile.noticePeriod}
-                        onChange={(e) => setCandidateProfile((p) => p && { ...p, noticePeriod: e.target.value })}>
-                        <option value="">Not set</option>
-                        <option>Immediate</option>
-                        <option>15 days</option>
-                        <option>30 days</option>
-                        <option>45 days</option>
-                        <option>60 days</option>
-                        <option>90 days</option>
-                        <option>Serving notice</option>
-                      </select>
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Available from</label>
-                      <input type="date" className="stp-input" value={candidateProfile.availableFrom}
-                        onChange={(e) => setCandidateProfile((p) => p && { ...p, availableFrom: e.target.value })} />
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Employment type preference</label>
-                      <div className="stp-chips">
-                        {['full-time', 'part-time', 'contract', 'freelance'].map((m) => (
-                          <button key={m} type="button" className={`stp-chip ${candidateProfile.employmentTypes.includes(m) ? 'on' : ''}`}
-                            onClick={() => setCandidateProfile((p) => p && { ...p, employmentTypes: p.employmentTypes.includes(m) ? p.employmentTypes.filter((x) => x !== m) : [...p.employmentTypes, m] })}>
-                            {m === 'full-time' ? 'Full-time' : m[0].toUpperCase() + m.slice(1)}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Years of experience</label>
-                      <input className="stp-input" placeholder="e.g. 4+ years" value={candidateProfile.yearsExperience}
-                        onChange={(e) => setCandidateProfile((p) => p && { ...p, yearsExperience: e.target.value })} />
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Current role / company</label>
-                      <input className="stp-input" placeholder="e.g. Senior DevSecOps Engineer @ Human Managed" value={`${candidateProfile.currentRole}${candidateProfile.currentRole && candidateProfile.currentCompany ? ' @ ' : ''}${candidateProfile.currentCompany}`}
-                        onChange={(e) => {
-                          const [role, company] = e.target.value.split(' @ ');
-                          setCandidateProfile((p) => p && { ...p, currentRole: (role || '').trim(), currentCompany: (company || '').trim() });
-                        }} />
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Job search status</label>
-                      <select className="stp-input" value={candidateProfile.jobSearchStatus}
-                        onChange={(e) => setCandidateProfile((p) => p && { ...p, jobSearchStatus: e.target.value })}>
-                        <option value="">Not set</option>
-                        <option>Actively looking</option>
-                        <option>Open to opportunities</option>
-                        <option>Not looking</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="stp-section-title" style={{ marginTop: 16 }}>Compensation (kept private — used by the AI for matching, never sent in cold emails)</div>
-                  <div className="stp-grid2">
-                    <div className="stp-field">
-                      <label className="stp-label">Current salary</label>
-                      <input className="stp-input" placeholder="e.g. 14,00,000" value={candidateProfile.currentSalary}
-                        onChange={(e) => setCandidateProfile((p) => p && { ...p, currentSalary: e.target.value })} />
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Expected salary (min – max)</label>
-                      <div className="stp-inline">
-                        <input className="stp-input" placeholder="Min" value={candidateProfile.expectedSalaryMin}
-                          onChange={(e) => setCandidateProfile((p) => p && { ...p, expectedSalaryMin: e.target.value })} />
-                        <input className="stp-input" placeholder="Max" value={candidateProfile.expectedSalaryMax}
-                          onChange={(e) => setCandidateProfile((p) => p && { ...p, expectedSalaryMax: e.target.value })} />
-                      </div>
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Currency</label>
-                      <select className="stp-input" value={candidateProfile.salaryCurrency}
-                        onChange={(e) => setCandidateProfile((p) => p && { ...p, salaryCurrency: e.target.value })}>
-                        <option value="">Not set</option>
-                        {ALL_CURRENCIES.map((c) => (
-                          <option key={c.code} value={c.code}>{c.code} — {c.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Work authorization</label>
-                      <select className="stp-input" value={candidateProfile.workAuthorization}
-                        onChange={(e) => setCandidateProfile((p) => p && { ...p, workAuthorization: e.target.value })}>
-                        <option value="">Not set</option>
-                        <option>Citizen</option><option>Permanent resident</option><option>Work visa</option><option>Student visa</option><option>Open to sponsorship</option>
-                      </select>
-                    </div>
-                    <div className="stp-field stp-check">
-                      <label className="stp-check-label">
-                        <input type="checkbox" checked={candidateProfile.needsSponsorship}
-                          onChange={(e) => setCandidateProfile((p) => p && { ...p, needsSponsorship: e.target.checked })} />
-                        I need visa sponsorship
-                      </label>
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Willing to relocate</label>
-                      <div className="stp-chips">
-                        {(['yes', 'no', 'certain-cities'] as const).map((m) => (
-                          <button key={m} type="button" className={`stp-chip ${candidateProfile.willingToRelocate === m ? 'on' : ''}`}
-                            onClick={() => setCandidateProfile((p) => p && { ...p, willingToRelocate: m })}>
-                            {m === 'certain-cities' ? 'Certain cities' : m[0].toUpperCase() + m.slice(1)}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Willing to travel (%)</label>
-                      <input className="stp-input" placeholder="e.g. 25" value={candidateProfile.willingToTravelPct}
-                        onChange={(e) => setCandidateProfile((p) => p && { ...p, willingToTravelPct: e.target.value })} />
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Languages</label>
-                      <div className="stp-locbox">
-                        {candidateProfile.languages.map((lang) => (
-                          <span key={lang} className="stp-loc-chip">
-                            {lang}
-                            <button type="button" className="stp-loc-x" aria-label={`Remove ${lang}`} onClick={() => removePreferredLanguage(lang)}>×</button>
-                          </span>
-                        ))}
-                        <input
-                          list="profile-languages"
-                          className="stp-loc-input"
-                          placeholder={candidateProfile.languages.length ? 'Add another (type & pick or press Enter)…' : 'Type to search languages — e.g. English…'}
-                          value={profileLangDraft}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            if (profileLangOptions.includes(v)) { addPreferredLanguage(v); } else { onProfileLanguageInput(v); }
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') { e.preventDefault(); addPreferredLanguage(profileLangDraft); }
-                          }}
-                        />
-                      </div>
-                      <datalist id="profile-languages">{profileLangOptions.map((o) => <option key={o} value={o} />)}</datalist>
-                    </div>
-                    <div className="stp-field">
-                      <label className="stp-label">Preferred company size</label>
-                      <select className="stp-input" value={candidateProfile.preferredCompanySize}
-                        onChange={(e) => setCandidateProfile((p) => p && { ...p, preferredCompanySize: e.target.value })}>
-                        <option value="">Not set</option>
-                        <option>Startup (1–50)</option><option>Mid-size (51–500)</option><option>Large (500+)</option><option>Any</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="stp-field" style={{ marginTop: 16 }}>
-                    <label className="stp-label">Anything else a recruiter should know</label>
-                    <textarea className="stp-input" rows={3} placeholder="e.g. Open to contract-to-hire, prefer teams with on-call rotation, relocating to Bangalore in Jan…"
-                      value={candidateProfile.recruiterNote}
-                      onChange={(e) => setCandidateProfile((p) => p && { ...p, recruiterNote: e.target.value })} />
-                  </div>
-                  <p className="stp-hint">Job preferences are saved with the main <b>Save changes</b> button.</p>
-                </div>
-              )}
-            </section>
+          {activePanel === 'candidate' && (
+            <CandidateProfilePanel />
           )}
 
-          {/* ═══ SECURITY ═══ */}
           {activePanel === 'security' && (
             <section className="st-panel" aria-label="Security settings">
               <div className="st-phead"><h2>Security</h2><p>Recovery options and privacy for your local account.</p></div>
@@ -763,62 +363,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
-              <div className="st-card">
-                <div className="st-card-head">
-                  <div className="st-card-ico red"><ShieldCheck size={17} weight="duotone" /></div>
-                  <div className="st-t"><b>Data &amp; privacy</b><span className="st-d">Everything stays on this machine.</span></div>
-                </div>
-                <div className="st-card-body">
-                  <div className="st-row">
-                    <div className="st-lbl"><b>Local SQLite database</b><span>Jobs, CVs and contacts never leave your device.</span></div>
-                    <span className="st-tag green"><Database size={12} weight="bold" /> Local only</span>
-                  </div>
-                  <div className="st-row">
-                    <div className="st-lbl"><b>API keys</b><span>Stored only in your local config.ini — never committed or logged.</span></div>
-                    <span className="st-tag green"><LockKey size={12} weight="bold" /> Local only</span>
-                  </div>
-                </div>
-              </div>
             </section>
           )}
 
           {/* ═══ INTEGRATIONS ═══ */}
           {activePanel === 'integration' && (
             <>
-            <section className="st-panel" aria-label="Browser Companion settings">
-              <div className="st-phead"><h2>Browser Companion</h2><p>Local browser assistant that fills approved applications on the real Lever page. Never submits, never solves CAPTCHAs, never touches your resume.</p></div>
-              <div className="st-card">
-                <div className="st-card-head">
-                  <div className="st-card-ico violet"><GlobeSimple size={17} weight="duotone" /></div>
-                  <div className="st-t"><b>Status</b>
-                    <span className="st-d">{companionPaired === true ? 'Paired — continue in the browser from the Applications dashboard.' : companionPaired === false ? 'Not paired.' : 'Checking…'}</span>
-                  </div>
-                  <div className="st-spacer" />
-                  <span className={`st-tag ${companionPaired === true ? 'green' : 'red'}`}>
-                    {companionPaired === true ? 'Paired' : 'Not paired'}
-                  </span>
-                </div>
-                {pairingCode && (
-                  <div className="st-card-sub">
-                    <div style={{ fontSize: 12, marginTop: 8 }}>
-                      One-time pairing code (10 minutes, single use): <b style={{ fontFamily: 'monospace', letterSpacing: 2 }}>{pairingCode}</b>
-                      <br />
-                      <span style={{ color: 'var(--st-faint, #64748B)' }}>Open the extension options and paste this code to pair this browser.</span>
-                    </div>
-                  </div>
-                )}
-                <div className="st-card-actions" style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                  <button className="st-btn primary" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', background: 'var(--st-cta, #2563eb)', color: '#fff', border: 0 }} onClick={generatePairCode} disabled={companionBusy}>
-                    {companionBusy ? '…' : pairingCode ? 'Regenerate code' : 'Pair Extension'}
-                  </button>
-                  <button className="st-btn" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: '#e2e8f0', color: '#334155', border: 0 }} onClick={unpairCompanion} disabled={companionBusy || companionPaired !== true}>
-                    Unpair
-                  </button>
-                  <span style={{ fontSize: 11, alignSelf: 'center', color: 'var(--st-faint, #64748B)' }}>Protocol v1</span>
-                </div>
-              </div>
-            </section>
-
             <section className="st-panel" aria-label="Integrations settings">
               <div className="st-phead"><h2>Integrations</h2><p>Bring-your-own keys — powers scoring, scraping and outreach.</p></div>
 
@@ -877,14 +427,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                       <span className="st-flabel" htmlFor="st-llmmodel">Model</span>
                       <div className="st-row">
-                        <div className="st-lbl"><label htmlFor="st-llmmodel"><b>Model name</b><span>Pick from the provider or type a custom one.</span></label></div>
+                        <div className="st-lbl">
+                          <label htmlFor="st-llmmodel"><b>Model name</b><span>Live catalog from your provider — updates automatically when new models arrive.</span></label>
+                          <span className="st-hint" data-qa="model-catalog-status">
+                            {catalogLoading ? 'Loading catalog…'
+                              : catalogLive.length ? `Loaded ${catalogLive.length} models · ${catalog.stale ? '' : 'live'}`
+                              : 'Live catalog unavailable — showing saved list'}
+                          </span>
+                        </div>
                         <select className={inputCls} id="st-llmmodel" value={models.includes(formData.llm.model) ? formData.llm.model : 'Custom (type below)'}
                           onChange={(e) => {
                             const val = e.target.value;
                             if (val !== 'Custom (type below)') setFormDataTouched({ ...formData, llm: { ...formData.llm, model: val } });
                           }}>
-                          {models.map((m) => <option key={m} value={m}>{m}</option>)}
+                          {models.map((m) => {
+                            const tier = modelTiers.get(m);
+                            return <option key={m} value={m}>{m}{tier?.free ? ' — Free' : ''}{tier?.isNew ? ' · New' : ''}</option>;
+                          })}
                         </select>
+                        <button type="button" className="st-refresh-btn" onClick={() => void refreshCatalog()} disabled={catalogLoading} aria-label="Refresh model list" title="Refresh the live model list">
+                          {catalogLoading ? 'Loading…' : 'Refresh'}
+                        </button>
                       </div>
                       {showCustomModel && (
                         <div className="st-row">
@@ -913,6 +476,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* APIFY */}
+              {/* APIFY — key + toggle only (cookie/source list/referral removed) */}
               {activeItab === 'apify' && (
                 <div className="st-igroup" role="tabpanel">
                   <div className="st-card">
@@ -940,23 +504,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 {showApify ? <EyeSlash size={16} /> : <Eye size={16} />}
                               </button>
                             </div>
-                          </div>
-                          <span className="st-flabel" htmlFor="st-liat">LinkedIn session cookie (no longer required)</span>
-                          <div className="st-row">
-                            <div className="st-lbl"><label htmlFor="st-liat"><b>li_at cookie</b><span>The LinkedIn Posts scraper now works WITHOUT a cookie (harvestapi actor). This field is kept for future use — you can leave it empty.</span></label></div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <input className={monoCls} id="st-liat" type={showLiAt ? 'text' : 'password'} value={formData.linkedin?.liAt || ''}
-                                onChange={(e) => setFormDataTouched({ ...formData, linkedin: { ...(formData.linkedin || { liAt: '' }), liAt: e.target.value } })} placeholder="AQED…" />
-                              <button className="st-eye" type="button" onClick={() => setShowLiAt((v) => !v)} title="Show / hide">
-                                {showLiAt ? <EyeSlash size={16} /> : <Eye size={16} />}
-                              </button>
-                            </div>
-                          </div>
-                          <span className="st-flabel">Powered by your Apify key</span>
-                          <div className="st-chips">
-                            {APIFY_SOURCES.map((s) => (
-                              <span key={s.id} className="st-chip">{s.label} {s.locked ? <span className="st-chip-p">· 🔒 locked</span> : <span className="st-chip-p">· {s.pricePer1K}/1K</span>}</span>
-                            ))}
                           </div>
                           <div className="st-referral">
                             <div className="st-referral-txt">
@@ -1049,63 +596,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
             </section>
 
-            <section className="st-panel" aria-label="Application Accounts settings">
-              <div className="st-phead"><h2>Application Accounts</h2><p>Used only when an employer's application system requires creating a new account. Never your email or banking password.</p></div>
-              <div className="st-card">
-                <div className="st-card-head">
-                  <div className="st-card-ico violet"><Key size={17} weight="duotone" /></div>
-                  <div className="st-t"><b>Application Password</b><span className="st-d">{appPasswordConfigured ? 'Configured — used for new ATS account creation only.' : 'Not configured — generate or set your own.'}</span></div>
-                  <div className="st-spacer" />
-                  <span className={`st-tag ${appPasswordConfigured ? 'green' : 'red'}`}>{appPasswordConfigured ? 'Configured' : 'Not configured'}</span>
-                </div>
-                <div className="st-card-body" style={{ fontSize: 12, color: 'var(--st-muted, #475569)' }}>
-                  <p style={{ marginTop: 4 }}>
-                    Minimum 12 characters. Existing ATS accounts keep their old passwords if you regenerate — the new password applies to future accounts only.
-                  </p>
-                  <div className="st-card-actions" style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                    <button className="st-btn primary sm" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', background: 'var(--st-cta, #059669)', color: '#fff', border: 0 }} onClick={generateAppPassword}>Generate strong password</button>
-                    <button className="st-btn sm" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: '#e2e8f0', color: '#334155', border: 0 }} onClick={setOwnAppPassword}>Set my own</button>
-                    <button className="st-btn sm" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: '#fee2e2', color: '#b91c1c', border: 0 }} onClick={removeAppPassword} disabled={!appPasswordConfigured}>Remove</button>
-                  </div>
-                  {appPasswordStatus && <p style={{ marginTop: 8, fontSize: 12 }}>{appPasswordStatus}</p>}
-                </div>
-              </div>
-            </section>
 
-            <section className="st-panel" aria-label="Email Connections settings">
-              <div className="st-phead"><h2>Email Connections</h2><p>Optional — link your mailbox so Tailor AI can update application status from employer emails. Read-only classification; nothing is forwarded or stored beyond evidence.</p></div>
-              <div className="st-card">
-                <div className="st-card-head">
-                  <div className="st-card-ico violet"><EnvelopeSimple size={17} weight="duotone" /></div>
-                  <div className="st-t"><b>Gmail</b><span className="st-d">OAuth connector — polling while the app runs.</span></div>
-                  <div className="st-spacer" />
-                  <span className={`st-tag ${gmailConnected ? 'green' : 'red'}`}>{gmailConnected ? 'Configured' : 'Not connected'}</span>
-                </div>
-                <div className="st-card-body" style={{ fontSize: 12, color: 'var(--st-muted, #475569)' }}>
-                  <p style={{ marginTop: 4 }}>Mailbox read permission may allow broader inbox access — Tailor AI only classifies job-related messages locally.</p>
-                  <div className="st-card-actions" style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                    <button className="st-btn primary sm" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', background: 'var(--st-cta, #059669)', color: '#fff', border: 0 }} onClick={() => connectMail('gmail')}>{gmailConnected ? 'Reconfigure' : 'Connect Gmail'}</button>
-                    <button className="st-btn sm" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: '#e2e8f0', color: '#334155', border: 0 }} onClick={() => syncMail('gmail')} disabled={!gmailConnected}>Sync now</button>
-                    <button className="st-btn sm" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: '#fee2e2', color: '#b91c1c', border: 0 }} onClick={() => disconnectMail('gmail')} disabled={!gmailConnected}>Disconnect</button>
-                  </div>
-                </div>
-              </div>
-              <div className="st-card">
-                <div className="st-card-head">
-                  <div className="st-card-ico violet"><EnvelopeSimple size={17} weight="duotone" /></div>
-                  <div className="st-t"><b>Microsoft</b><span className="st-d">Microsoft Graph OAuth connector.</span></div>
-                  <div className="st-spacer" />
-                  <span className={`st-tag ${msConnected ? 'green' : 'red'}`}>{msConnected ? 'Configured' : 'Not connected'}</span>
-                </div>
-                <div className="st-card-body" style={{ fontSize: 12, color: 'var(--st-muted, #475569)' }}>
-                  <div className="st-card-actions" style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                    <button className="st-btn primary sm" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', background: 'var(--st-cta, #059669)', color: '#fff', border: 0 }} onClick={() => connectMail('microsoft')}>{msConnected ? 'Reconfigure' : 'Connect Microsoft'}</button>
-                    <button className="st-btn sm" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: '#e2e8f0', color: '#334155', border: 0 }} onClick={() => syncMail('microsoft')} disabled={!msConnected}>Sync now</button>
-                    <button className="st-btn sm" style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: '#fee2e2', color: '#b91c1c', border: 0 }} onClick={() => disconnectMail('microsoft')} disabled={!msConnected}>Disconnect</button>
-                  </div>
-                </div>
-              </div>
-            </section>
             </>
           )}
 
@@ -1114,12 +605,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {saveError && <span className="stp-save-error">{saveError}</span>}
             <div className="st-spacer" />
             <button className="st-btn sm">Reset</button>
+            {activePanel !== 'candidate' && (
             <button className="st-btn primary" onClick={handleSave} disabled={isSaving}>
               {isSaving ? <><span className="st-spin" /> Saving…</> : <><Check size={14} weight="bold" /> Save changes</>}
             </button>
-          </div>
-          <div className="st-about">
-            Tailor CV v{pkg.version} — created by <b>Atanu Biswas</b> · © 2026 Atanu Biswas. All rights reserved. Personal use only — redistribution or white-labeling is prohibited (see LICENSE).
+            )}
           </div>
         </main>
       </div>
@@ -1128,7 +618,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       <div className={`st-toast ${savedToast ? 'show' : ''}`}><CheckCircle size={15} weight="bold" /> Changes saved</div>
 
       <style>{`
-        .st-screen{position:fixed; inset:0; z-index:40; background:var(--st-bg,#F8FAFC); color:var(--st-ink,#0F172A); display:flex; flex-direction:column; font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; --st-bg:#F9FAFB; --st-surface:#FFFFFF; --st-line:#E2E8F0; --st-line2:#CBD5E1; --st-ink:#0F172A; --st-muted:#475569; --st-faint:#64748B; --st-primary:#2563EB; --st-primary-strong:#1D4ED8; --st-primary-soft:#EFF6FF; --st-primary-line:#BFDBFE; --st-cta:#059669; --st-cta-soft:#ECFDF5; --st-cta-line:#A7F3D0; --st-danger:#DC2626; --st-danger-soft:#FEF2F2;}
+        .st-screen{position:relative; height:100vh; background:var(--st-bg,#F8FAFC); color:var(--st-ink,#0F172A); display:flex; flex-direction:column; font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; --st-bg:#F9FAFB; --st-surface:#FFFFFF; --st-line:#E2E8F0; --st-line2:#CBD5E1; --st-ink:#0F172A; --st-muted:#475569; --st-faint:#64748B; --st-primary:#2563EB; --st-primary-strong:#1D4ED8; --st-primary-soft:#EFF6FF; --st-primary-line:#BFDBFE; --st-cta:#059669; --st-cta-soft:#ECFDF5; --st-cta-line:#A7F3D0; --st-danger:#DC2626; --st-danger-soft:#FEF2F2;}
         .st-hdr{display:flex; align-items:center; gap:16px; padding:16px 28px; background:var(--st-surface); border-bottom:1px solid var(--st-line); flex-shrink:0;}
         .st-hbtn{display:inline-flex; align-items:center; gap:8px; padding:9px 15px; border-radius:10px; font-size:13px; font-weight:600; color:var(--st-muted); background:var(--st-surface); border:1px solid var(--st-line); cursor:pointer; transition:background .15s ease,color .15s ease,border-color .15s ease;}
         .st-hbtn:hover{background:var(--st-primary-soft); color:var(--st-primary); border-color:var(--st-primary-line);}
@@ -1179,6 +669,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         .st-lbl b{display:block; font-size:13px; font-weight:600; letter-spacing:-.01em;}
         .st-lbl span{display:block; font-size:11.5px; color:var(--st-faint); margin-top:2px;}
         .st-lbl label{cursor:pointer;}
+        .st-refresh-btn{margin-left:8px; padding:8px 12px; border-radius:8px; border:1px solid var(--st-line); background:#fff; font-size:11.5px; font-weight:600; color:var(--st-ink); cursor:pointer; white-space:nowrap;}
+        .st-refresh-btn:hover:not(:disabled){background:#F3F1FE;}
+        .st-refresh-btn:disabled{opacity:.55; cursor:default;}
         .st-inp{width:240px; border:1.5px solid var(--st-line2); border-radius:10px; padding:10px 13px; font-size:13px; color:var(--st-ink); background:var(--st-surface); outline:none; font-family:inherit; transition:border-color .15s ease,box-shadow .15s ease;}
         .st-inp:hover{border-color:var(--st-primary-line);}
         .st-inp:focus{border-color:var(--st-primary); box-shadow:0 0 0 3px rgba(99,102,241,.12);}
@@ -1255,6 +748,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           .st-inp{width:180px;}
         }
         .stp-card { background: var(--st-card, #fff); border: 1px solid var(--st-border, #E2E8F0); border-radius: 14px; padding: 18px; }
+        .stp-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+        .stp-status-tag { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--st-cta, #059669); background: var(--st-cta-soft, #ECFDF5); border: 1px solid var(--st-cta-line, #A7F3D0); border-radius: 999px; padding: 3px 9px; white-space: nowrap; }
+        .stp-status-tag.muted { color: var(--st-faint, #64748B); background: #F1F5F9; border-color: var(--st-border, #E2E8F0); }
+        .stp-opt { font-size: 10px; font-weight: 600; color: var(--st-faint, #64748B); text-transform: none; letter-spacing: 0; }
+        .stp-input.has-value { border-color: #C7D2FE; }
+        .stp-hint-inline { font-size: 10.5px; color: var(--st-faint, #64748B); font-weight: 500; margin-top: 2px; line-height: 1.45; }
+        .stp-input:disabled { background: #F1F5F9; color: var(--st-faint, #64748B); cursor: not-allowed; }
+        .stp-pick { display: inline-flex; align-items: center; font-size: 11.5px; font-weight: 700; padding: 7px 14px; border-radius: 999px; background: #fff; color: var(--st-muted, #475569); border: 1.5px solid var(--st-border, #E2E8F0); cursor: pointer; transition: all .15s ease; }
+        .stp-pick:hover:not(.on) { border-color: var(--st-primary, #2563EB); color: var(--st-primary, #2563EB); }
+        .stp-pick.on { background: var(--st-primary, #2563EB); border-color: var(--st-primary, #2563EB); color: #fff; }
+        .stp-switch { width: 38px; height: 22px; border-radius: 99px; background: var(--st-line2, #CBD5E1); position: relative; cursor: pointer; transition: background .15s ease; flex-shrink: 0; border: none; }
+        .stp-switch.on { background: var(--st-cta, #059669); }
+        .stp-switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s ease; }
+        .stp-switch.on::after { left: 19px; }
         .stp-card-title { font-size: 13px; font-weight: 800; color: var(--st-ink, #0F172A); }
         .stp-card-sub { font-size: 11.5px; color: var(--st-faint, #64748B); margin-top: 3px; line-height: 1.55; }
         .stp-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; margin-top: 14px; }
@@ -1263,7 +770,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         .stp-label { font-size: 11px; font-weight: 700; color: var(--st-muted, #475569); }
         .stp-input { width: 100%; border: 1.5px solid var(--st-hairline2, #CBD5E1); border-radius: 9px; padding: 8px 11px; font-size: 12.5px; color: var(--st-ink, #0F172A); background: var(--st-card, #fff); outline: none; font-family: inherit; }
         select.stp-input { appearance: none; -webkit-appearance: none; height: 38px; line-height: normal; padding-right: 30px; background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748B' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; background-size: 12px; }
-        .stp-input:focus { border-color: var(--color-brand, #2563EB); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+        .stp-input:focus { border-color: #2563EB; box-shadow: 0 0 0 3.5px rgba(37,99,235,.13); }
         .stp-locbox { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; border: 1.5px solid var(--st-hairline2, #CBD5E1); border-radius: 9px; padding: 6px 8px; background: var(--st-card, #fff); min-height: 38px; }
         .stp-locbox:focus-within { border-color: var(--color-brand, #2563EB); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
         .stp-loc-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; background: var(--color-brand-soft, #EFF6FF); color: var(--color-brand, #2563EB); border: 1px solid var(--color-brand-line, #BFDBFE); border-radius: 999px; padding: 4px 8px 4px 11px; }
@@ -1281,7 +788,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         .stp-check-label input { accent-color: var(--color-brand, #2563EB); width: 15px; height: 15px; }
         .stp-hint { font-size: 11px; color: var(--st-faint, #64748B); margin-top: 14px; line-height: 1.5; }
         .stp-save-error { font-size: 12px; font-weight: 700; color: var(--st-danger, #DC2626); }
-        @media (max-width: 720px) { .stp-grid2 { grid-template-columns: 1fr; } }
+        .stp-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px 14px; margin-top: 14px; }
+        @media (max-width: 720px) { .stp-grid2, .stp-grid3 { grid-template-columns: 1fr; } }
       `}</style>
     </div>
   );

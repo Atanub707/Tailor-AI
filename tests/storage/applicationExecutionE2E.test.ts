@@ -83,33 +83,26 @@ afterAll(() => {
 
 const CARD = fs.readFileSync(path.join(process.cwd(), 'src/components/JobMatrix.tsx'), 'utf8');
 const APP = fs.readFileSync(path.join(process.cwd(), 'src/App.tsx'), 'utf8');
-const SCREEN = fs.readFileSync(path.join(process.cwd(), 'src/components/ApplicationsScreen.tsx'), 'utf8');
 const SERVER = fs.readFileSync(path.join(process.cwd(), 'server.ts'), 'utf8');
 
-describe('Apply handoff — no page reload', () => {
-  it('Apply uses the router, never a hard navigation', () => {
-    expect(CARD).toContain("import { useNavigate } from 'react-router-dom'");
-    expect(CARD).toContain('navigate(');
-    expect(CARD).not.toContain("window.location.href = '/applications'");
+describe('Apply — paused auto-apply: direct link to the job post', () => {
+  it('Apply links to the job post in a new tab — no auto-apply, no navigation', () => {
+    expect(CARD).toContain('href={getValidJobUrl(job)}');
+    expect(CARD).toContain('target="_blank"');
+    expect(CARD).toContain('Open ${job.source} job posting to apply');
+    expect(CARD).not.toContain('autoTailor: true');
     expect(CARD).not.toContain('window.location');
+    expect(CARD).not.toContain('inline-app-status');
+    expect(CARD).not.toContain('if (applying) return');
+    expect(CARD).not.toContain('Could not prepare the application.');
   });
 
-  it('Apply shows a loading state and guards double clicks', () => {
-    expect(CARD).toContain("type=\"button\"");
-    expect(CARD).toContain("'Preparing…'");
-    expect(CARD).toContain('if (applying) return');
-    expect(CARD).toContain('disabled={applying}');
-  });
-
-  it('Apply surfaces a human-readable error instead of failing silently', () => {
-    expect(CARD).toContain('Could not prepare the application.');
-    expect(CARD).toContain('Please try again.');
-  });
-
-  it('Apply navigates to the canonical application route', () => {
-    expect(CARD).toContain('`/applications/${d.application?.applicationId || d.package?.id || job.id}`');
-    expect(APP).toContain("pathname.startsWith('/applications/')");
-    expect(APP).toContain('initialApplicationId={applicationDetailId}');
+  it('the Applied toggle only marks the job applied — no navigation, no tracker', () => {
+    expect(CARD).toContain('toggleApplied');
+    expect(CARD).toContain('onUpdateStatus(job.id');
+    expect(CARD).not.toContain("navigate('/applications')");
+    expect(CARD).not.toContain(', 3000');
+    expect(CARD).not.toContain('mark-applied');
   });
 });
 
@@ -171,15 +164,12 @@ describe('Unsupported provider — Manual application required, never Failed', (
   });
 });
 
-describe('Application Detail — refresh recovery surface', () => {
-  it('the details endpoint exposes events for the timeline and the drawer renders them', () => {
-    expect(SCREEN).toContain('Recent activity');
-    expect(SCREEN).toContain('EVENT_LABEL');
-    expect(SCREEN).toContain('initialApplicationId');
-    expect(SCREEN).toContain("rows.find((r) => r.applicationId === initialApplicationId)");
-    expect(SCREEN).toContain('Open original application');
-    expect(SCREEN).toContain('Mark as applied');
-    expect(SCREEN).toContain('Manual application required');
+describe('Application Detail — server surfaces remain (UI removed)', () => {
+  it('details serve events and manual confirmation; every route is protected server-side', () => {
+    const ui = fs.readFileSync(path.join(process.cwd(), 'src/components/applicationUi.ts'), 'utf8');
+    expect(ui).toContain('Manual application required');
+    expect(SERVER).toContain("app.get('/api/applications/:applicationId/details'");
+    expect(SERVER).toContain("app.post('/api/applications/:applicationId/mark-applied'");
   });
 
   it('the mark-applied endpoint exists server-side', () => {
@@ -196,5 +186,65 @@ describe('E2E orchestration preserved', () => {
     expect(plan.mappedFields.length).toBeGreaterThan(0);
     expect(plan.status === 'UNSUPPORTED').toBe(false);
     resetInspectionState();
+  });
+});
+describe('Easy Flow — auto-tailor on Apply, deterministic CV attachment', () => {
+  it('a package with a job-specific tailored version attaches THAT version', async () => {
+    const { pkg } = await makePackage(job('ej-auto-1'));
+    expect(pkg.resumeSnapshot?.source).toBe('TAILORED');
+    expect(pkg.resumeSnapshot?.tailoredResumeVersionId).toBe('t-ej-auto-1');
+    expect(pkg.resumeSnapshot?.pdfOk).toBe(true);
+  });
+
+  it('a package without a tailored version attaches the Master CV — never blocks apply', async () => {
+    const j = job('ej-auto-2');
+    const p = profile();
+    const masterCv = cv();
+    const fit = computeFit(p, masterCv, j, j.description || '');
+    const pkg = await buildPackage({ userId: USER, job: j, jd: j.description || '', profile: p, masterCv, fit, tailoredVersion: undefined }, 'c');
+    expect(pkg.resumeSnapshot?.source).toBe('MASTER_CV');
+    expect(pkg.resumeSnapshot?.pdfOk).toBe(true);
+  });
+
+  it('auto-tailor runs ONLY when no version exists — existing versions are reused', async () => {
+    const { getLatestTailorVersion } = await import('../../server/tailorV2/versionStore.js');
+    // fresh job → no version → auto-tailor would trigger (guard = !version)
+    expect(getLatestTailorVersion(USER, 'ej-auto-fresh')).toBeUndefined();
+    // job with a stored version → guard false → no new LLM call
+    const { ensureTailorV2Schema, storeTailorVersion } = await import('../../server/tailorV2/versionStore.js');
+    ensureTailorV2Schema();
+    storeTailorVersion(USER, 'ej-auto-3', { summary: 'x', skills: [], experience: [], education: [], certifications: [], projects: [] } as any,
+      { passed: true, issues: [], supportedJdTermsBefore: [], supportedJdTermsAfter: [], unsupportedInserted: [] } as any,
+      { masterCvUpdatedAt: 'c', profileUpdatedAt: 'p', jdHash: 'j', fitEngineVersion: 3 });
+    expect(getLatestTailorVersion(USER, 'ej-auto-3')).toBeDefined();
+  });
+
+  it('UI wiring — auto-apply is paused at the card level (server endpoints intact)', () => {
+    const m = fs.readFileSync(path.join(process.cwd(), 'src/components/JobMatrix.tsx'), 'utf8');
+    expect(m).not.toContain('autoTailor: true');
+    expect(m).not.toContain('Tailoring CV…');
+    const srv = fs.readFileSync(path.join(process.cwd(), 'server.ts'), 'utf8');
+    expect(srv).toContain('autoTailor');
+    expect(srv).toContain('cvSource');
+  });
+
+  it('details endpoint surfaces autoFilled for the profile strip', () => {
+    const detailsSrc = fs.readFileSync(path.join(process.cwd(), 'server/applicationExperience/applicationDetails.ts'), 'utf8');
+    expect(detailsSrc).toContain('autoFilled');
+  });
+});
+
+describe('Attached CV transparency — the drawer names the exact resume', () => {
+  it('details expose resumeSource + version; MASTER_CV is labeled honestly', async () => {
+    const { pkg } = await makePackage(job('ej-cv-1'));
+    expect(pkg.resumeSnapshot?.source).toBe('TAILORED');
+    const details = applicationDetails(getDb(), USER, pkg.id)!;
+    expect(details.resumeSource).toBe('TAILORED');
+    expect(details.resumeVersion).toBe(1);
+  });
+  it('details expose the attached CV source + version for the badge', () => {
+    const detailsSrc = fs.readFileSync(path.join(process.cwd(), 'server/applicationExperience/applicationDetails.ts'), 'utf8');
+    expect(detailsSrc).toContain('resumeSource');
+    expect(detailsSrc).toContain('resumeVersion');
   });
 });

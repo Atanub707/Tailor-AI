@@ -14,6 +14,7 @@ import type { CompanionSessionRecord } from './companionStore.js';
 import { getAttempt } from '../applicationEngine/executionStore.js';
 import { transitionAttempt } from '../applicationEngine/executionEngine.js';
 import { getPlanById } from '../applicationEngine/engine.js';
+import { resumeAttachmentFilename } from '../applicationEngine/resumeNaming.js';
 import { getApproval } from '../applicationEngine/executionStore.js';
 import { getPackageById } from '../applicationPackage/packageStore.js';
 import { verifiedProviderActionUrl } from './browserProviderAdapter.js';
@@ -307,7 +308,7 @@ export function serveSessionResume(db: Database, token: string, sessionId: strin
   if (bytes.length > 5 * 1024 * 1024) throw new CompanionError('ARTIFACT_TOO_LARGE', 'Resume exceeds size limit.');
   if (bytes.subarray(0, 5).toString('ascii') !== '%PDF-') throw new CompanionError('ARTIFACT_INVALID', 'Not a PDF.');
   if (sha256Bytes(bytes) !== session.resumeArtifactHash) throw new CompanionError('ARTIFACT_HASH_MISMATCH', 'Resume bytes do not match the approved artifact.');
-  return { bytes, filename: `resume-${session.resumeArtifactHash.slice(0, 12)}.pdf` };
+  return { bytes, filename: resumeAttachmentFilename(pkg) };
 }
 
 function sanitizeMetadata(metadata: Record<string, string>): Record<string, string> {

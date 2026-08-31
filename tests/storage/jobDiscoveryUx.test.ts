@@ -81,11 +81,14 @@ const CARD = fs.readFileSync(path.join(process.cwd(), 'src/components/JobMatrix.
 const DETAIL = fs.readFileSync(path.join(process.cwd(), 'src/components/JobDetailModal.tsx'), 'utf8');
 
 describe('Job discovery UX — card surface', () => {
-  it('primary journey is Match → View → Apply with direct secondary actions', () => {
-    expect(CARD).toContain('Check match');
-    expect(CARD).toMatch(/View\s*<\/button>/);
-    expect(CARD).toMatch(/Apply|Preparing…\s*<\/button>/);
-    expect(CARD).toContain('Mark as applied');
+  it('primary journey is Score → Apply (title opens details) with direct secondary actions', () => {
+    expect(CARD).toContain('Score this job against your CV');
+    expect(CARD).toContain('onMatchJob(job.id)');
+    expect(CARD).not.toMatch(/View\s*<\/button>/);
+    expect(CARD).toContain('onClick={() => onSelectJob(job)}');
+    expect(CARD).toContain('href={getValidJobUrl(job)}');
+    expect(CARD).toMatch(/>\s*Apply\s*<\/a>/);
+    expect(CARD).toContain("'Applied'");
     expect(CARD).toContain('Remove job');
   });
 
@@ -104,27 +107,39 @@ describe('Job discovery UX — card surface', () => {
   });
 
   it('does NOT render engineering buttons as primary card actions', () => {
-    expect(CARD).not.toContain("'Score'");
-    expect(CARD).not.toContain("'Re-Score'");
     expect(CARD).not.toContain('Tailor V2');
     expect(CARD).not.toContain('Prepare Application');
     expect(CARD).not.toContain('Prepare for Application');
     expect(CARD).not.toContain('ATS SCORE');
-    expect(CARD).not.toContain('ATS Score');
   });
 
-  it('Mark as applied and Remove job are direct card actions', () => {
-    expect(CARD).toContain('Mark as applied');
-    expect(CARD).toContain('Unmark applied');
-    expect(CARD).toContain('Remove job');
+  it('Applied toggles green in place — the label never changes', () => {
+    expect(CARD).toContain('<span>Applied</span>');
+    expect(CARD).not.toContain('Unmark applied');
+    expect(CARD).toContain('border-green-300');
+    expect(CARD).toContain('aria-pressed={job.state === \'applied\'}');
+    expect(CARD).toContain("title={job.state === 'applied' ? 'Mark as not applied' : 'Mark as applied'}");
     expect(CARD).toContain('onUpdateStatus');
+  });
+
+  it('Remove is a direct card action', () => {
+    expect(CARD).toContain('Remove job');
     expect(CARD).toContain('onDeleteJob');
   });
 
-  it('match indicator shows a percentage when fit exists and never a misleading placeholder', () => {
-    expect(CARD).toContain('{fit.score}% Match');
+  it('the ATS Score pill shows the LLM percentage when scored and never a misleading placeholder', () => {
+    expect(CARD).toContain('ATS Score');
+    expect(CARD).toContain('Tailored ATS');
+    expect(CARD).toContain('{job.matchScore}%');
     expect(CARD).not.toContain("'0%'");
     expect(CARD).not.toContain('N/A');
+  });
+  it('Tailor and Score show live stage tooltips while working (⟳ current, ✓ done)', () => {
+    expect(CARD).toContain('scoreMsg.map');
+    expect(CARD).toContain('tailorMsg.map');
+    expect(CARD).toContain("'✓'");
+    expect(CARD).toContain("'⟳'");
+    expect(CARD).toContain('group-hover:opacity-100');
   });
 });
 

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { HamburgerTrigger } from '../navigation';
 import { X, Search, CheckCircle2, Copy, Trash2, Mail, ExternalLink, Linkedin, Camera, Phone, AlertTriangle, Loader2, Sparkles, Send, FileText, Upload, PencilLine, Clock, BadgeCheck, Plus, Users, Building2, MessageCircle } from 'lucide-react';
 import { filterByType, sortContacts, typeCounts, TYPE_LABELS } from '../lib/recruiters/filterUtils';
 import { followupDue, followupDaysLeft } from '../lib/recruiters/followupUtils';
@@ -350,6 +351,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
     <div className="rc-screen">
       {/* Header */}
       <header className="rc-hdr">
+        <HamburgerTrigger />
         <div className="rc-ttl">
           <b>Recruiters</b>
           <span>Identity cards — emails, phones & LinkedIn from job descriptions.</span>
@@ -743,7 +745,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
           --blue-border: var(--color-brand-line); --linkedin: #0A66C2; --green: #059669; --green-soft: var(--color-cta-soft); --green-border: var(--color-cta-line);
           --amber: #D97706; --amber-soft: #FFFBEB; --amber-border: #FDE68A; --red: var(--color-danger);
           --shadow: 0 1px 3px rgba(15,23,42,.06);
-          position: fixed; inset: 0; z-index: 60; background: var(--bg); color: var(--text);
+          position: relative; height: 100vh; background: var(--bg); color: var(--text);
           display: flex; flex-direction: column; font-family: 'Inter', system-ui, -apple-system, sans-serif;
           -webkit-font-smoothing: antialiased;
         }

@@ -138,6 +138,10 @@ function buildSummary(r: Row): ApplicationSummary {
   const jobUrl = (job as any).applyUrl || (job as any).jobUrl || (plan?.target as any)?.jobUrl || '';
   if (!plan) {
     // Package prepared but not yet started — the Apply handoff target.
+    // A manual "I applied" record (USER_CONFIRMED_SUBMITTED under the
+    // synthetic manual-<pkgId> attempt) upgrades it to APPLIED so the
+    // 3-second Applied toggle flows into a real tracker row.
+    const manualConfirmed = r.eventTypes.has('USER_CONFIRMED_SUBMITTED');
     return {
       applicationId: pkg.id,
       planId: undefined,
@@ -146,9 +150,9 @@ function buildSummary(r: Row): ApplicationSummary {
       jobTitle: String((job as any).title || 'Job'),
       company: String((job as any).company || ''),
       provider: String((job as any).platform || (job as any).source || 'Unknown'),
-      userStatus: 'PREPARING',
+      userStatus: manualConfirmed ? 'APPLIED' : 'PREPARING',
       checkpoint: null,
-      availableActions: ['START_APPLICATION'],
+      availableActions: manualConfirmed ? [] : ['START_APPLICATION'],
       updatedAt: pkg.updatedAt,
       jobUrl,
     };

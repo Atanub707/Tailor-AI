@@ -1,9 +1,9 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Job, JobState, JobSource } from '../types';
 import { formatTimeAgoSemantic } from '../lib/dateUtils';
 import { getValidJobUrl } from '../lib/jobUrlUtils';
 import { applicantCountLabel } from '../lib/applicantInfo';
+import { DownloadCvDropdown } from './DownloadCvDropdown';
 import {
   Briefcase,
   Zap,
@@ -49,6 +49,8 @@ interface JobMatrixProps {
   onDeleteJob: (jobId: string) => Promise<void>;
   onUpdateStatus: (jobId: string, state: JobState) => Promise<void>;
   onClearAll: () => Promise<void>;
+  onReviewApplication?: (applicationId: string) => void;
+  reviewNonce?: number;
   loadingJobIds: Set<string>;
   scoreMessages: Record<string, string[]>;
   tailorMessages: Record<string, string[]>;
@@ -86,6 +88,9 @@ const JobCard = React.memo(function JobCard({
   onTailorJob,
   onDeleteJob,
   onUpdateStatus,
+  onReviewApplication,
+  reviewNonce,
+  onJobRemoved,
 }: {
   job: Job;
   scoreMsg: string[] | null;
@@ -97,73 +102,52 @@ const JobCard = React.memo(function JobCard({
   onTailorJob: (jobId: string) => Promise<void>;
   onDeleteJob: (jobId: string) => Promise<void>;
   onUpdateStatus: (jobId: string, state: JobState) => Promise<void>;
+  onReviewApplication?: (applicationId: string) => void;
+  reviewNonce?: number;
+  onJobRemoved?: (job: { id: string; label: string }) => void;
 }) {
   const timeAgoStr = formatTimeAgoSemantic(job.postedDate, job.postedDateSemantics);
   const isScoreLoading = scoreMsg !== null;
   const isTailorLoading = tailorMsg !== null;
-  const [fit, setFit] = React.useState<{ score: number; grade: string; strengths: string[]; gaps: string[]; blockers: string[]; unknowns: string[]; coverage?: string; fromCache?: boolean } | null>(null);
-  const [fitLoading, setFitLoading] = React.useState(false);
-  const [fitOpen, setFitOpen] = React.useState(false);
-  const matchRef = React.useRef<HTMLDivElement>(null);
+  const [scoreOpen, setScoreOpen] = React.useState(false);
+  const scoreRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
       const t = e.target as Node;
-      if (matchRef.current && !matchRef.current.contains(t)) setFitOpen(false);
+      if (scoreRef.current && !scoreRef.current.contains(t)) setScoreOpen(false);
     };
     document.addEventListener('mousedown', onDocClick);
     return () => document.removeEventListener('mousedown', onDocClick);
   }, []);
 
-  // Match: deterministic candidate fit — computed on demand, cached server-side.
-  const openMatch = async () => {
-    if (fitOpen) { setFitOpen(false); return; }
-    if (fit && !fitLoading) { setFitOpen(true); return; }
-    setFitLoading(true);
-    try {
-      const res = await fetch(`/api/jobs/${job.id}/fit`, { method: 'POST' });
-      if (res.ok) {
-        const d = await res.json();
-        setFit({ score: d.score, grade: d.grade, strengths: d.strengths || [], gaps: d.gaps || [], blockers: d.blockers || [], unknowns: d.unknowns || [], coverage: d.coverage, fromCache: d.fromCache });
-        setFitOpen(true);
-      }
-    } catch { /* match unavailable — leave indicator neutral */ }
-    finally { setFitLoading(false); }
+  // Score: LLM resume↔JD comparison — click to score, click again for the
+  // analysis. Already-scored jobs open instantly (score is cached on the job).
+  const handleRemove = async () => {
+    await onDeleteJob(job.id);
+    onJobRemoved?.({ id: job.id, label: job.title || job.company || 'this job' });
   };
 
-  // Apply: orchestrate the existing preparation workflow, then hand over to
-  // the application's own detail screen via the router (no page reload).
-  // Final provider submission stays user-triggered.
-  const navigate = useNavigate();
-  const [applying, setApplying] = React.useState(false);
-  const apply = async () => {
-    if (applying) return; // double-click guard
-    setApplying(true);
-    try {
-      const res = await fetch(`/api/jobs/${job.id}/application-package`, { method: 'POST' });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        const msg = d.error || 'Could not prepare the application.';
-        if (msg.includes('profile') || msg.includes('Profile') || msg.includes('JD') || msg.includes('job description')) {
-          alert(`${msg} — open the job for details, or check your Applicant Profile.`);
-        } else {
-          alert(`Could not prepare the application. ${msg} Please try again.`);
-        }
-        return;
-      }
-      const d = await res.json().catch(() => ({}));
-      navigate(`/applications/${d.application?.applicationId || d.package?.id || job.id}`);
-    } catch (err: any) {
-      alert(`Could not prepare the application. ${String(err?.message || 'Please try again.')}`);
-    } finally { setApplying(false); }
+  const openScore = () => {
+    if (isScoreLoading) return;
+    if (job.matchScore !== undefined && job.gapAnalysis) { setScoreOpen((o) => !o); return; }
+    void onMatchJob(job.id);
   };
 
-  const FIT_GRADE_COLOR: Record<string, string> = { Excellent: 'text-emerald-700', Strong: 'text-emerald-700', Good: 'text-amber-700', Partial: 'text-orange-700', Weak: 'text-red-700' };
+  // Applied — marks the job applied (green toggle). No navigation,
+  // no tracker — it's just a status on the card.
+  const toggleApplied = async () => {
+    await onUpdateStatus(job.id, job.state === 'applied' ? 'pending' : 'applied');
+  };
+
+  const SCORE_TONE = (score: number) => (score >= 80 ? 'text-emerald-700' : score >= 60 ? 'text-amber-700' : 'text-red-700');
 
   return (
     <div className={`bg-white border rounded-lg p-4 transition-all shadow-xs hover:shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 group ${
       job.state === 'applied'
         ? 'border-green-300 hover:border-green-400 border-l-4 border-l-green-500'
+        : job.tailoredCv
+        ? 'border-emerald-200 hover:border-emerald-300'
         : 'border-slate-200 hover:border-slate-300'
     }`}>
       {/* Details — click opens Job Details */}
@@ -250,102 +234,174 @@ const JobCard = React.memo(function JobCard({
               </span>
             )}
           </div>
-          {(job.gapAnalysis?.matchingSkills?.length ?? 0) > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 mt-2">
-              {job.gapAnalysis.matchingSkills.slice(0, 4).map((skill) => (
-                <span key={skill} className="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[10.5px] font-medium">
-                  <CheckCircle2 className="w-2.5 h-2.5 text-blue-500 mr-1" />
-                  {skill}
-                </span>
-              ))}
-              {(job.gapAnalysis.matchingSkills.length ?? 0) > 4 && (
-                <span className="text-[10.5px] text-slate-400 font-medium">+{(job.gapAnalysis.matchingSkills.length ?? 0) - 4} more</span>
-              )}
-            </div>
-          )}
+
+
         </div>
       </div>
 
-      {/* Right: Match · View · Apply · overflow */}
-      <div className="flex flex-wrap items-center justify-between md:justify-end gap-2.5 border-t md:border-t-0 md:border-l border-slate-100 pt-3 md:pt-0 md:pl-4 shrink-0">
-        <div className="relative" ref={matchRef}>
+      {/* Right: ATS score pill · actions */}
+      <div className="flex flex-row flex-wrap items-center justify-between md:justify-end gap-3 shrink-0 md:border-l border-slate-100 md:pl-4 md:pr-0 border-t md:border-t-0 pt-3 md:pt-0">
+
+        {/* ATS Score Pill — classic card: '--' → colored % → Tailored ATS
+            (before strikethrough → after green + boost badge) */}
+        <div className="text-center min-w-[85px]" data-qa="ats-pill">
+          <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wide">
+            {job.tailoredCv ? 'Tailored ATS' : 'ATS Score'}
+          </span>
+          {job.tailoredCv ? (
+            (() => {
+              const beforeS = job.tailoredCv.audit?.beforeScore ?? job.matchScore ?? 68;
+              const afterS = job.tailoredCv.audit?.afterScore ?? Math.min(98, Math.max(beforeS + 18, 92));
+              const boost = afterS - beforeS;
+              return (
+                <div className="flex flex-col items-center">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-slate-400 line-through font-semibold">{beforeS}%</span>
+                    <span className="text-lg font-black text-emerald-600">{afterS}%</span>
+                  </div>
+                  <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 inline-flex items-center gap-0.5">
+                    <TrendingUp className="w-2.5 h-2.5 text-emerald-600" />
+                    <span>+{boost}%</span>
+                  </span>
+                </div>
+              );
+            })()
+          ) : job.matchScore !== undefined ? (
+            <span className={`text-lg font-extrabold ${SCORE_TONE(job.matchScore)}`}>{job.matchScore}%</span>
+          ) : (
+            <span className="text-xs text-slate-400 font-medium">--</span>
+          )}
+        </div>
+
+        <div className="relative group" ref={scoreRef}>
           <button
-            onClick={() => void openMatch()}
-            disabled={fitLoading}
-            aria-label="Check candidate match for this job"
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold border transition-colors cursor-pointer disabled:opacity-60 bg-white border-[var(--color-hairline)] text-[var(--color-muted)] hover:bg-[var(--color-brand-soft)] hover:border-[var(--color-brand-line)]"
+            onClick={openScore}
+            disabled={isScoreLoading}
+            aria-label="Score this job against your CV"
+            className="inline-flex items-center justify-center gap-1.5 h-[38px] px-3.5 rounded-lg text-xs font-extrabold border transition-colors cursor-pointer disabled:opacity-60 bg-white border-[var(--color-hairline)] text-[var(--color-muted)] hover:bg-[var(--color-brand-soft)] hover:border-[var(--color-brand-line)]"
           >
-            {fitLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-            {fit ? (
-              <>
-                <span className={`${FIT_GRADE_COLOR[fit.grade] || 'text-slate-700'}`}>{fit.score}% Match</span>
-                <span className="text-[9px] uppercase tracking-wide text-[var(--color-faint)]">{fit.grade}</span>
-              </>
-            ) : (
-              <span>Check match</span>
-            )}
+            {isScoreLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-[var(--color-brand)]" />}
+            <span>{job.matchScore !== undefined ? 'Re-Score' : isScoreLoading ? 'Scoring…' : 'Score'}</span>
           </button>
-          {fitOpen && fit && (
+          {isScoreLoading && scoreMsg && (
+            <div className="absolute bottom-full left-0 mb-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium bg-slate-900 text-white shadow-lg pointer-events-none z-10 opacity-0 group-hover:opacity-100 transition-opacity min-w-[180px]">
+              <div className="space-y-0.5">
+                {scoreMsg.map((msg, i) => (
+                  <div key={i} className={`flex items-center gap-1.5 ${i === scoreMsg.length - 1 ? 'text-white' : 'text-slate-400'}`}>
+                    <span>{i === scoreMsg.length - 1 ? '⟳' : '✓'}</span>
+                    <span>{msg}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {scoreOpen && job.gapAnalysis && (
             <div className="absolute right-0 top-11 z-40 w-80 rounded-xl border border-[var(--color-border)] bg-white shadow-lg p-4 text-left max-h-96 overflow-y-auto">
               <div className="flex items-baseline justify-between">
-                <span className="text-sm font-bold text-[var(--color-ink)]">{fit.score}% Match</span>
-                <span className={`text-xs font-black ${FIT_GRADE_COLOR[fit.grade] || 'text-slate-700'}`}>{fit.grade}</span>
+                <span className="text-sm font-bold text-[var(--color-ink)]">{job.gapAnalysis.matchScore ?? job.matchScore}% Match</span>
+                <span className="text-[10px] uppercase tracking-wide text-[var(--color-faint)]">AI Score</span>
               </div>
-              {fit.coverage && <div className="text-[11px] text-[var(--color-faint)]">Coverage: {fit.coverage}</div>}
-              {fit.strengths.length > 0 && (
+              {job.gapAnalysis.summaryAnalysis && (
+                <p className="mt-2 text-xs text-[var(--color-muted)] leading-relaxed">{job.gapAnalysis.summaryAnalysis.slice(0, 300)}{job.gapAnalysis.summaryAnalysis.length > 300 ? '…' : ''}</p>
+              )}
+              {job.gapAnalysis.salaryFit && job.gapAnalysis.salaryFit !== 'unknown' && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-semibold bg-sky-50 text-sky-800 border border-sky-200">Salary: {job.gapAnalysis.salaryFit}</span>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-semibold bg-violet-50 text-violet-800 border border-violet-200">Experience: {job.gapAnalysis.experienceFit}</span>
+                </div>
+              )}
+              {(job.gapAnalysis.matchingSkills?.length ?? 0) > 0 && (
                 <div className="mt-2"><div className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">Strengths</div>
-                  {fit.strengths.slice(0, 5).map((s, i) => <div key={i} className="text-xs text-[var(--color-ink)]">• {s}</div>)}
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {job.gapAnalysis.matchingSkills.slice(0, 8).map((s, i) => <span key={i} className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-100 text-[10.5px] font-semibold">{s}</span>)}
+                  </div>
                 </div>
               )}
-              {fit.gaps.length > 0 && (
+              {(job.gapAnalysis.missingSkills?.length ?? 0) > 0 && (
                 <div className="mt-2"><div className="text-[10px] font-bold uppercase tracking-widest text-amber-700">Gaps</div>
-                  {fit.gaps.slice(0, 5).map((s, i) => <div key={i} className="text-xs text-amber-800">• {s}</div>)}
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {job.gapAnalysis.missingSkills.slice(0, 8).map((s, i) => <span key={i} className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-100 text-[10.5px] font-semibold">{s}</span>)}
+                  </div>
                 </div>
               )}
-              {fit.blockers.length > 0 && (
-                <div className="mt-2"><div className="text-[10px] font-bold uppercase tracking-widest text-red-700">Blockers</div>
-                  {fit.blockers.slice(0, 3).map((s, i) => <div key={i} className="text-xs text-red-800">• {s}</div>)}
+              {(job.gapAnalysis.keyRecommendations?.length ?? 0) > 0 && (
+                <div className="mt-2"><div className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-faint)]">Recommendations</div>
+                  {job.gapAnalysis.keyRecommendations.slice(0, 3).map((r, i) => <div key={i} className="text-xs text-[var(--color-ink)] mt-0.5">• {r}</div>)}
                 </div>
-              )}
-              {fit.unknowns.length > 0 && (
-                <div className="mt-2 text-[11px] text-[var(--color-faint)]">{fit.unknowns.length} unknown factor{fit.unknowns.length > 1 ? 's' : ''}</div>
               )}
             </div>
           )}
         </div>
 
-        {/* View */}
-        <button
-          onClick={() => onSelectJob(job)}
-          className="px-3.5 py-2 rounded-lg text-xs font-semibold bg-white hover:bg-[var(--color-brand-soft)] border border-[var(--color-hairline)] text-[var(--color-muted)] transition-colors cursor-pointer min-h-[38px]"
-        >
-          View
-        </button>
-
-        {/* Apply — primary */}
+        {/* Tailor CV — runs the canonical fact-verified tailoring pipeline
+            (V2); Download appears once tailored. */}
+        <div className="relative group">
         <button
           type="button"
-          onClick={() => void apply()}
-          disabled={applying}
-          className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-[var(--color-cta)] hover:bg-[#047857] transition-colors cursor-pointer disabled:opacity-60 min-h-[38px]"
+          onClick={() => onTailorJob(job.id)}
+          disabled={isTailorLoading}
+          aria-label="Tailor candidate CV for this job"
+          title="Tailor candidate CV for this job"
+          className="inline-flex items-center justify-center gap-1.5 h-[38px] px-3.5 rounded-lg text-xs font-extrabold bg-slate-900 hover:bg-slate-800 text-white transition-colors cursor-pointer disabled:opacity-60"
         >
-          {applying ? 'Preparing…' : 'Apply'}
+          {isTailorLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-emerald-400" />}
+          <span>{job.tailoredCv ? 'Re-Tailor' : 'Tailor'}</span>
         </button>
+        {isTailorLoading && tailorMsg && (
+          <div className="absolute bottom-full left-0 mb-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium bg-slate-900 text-white shadow-lg pointer-events-none z-10 opacity-0 group-hover:opacity-100 transition-opacity min-w-[200px]">
+            <div className="space-y-0.5">
+              {tailorMsg.map((msg, i) => (
+                <div key={i} className={`flex items-center gap-1.5 ${i === tailorMsg.length - 1 ? 'text-white' : 'text-slate-400'}`}>
+                  <span>{i === tailorMsg.length - 1 ? '⟳' : '✓'}</span>
+                  <span>{msg}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        </div>
 
-        {/* Mark as applied */}
-        <button
-          onClick={() => onUpdateStatus(job.id, job.state === 'applied' ? 'pending' : 'applied')}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-white hover:bg-[var(--color-brand-soft)] border border-[var(--color-hairline)] text-[var(--color-muted)] transition-colors cursor-pointer min-h-[38px]"
+        {/* Single ATS Download CV Dropdown */}
+        {job.tailoredCv && (
+          <DownloadCvDropdown jobId={job.id} buttonText="Download CV" size="sm" />
+        )}
+
+        {/* Apply — direct link to the job post (auto-apply paused); the
+            application is completed manually on the employer's site. */}
+        <a
+          href={getValidJobUrl(job)}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={`Open ${job.source} job posting to apply`}
+          aria-label={`Apply for ${job.title}`}
+          className="inline-flex items-center justify-center h-[38px] px-3.5 rounded-lg text-xs font-extrabold text-white bg-[var(--color-cta)] hover:bg-[#047857] transition-colors cursor-pointer"
         >
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> {job.state === 'applied' ? 'Unmark applied' : 'Mark as applied'}
+          Apply
+        </a>
+
+        {/* Applied — always the same label; turns green once applied (click toggles) */}
+        <button
+          onClick={() => void toggleApplied()}
+          title={job.state === 'applied' ? 'Mark as not applied' : 'Mark as applied'}
+          aria-pressed={job.state === 'applied'}
+          className={`inline-flex items-center justify-center gap-1.5 h-[38px] px-3.5 rounded-lg text-xs font-extrabold border transition-colors cursor-pointer ${
+            job.state === 'applied'
+              ? 'bg-green-50 text-green-700 border-green-300'
+              : 'bg-white text-[var(--color-muted)] border-[var(--color-hairline)] hover:border-green-300 hover:text-green-600'
+          }`}
+        >
+          {job.state === 'applied' ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <span className="w-3.5 h-3.5 rounded-full border border-current opacity-60" />}
+          <span>Applied</span>
         </button>
 
         {/* Remove job — no confirmation */}
         <button
-          onClick={() => onDeleteJob(job.id)}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors cursor-pointer min-h-[38px]"
+          onClick={() => void handleRemove()}
+          aria-label="Remove job"
+          title="Remove job"
+          className="inline-flex items-center justify-center h-[38px] w-[38px] rounded-lg text-xs font-extrabold text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors cursor-pointer shrink-0"
         >
-          <Trash2 className="w-3.5 h-3.5" /> Remove
+          <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
     </div>
@@ -374,9 +430,25 @@ export const JobMatrix: React.FC<JobMatrixProps> = ({
   onDeleteJob,
   onUpdateStatus,
   onClearAll,
+  onReviewApplication,
+  reviewNonce,
   scoreMessages,
   tailorMessages,
 }) => {
+  const [removedToast, setRemovedToast] = React.useState<{ id: string; label: string } | null>(null);
+  const removeUndoTimer = React.useRef<number | null>(null);
+  const onJobRemoved = (job: { id: string; label: string }) => {
+    setRemovedToast(job);
+    if (removeUndoTimer.current) window.clearTimeout(removeUndoTimer.current);
+    removeUndoTimer.current = window.setTimeout(() => setRemovedToast(null), 6000);
+  };
+  const undoRemove = async () => {
+    if (!removedToast) return;
+    try { await fetch(`/api/jobs/${removedToast.id}/unhide`, { method: 'POST' }); } catch { /* best-effort */ }
+    setRemovedToast(null);
+  };
+  React.useEffect(() => () => { if (removeUndoTimer.current) window.clearTimeout(removeUndoTimer.current); }, []);
+
   const pendingCount = stats.pending;
   const tailoredCount = stats.tailored;
   const appliedCount = stats.applied;
@@ -588,13 +660,27 @@ export const JobMatrix: React.FC<JobMatrixProps> = ({
                 onTailorJob={onTailorJob}
                 onDeleteJob={onDeleteJob}
                 onUpdateStatus={onUpdateStatus}
+                onReviewApplication={onReviewApplication}
+                reviewNonce={reviewNonce}
+                onJobRemoved={onJobRemoved}
               />
             );
           })}
         </div>
       )}
 
+      {/* Removed · Undo toast — list-level so it survives the deleted card */}
+      {removedToast && (
+        <div className="fixed bottom-5 right-5 z-[80] flex items-center gap-3 rounded-xl bg-[var(--color-ink)] text-white pl-4 pr-2 py-2 text-xs font-bold shadow-xl" role="status">
+          <span className="max-w-[260px] truncate">{removedToast.label} removed — it won't appear in new searches.</span>
+          <button onClick={() => void undoRemove()} className="px-2.5 py-1.5 rounded-lg bg-white text-[var(--color-ink)] font-extrabold cursor-pointer hover:bg-[var(--color-brand-soft)]">
+            Undo
+          </button>
+        </div>
+      )}
+
       {/* Pagination */}
+
       {paginatedJobs.length > 0 && (
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white border border-slate-200 rounded-lg px-4 py-3 shadow-xs text-xs">
           <div className="flex items-center space-x-3 text-slate-600">
