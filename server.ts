@@ -2061,7 +2061,8 @@ Return valid JSON only — NO markdown, NO code fences:
       const name = contact?.name || contact?.recruiterName || (greetingGuess ? `${greetingGuess[0].toUpperCase()}${greetingGuess.slice(1)}` : 'there');
       const company = contact?.company || job?.company || 'your company';
       const role = job?.title || contact?.jobRole || 'the role';
-      const firstName = (contact?.name || contact?.recruiterName || greetingGuess || '').trim().split(/\s+/)[0] || '';
+      const firstNameRaw = (contact?.name || contact?.recruiterName || greetingGuess || '').trim().split(/\s+/)[0] || '';
+      const firstName = firstNameRaw ? `${firstNameRaw[0].toUpperCase()}${firstNameRaw.slice(1)}` : '';
       // Heuristic: only greet with a first name when it actually looks like
       // a personal name. Extracted "names" are often companies or
       // departments ("Company Mob", "Talent Acquisition", "O CLRS").
@@ -2080,12 +2081,12 @@ Return valid JSON only — NO markdown, NO code fences:
         .filter(Boolean)
         .join(' | ');
       const expText = (masterCv?.experiences || [])
-        .map((x) => `${x.title} @ ${x.company} (${x.dates}) — ${(x.responsibilities || []).slice(0, 3).map((r) => r.slice(0, 110)).join('; ')}`)
+        .map((x) => `${x.title} @ ${x.company} (${x.dates}), ${(x.responsibilities || []).slice(0, 3).map((r) => r.slice(0, 110)).join('; ')}`)
         .filter(Boolean)
         .join('\n');
       const projectsText = (masterCv?.projects || [])
         .filter((p) => p.name)
-        .map((p) => `${p.name}${p.dates ? ` (${p.dates})` : ''} — ${(p.description || '').slice(0, 140)}${(p.technologies || []).length ? ` [${p.technologies.slice(0, 5).join(', ')}]` : ''}`)
+        .map((p) => `${p.name}${p.dates ? ` (${p.dates})` : ''}, ${(p.description || '').slice(0, 140)}${(p.technologies || []).length ? ` [${p.technologies.slice(0, 5).join(', ')}]` : ''}`)
         .join('\n');
       const certsText = (masterCv?.certifications || []).slice(0, 3).map((c) => c.name).filter(Boolean).join(', ');
 
@@ -2108,15 +2109,17 @@ ${profileText || '(none set)'}
 Rules — this must feel human, not AI:
 - FIRST LINE: a greeting — literally "${greetingName ? 'Hi ' + greetingName + ',' : 'Hi there,'}" followed by a newline, then continue with the email. Nothing may appear before the greeting.
 - Write in the FIRST PERSON as the candidate: always "I", "my", "me". Never refer to the candidate by name, and never write in the third person ("he/she/their CV").
-- 120-160 words total (excluding the greeting and signature). Three short paragraphs maximum.
+- KEEP IT SHORT: 60-90 words total (excluding the greeting and signature). Maximum TWO short paragraphs. Short sentences. A recruiter should read it in 15 seconds.
+- Sell yourself: open with one confident line that introduces who you are and your experience level (e.g. "I'm a Senior DevSecOps Engineer with four years across DevOps and DevSecOps"), then one line on why you're a strong fit for the role, then a natural soft ask. That's the whole email.
 - Use ONLY the candidate's REAL data above — never invent facts, companies, projects, numbers, or credentials.
 - If "Candidate job preferences" has a notice period or availability, weave it in naturally when it helps the recruiter (e.g. "I'm available immediately" or "I'm on a 30-day notice period") — one short clause max. Do NOT invent availability if none is set.
 - If the role's work mode (remote/onsite/hybrid from the job description) matches the candidate's stated preference, mention the fit briefly ("I work fully remote today, which fits this remote setup"). One clause max. Never mention salary expectations in the email body.
 - The candidate IS interested in this role — say so directly and naturally early on ("I'm interested in the ${role} role at ${company}" or similar, in your own words). Do not be coy or generic.
 - Establish the candidate's experience LEVEL from the WHOLE career: state their total years of experience and the progression of roles and companies from "Candidate career journey" (e.g. "I've spent over four years in DevOps and DevSecOps, starting as a DevOps Engineer at PearlThoughts and now working as a Senior DevSecOps Engineer at Human Managed"), plus what they actually do day-to-day.
-- Include ALL of the candidate's projects from "Candidate projects" — every single one, each as ONE short clause (name + what it does, e.g. "I also built Tailor CV, an AI job-search platform, and OS-Admin, a multi-tenant restaurant SaaS"). Do not drop any project.
+- Projects: do NOT list, name, or describe any individual project. Mention them in ONE short passing clause — e.g. "I also build several side projects, which you can see on my CV or portfolio." Never go into detail, and avoid redundant phrasing like "side projects on the side".
 - Use ONE concrete number or measurable outcome from the journey/summary when it fits naturally (e.g. an 80% reduction, a migration, a pipeline cut) — specificity is what makes it human.
 - No AI-sounding phrases. NEVER use: "I'm writing to express", "I hope this email finds you well", "I would be glad", "Would you be open to", "leverage", "passionate", "delve", "I trust this", "excited", "thrilled", exclamation marks, bullet points, or listicles.
+- PUNCTUATION: never use em-dashes (—), en-dashes (–), or any dash-as-punctuation. Use commas, periods, and normal hyphens only. Plain punctuation is what real people type.
 - Vary the sentence rhythm — some sentences short, some longer. Read like a person typing quickly, not like a brochure.
 - Close with a soft, natural ask (e.g. "Happy to chat briefly this week if it's useful.") — not a formal request.
 - Do NOT include any signature, name, phone, or sign-off in the body — the system adds it.
@@ -2127,6 +2130,16 @@ Return valid JSON only, no markdown:
 
       const parsed = await askJson<{ subject: string; body: string }>(prompt, { temperature: 0.5 });
       const body = String(parsed.body || '').trim();
+      // Deterministic cleanup: plain punctuation only — no em/en dashes in
+      // the generated email, even if the model slipped one in.
+      const humanize = (s: string) => s
+        .replace(/[\u2014\u2013]/g, ', ')
+        .replace(/\s+,/g, ',')
+        .replace(/,\s*,/g, ',')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+      const cleanBody = humanize(body);
+      const cleanSubject = humanize(String(parsed.subject || '')).slice(0, 160);
       // Deterministic signature: candidate name, then their saved phone and
       // portfolio URL (from the Master CV) — each line only when it exists.
       // The portfolio keeps its full https:// URL so mail clients render it
@@ -2139,8 +2152,8 @@ Return valid JSON only, no markdown:
         success: true,
         draft: {
           to: contact?.email || String(to || ''),
-          subject: String(parsed.subject || '').slice(0, 160),
-          body: body ? `${body}\n\n${signature}` : '',
+          subject: cleanSubject,
+          body: cleanBody ? `${cleanBody}\n\n${signature}` : '',
         },
       });
     } catch (err: any) {
