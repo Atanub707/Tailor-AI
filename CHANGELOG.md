@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.5.0 (2026-08-31)
+
+### 🧹 Removed
+
+- **Applications screen removed** — `/applications` UI and drawer deleted; the Applied button is now a simple status toggle (mark applied → green, no navigation, no tracker).
+- Redirect guard hardened: stale/unknown URLs (including `/applications`) now land on Home without a React hooks-order crash.
+- Server-side application APIs remain (untested UI consumers only).
+
 ## v2.4.3 (2026-08-30)
 
 ### 📋 Applications redesign
