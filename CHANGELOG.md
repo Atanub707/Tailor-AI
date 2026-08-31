@@ -1,5 +1,27 @@
 # Changelog
 
+## v2.4.3 (2026-08-30)
+
+### 📋 Applications redesign
+
+- Rebuilt the Applications screen to the approved mockup: overview stat tiles (All / Action Required / Waiting / Applied), pill filter tabs with counts, search + sort controls, grouped application cards with color status rails, provider chips, status pills, one primary action per status, options button, and a friendly empty state with CTA.
+- **Applied toggle moves across** — clicking "Applied" on a job card marks it and after 3 seconds creates the tracker entry (no LLM) and navigates to Applications, where it appears as an Applied row.
+- Fixed: plan-less applications ignored the manual confirmation event and stayed "Preparing" — manual applied records now resolve correctly.
+
+### ⚙️ Settings & UI cleanups
+
+- Settings moved into the account menu (guest chip) with the ⌘, shortcut intact; ⌘ symbols removed from the drawer.
+- Apify integration trimmed (toggle + token only, referral restored) — li_at cookie and price list removed.
+- Browser Companion / Data & privacy / Application Accounts / Email Connections panels removed from Settings.
+- Master CV: AI compress removed; Save + Download PDF moved to the right toolbar after the PDF-name field.
+- Job cards: uniform 38px buttons, ATS pill inline left of Re-Tailor, Tailored/Matched badges and skill chips removed, View button dropped (title opens details), Applied toggle turns green.
+
+### 🧠 Model-agnostic AI pipeline
+
+- New askJson pipeline (markers + JSON repair cascade + bounded retry) used by Tailor, Score, CV Compressor and email drafting — any model (minimax, kimi, qwen…) works without per-model fixes.
+- /api/emails/draft now drafts successfully (was plain JSON.parse → "Failed to draft email").
+- Live model catalog in Settings (auto-updates, Free/New pills, refresh); 4-minute LLM budget with peak-hour guidance.
+
 ## v2.4.2 (2026-08-30)
 
 ### 🎯 Tailor & Matching
