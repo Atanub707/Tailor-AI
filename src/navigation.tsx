@@ -7,7 +7,7 @@ import { List } from '@phosphor-icons/react';
 // Single source of truth for global navigation.
 // Drives: hamburger items, active states, and navigation tests.
 import type { Icon } from '@phosphor-icons/react';
-import { House, UserCircle, IdentificationBadge, Tray, GlobeSimple, PaperPlaneTilt, ChatCircleDots, FileText } from '@phosphor-icons/react';
+import { House, UserCircle, IdentificationBadge, Tray, GlobeSimple, PaperPlaneTilt, ChatCircleDots, FileText, GearSix } from '@phosphor-icons/react';
 
 export type NavGroupId = 'library' | 'profile' | 'tools';
 
@@ -35,6 +35,7 @@ export const NAV_ITEMS: NavigationItem[] = [
   { id: 'linkedin-posts', label: 'LinkedIn Posts', icon: PaperPlaneTilt, route: '/linkedin-posts', group: 'tools', activeFor: (p) => p === '/linkedin-posts' },
   { id: 'ai-interview', label: 'AI Interview', icon: ChatCircleDots, route: '/ai-interview', group: 'tools', activeFor: (p) => p === '/ai-interview' },
   { id: 'manual-jd', label: 'Manual JD', icon: FileText, route: '/manual-jd', group: 'tools', activeFor: (p) => p === '/manual-jd' },
+  { id: 'settings', label: 'Settings', icon: GearSix, route: '/settings', group: 'tools', activeFor: (p) => p === '/settings' },
 ];
 
 /** Resolve the active navigation item id for a pathname (null = no match). */

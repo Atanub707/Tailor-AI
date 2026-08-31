@@ -164,15 +164,15 @@ describe('Profile consolidation', () => {
   });
 });
 
-describe('Settings moved to the account menu', () => {
-  it('the drawer no longer lists Settings (NAV_ITEMS has no settings entry)', () => {
-    for (const item of EXPECTED_ITEMS) {
-      expect(NAV).toContain(`id: '${item.id}'`);
-    }
-    expect(NAV).not.toContain("id: 'settings'");
+describe('Settings in the hamburger AND the account menu', () => {
+  it('the drawer lists Settings (NAV_ITEMS settings entry, route /settings)', () => {
+    expect(NAV).toContain("id: 'settings'");
+    expect(NAV).toContain("label: 'Settings'");
+    expect(NAV).toContain("route: '/settings'");
+    expect(NAV).toContain("icon: GearSix");
   });
 
-  it('the Navbar account menu offers Settings (GearSix) and the ⌘, shortcut opens it', () => {
+  it('the Navbar account menu still offers Settings (GearSix) and the ⌘, shortcut opens it', () => {
     const bar = fs.readFileSync(path.join(process.cwd(), 'src/components/Navbar.tsx'), 'utf8');
     expect(bar).toContain('GearSix');
     expect(bar).toContain('Settings');
