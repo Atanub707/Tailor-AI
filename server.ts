@@ -2202,41 +2202,71 @@ Return valid JSON only, no markdown:
         return;
       }
 
-      const transport = nodemailer.createTransport({
-        host: emailCfg.host,
-        port: Number(emailCfg.port) || 587,
-        secure: emailCfg.secure === true,
-        auth: { user: emailCfg.user, pass: emailCfg.password },
-        tls: { rejectUnauthorized: false },
-      });
+      // TLS mode is decided by the PORT, not the stored toggle: 465 is
+      // implicit SSL/TLS, 587/25 is STARTTLS. A mismatched combination
+      // (SSL on 587 or STARTTLS on 465) produces the classic
+      // "wrong version number" TLS handshake error.
+      const smtpPort = Number(emailCfg.port) || 587;
+      const smtpSecure = (useSecure: boolean) => {
+        if (smtpPort === 465) return true;
+        if (smtpPort === 587 || smtpPort === 25) return false;
+        return useSecure;
+      };
 
-      const fromLabel = (emailCfg.fromName || '').trim();
-      const from = fromLabel ? `"${fromLabel}" <${emailCfg.user}>` : emailCfg.user;
+      const sendAttempt = async (useSecure: boolean) => {
+        const transport = nodemailer.createTransport({
+          host: emailCfg.host,
+          port: smtpPort,
+          secure: smtpSecure(useSecure),
+          auth: { user: emailCfg.user, pass: emailCfg.password },
+          tls: { rejectUnauthorized: false },
+        });
+        const fromLabel = (emailCfg.fromName || '').trim();
+        const from = fromLabel ? `"${fromLabel}" <${emailCfg.user}>` : emailCfg.user;
 
-      // Build attachments: Master CV PDF and/or an uploaded file (one of
-      // each max — the UI offers both options, user picks one).
-      const attachments: any[] = [];
-      if (attachMaster) {
-        const m = getMasterCv();
-        if (m && m.fullName) {
-          const masterTemplate = ['harvard', 'jake', 'atanu', 'atanu-pro'].includes(m.templateId || '') ? m.templateId : 'harvard';
-          const pdf = await generatePdfBuffer(masterCvToTailoredCv(m), masterTemplate);
-          const cvName = m.downloadFilename || `${m.fullName.replace(/\s+/g, '_')}_CV`;
-          attachments.push({ filename: `${cvName}.pdf`, content: pdf });
+        // Build attachments: Master CV PDF and/or an uploaded file (one of
+        // each max — the UI offers both options, user picks one).
+        const attachments: any[] = [];
+        if (attachMaster) {
+          const m = getMasterCv();
+          if (m && m.fullName) {
+            const masterTemplate = ['harvard', 'jake', 'atanu', 'atanu-pro'].includes(m.templateId || '') ? m.templateId : 'harvard';
+            const pdf = await generatePdfBuffer(masterCvToTailoredCv(m), masterTemplate);
+            const cvName = m.downloadFilename || `${m.fullName.replace(/\s+/g, '_')}_CV`;
+            attachments.push({ filename: `${cvName}.pdf`, content: pdf });
+          }
+        }
+        if (attachment && typeof attachment.filename === 'string' && typeof attachment.data === 'string') {
+          attachments.push({ filename: attachment.filename, content: Buffer.from(attachment.data, 'base64') });
+        }
+
+        return transport.sendMail({
+          from,
+          to: String(to).trim(),
+          subject: String(subject),
+          text: String(body),
+          html: textBodyToHtmlWithLinks(String(body)),
+          attachments: attachments.length > 0 ? attachments : undefined,
+        });
+      };
+
+      let info;
+      try {
+        info = await sendAttempt(emailCfg.secure === true);
+      } catch (firstErr: any) {
+        const msg = String(firstErr?.message || '');
+        // TLS/plaintext mismatch (e.g. SSL toggle on a STARTTLS port or
+        // vice versa) — retry once with the secure flag flipped.
+        if (/SSL|TLS|wrong version|handshake|ECONNRESET|socket hang up|INVALID_COMMAND/i.test(msg)) {
+          try {
+            info = await sendAttempt(emailCfg.secure !== true);
+          } catch {
+            throw firstErr;
+          }
+        } else {
+          throw firstErr;
         }
       }
-      if (attachment && typeof attachment.filename === 'string' && typeof attachment.data === 'string') {
-        attachments.push({ filename: attachment.filename, content: Buffer.from(attachment.data, 'base64') });
-      }
-
-      const info = await transport.sendMail({
-        from,
-        to: String(to).trim(),
-        subject: String(subject),
-        text: String(body),
-        html: textBodyToHtmlWithLinks(String(body)),
-        attachments: attachments.length > 0 ? attachments : undefined,
-      });
 
       if (contactId) {
         recordContactEmail(contactId, 'sent', info.messageId);
@@ -2257,8 +2287,16 @@ Return valid JSON only, no markdown:
           status: 'failed',
         });
       }
+      const msg = String(err?.message || 'Failed to send email.');
       console.error('Email send error:', err);
-      res.status(500).json({ error: err?.message || 'Failed to send email.' });
+      const tlsMismatch = /wrong version|SSL|TLS|handshake/i.test(msg);
+      res.status(500).json({
+        error: tlsMismatch
+          ? `${msg} — check the SSL/TLS setting: port 465 uses SSL, port 587 uses STARTTLS.`
+          : (msg.includes('Invalid login') || msg.includes('535') || msg.includes('authentication')
+            ? 'Authentication failed — check username and password (Gmail needs an App Password).'
+            : msg),
+      });
     }
   });
 
