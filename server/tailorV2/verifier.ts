@@ -9,7 +9,7 @@ import { buildCandidateFactLedger, normalizeWord, type LedgerFact } from './cand
 import { skillCovered } from '../fit/skillAliases.js';
 
 export interface VerificationIssue {
-  type: 'employer' | 'title' | 'dates' | 'education' | 'certification' | 'skill' | 'metric' | 'technology' | 'unsupported_jd_skill' | 'claim_strength';
+  type: 'employer' | 'title' | 'dates' | 'education' | 'certification' | 'skill' | 'metric' | 'technology' | 'unsupported_jd_skill' | 'claim_strength' | 'project' | 'achievement';
   claim: string;
   severity: 'error' | 'warning';
 }
@@ -84,7 +84,18 @@ export interface VerifierDraftShape {
   education?: Array<{ degree?: string; institution?: string; dates?: string; details?: string }>;
   technicalSkills?: Array<{ category?: string; skills?: string[] }>;
   certifications?: Array<string | { name?: string }>;
+  projects?: Array<{ name?: string; description?: string }>;
 }
+
+// Content tokens that never carry evidence (filler/structure words).
+const PROVENANCE_STOPWORDS = new Set([
+  'with', 'from', 'into', 'over', 'under', 'using', 'used', 'and', 'for', 'our', 'their', 'your', 'this', 'that',
+  'than', 'upon', 'very', 'about', 'after', 'before', 'between', 'other', 'these', 'those', 'they', 'them', 'have',
+  'has', 'had', 'been', 'were', 'was', 'are', 'being', 'also', 'but', 'not', 'only', 'just', 'even', 'more', 'most',
+  'much', 'many', 'such', 'then', 'then', 'while', 'where', 'when', 'which', 'will', 'would', 'could', 'should',
+  'across', 'within', 'along', 'during', 'through', 'together', 'well', 'both', 'each', 'any', 'some', 'all', 'its',
+  'his', 'her', 'who', 'whom', 'work', 'role', 'team', 'directly', 'key', 'primary', 'main', 'across', 'per', 'via',
+]);
 
 export async function verifyDraft(
   draft: VerifierDraftShape,
@@ -193,6 +204,29 @@ export async function verifyDraft(
     }
   }
 
+  // Projects — every listed project must be grounded in the candidate's own
+  // projects (Master CV) or the candidate's source text. The JD never
+  // authorizes a project. Metrics/skills inside project descriptions are
+  // checked by the same rules as the rest of the resume.
+  for (const p of draft.projects || []) {
+    const name = normalizeWord(p?.name || '');
+    const grounded = !!name && (ledger.projects.some((lp) => lp.includes(name) || name.includes(lp)) || new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(sourceText));
+    if (!grounded) {
+      issues.push({ type: 'project', claim: String(p?.name || '(unnamed project)').slice(0, 100), severity: 'error' });
+    }
+    const descText = String(p?.description || '');
+    for (const n of extractDraftNumbers(descText)) {
+      if (!metricSupported(n)) issues.push({ type: 'metric', claim: `${n} in project "${p?.name || ''}"`.slice(0, 100), severity: 'error' });
+    }
+    const { SKILL_TERMS: PROJECT_SKILL_TERMS } = await import('../fit/requirementsParser.js');
+    for (const term of PROJECT_SKILL_TERMS) {
+      const inDesc = new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(descText.toLowerCase());
+      if (inDesc && !supportedSkill(term)) {
+        issues.push({ type: 'skill', claim: `${term} in project "${p?.name || ''}"`.slice(0, 100), severity: 'error' });
+      }
+    }
+  }
+
   // Skills — every drafted skill must be ledger-supported. Claim locations
   // include the summary and highlight bullets, not just the skill lists:
   // a summary saying "Experienced with Azure" is an insertion too.
@@ -255,6 +289,42 @@ export async function verifyDraft(
       for (const n of extractDraftNumbers(bulletText)) {
       if (!localOrGlobal(n)) {
         issues.push({ type: 'metric', claim: `${n} in ${w.company || ''} bullet unsupported`.slice(0, 100), severity: 'error' });
+      }
+    }
+  }
+
+  // ── Bullet provenance (achievement safety) ──
+  // Every highlight bullet must share at least one content token with the
+  // candidate's own evidence (the employer's local context, or the global
+  // source when no local context exists). Stylistic rewording reuses source
+  // terms and passes; a wholly invented accomplishment has no lexical
+  // overlap and fails. Skills, metrics and strength verbs inside bullets are
+  // already checked separately — this closes the pure-prose invention hole.
+  const contentTokens = (text: string): Set<string> => {
+    const out = new Set<string>();
+    for (const t of String(text || '').toLowerCase().match(/[a-z][a-z0-9]{3,}/g) || []) {
+      if (!PROVENANCE_STOPWORDS.has(t)) out.add(t);
+    }
+    return out;
+  };
+  const sourceTokens = contentTokens(sourceText);
+  for (const w of draft.workExperience || []) {
+    const employerKey = normalizeWord(w.company || '');
+    const localCtx = (cv.experiences || [])
+      .filter((e) => normalizeWord(e.company) === employerKey)
+      .flatMap((e) => e.responsibilities || [])
+      .concat((profile.experience || [])
+        .filter((e) => normalizeWord(e.company) === employerKey)
+        .flatMap((e) => [...(e.achievements || []), ...(e.summary ? [e.summary] : [])]))
+      .join(' ');
+    const ctxTokens = contentTokens(localCtx).size > 0 ? contentTokens(localCtx) : sourceTokens;
+    for (const b of w.highlights || []) {
+      const bulletTokens = contentTokens(b);
+      if (bulletTokens.size === 0) continue;
+      let overlap = 0;
+      for (const t of bulletTokens) if (ctxTokens.has(t)) overlap++;
+      if (overlap === 0) {
+        issues.push({ type: 'achievement', claim: String(b).slice(0, 100), severity: 'error' });
       }
     }
   }

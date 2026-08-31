@@ -120,7 +120,6 @@ import { ScraperFactory } from './server/scraper/scraperFactory.js';
 import { LinkedInPostsScraper } from './server/scraper/linkedInPostsScraper.js';
 import { LlmMatcher } from './server/matcher/llmMatcher.js';
 import { hasApiKeyConfigured, mapLlmError } from './server/llm/apiKeyGuard.js';
-import { LlmCvTailor } from './server/builder/llmCvTailor.js';
 import { generatePdfBuffer, generatePlainTextCv } from './server/builder/docxGenerator.js';
 import { JobFilterQueryParams, Job, MasterCv } from './src/types.js';
 import { SOURCES } from './src/constants/sources.js';
@@ -3424,10 +3423,10 @@ const sanitizeAttemptDryRun = (a: any) => ({
       }
 
       const masterCv = getMasterCv();
-      const tailorEngine = new LlmCvTailor();
-      let tailoredCv: Awaited<ReturnType<typeof tailorEngine.tailorCv>>;
+      const { tailorJobWithV2 } = await import('./server/tailorV2/tailorService.js');
+      let tailoredResult: Awaited<ReturnType<typeof tailorJobWithV2>>;
       try {
-        tailoredCv = await tailorEngine.tailorCv(jobToTailor, masterCv);
+        tailoredResult = await tailorJobWithV2(jobToTailor);
       } catch (llmErr: any) {
         const { LLMError } = await import('./server/llm/llmErrors.js');
         if (llmErr instanceof LLMError) {
@@ -3435,19 +3434,27 @@ const sanitizeAttemptDryRun = (a: any) => ({
           res.status(status).json({ error: llmErr.message, code: llmErr.code });
           return;
         }
+        if (llmErr?.name === 'TailorVerificationFailedError') {
+          res.status(422).json({
+            error: "Tailoring couldn't produce a verified resume from your existing candidate information. Your master resume was left unchanged.",
+            code: 'verification_failed',
+          });
+          return;
+        }
         throw llmErr;
       }
 
       const updatedJob = updateJobInStorage({
         ...jobToTailor,
-        tailoredCv,
+        tailoredCv: tailoredResult.tailoredCv,
         state: 'tailored',
         tailoredAt: new Date().toISOString(),
       });
 
       res.json({
         success: true,
-        tailoredCv,
+        tailoredCv: tailoredResult.tailoredCv,
+        version: tailoredResult.version,
         job: updatedJob,
       });
     } catch (err: any) {
@@ -3473,10 +3480,13 @@ const sanitizeAttemptDryRun = (a: any) => ({
       );
 
       const masterCv = getMasterCv();
-      const tailorEngine = new LlmCvTailor();
+      const { tailorJobWithV2 } = await import('./server/tailorV2/tailorService.js');
 
       // Process concurrently (bounded) so a large batch finishes fast
-      // and the rest of the app keeps working.
+      // and the rest of the app keeps working. Every job runs through the
+      // SAME canonical V2 pipeline: own fact ledger, own generation, own
+      // verification, fail closed. One job's evidence never contaminates
+      // another. No V1 fallback.
       const CONCURRENCY = 3;
       const tailoredResults: any[] = [];
       let cursor = 0;
@@ -3485,18 +3495,18 @@ const sanitizeAttemptDryRun = (a: any) => ({
         while (cursor < candidateJobs.length) {
           const job = candidateJobs[cursor++];
           try {
-            const tailoredCv = await tailorEngine.tailorCv(job, masterCv);
+            const tailoredResult = await tailorJobWithV2(job);
 
             const updated = updateJobInStorage({
               ...job,
-              tailoredCv,
+              tailoredCv: tailoredResult.tailoredCv,
               state: 'tailored',
               tailoredAt: new Date().toISOString(),
             });
 
             tailoredResults.push(updated);
           } catch (err) {
-            console.warn(`Batch tailor failed for job ${job.id}:`, err);
+            console.warn(`Batch tailor skipped for job ${job.id}:`, err?.name === 'TailorVerificationFailedError' ? 'factual verification failed — resume not published' : err);
           }
         }
       };
@@ -3622,12 +3632,14 @@ const sanitizeAttemptDryRun = (a: any) => ({
         ...(matchScore !== undefined ? { matchScore: Number(matchScore) } : {}),
       };
 
-      const tailorEngine = new LlmCvTailor();
-      const tailoredCv = await tailorEngine.tailorCv(
-        virtualJob,
-        masterCv,
-        Array.isArray(includeSkills) && includeSkills.length > 0 ? { includeSkills } : undefined
-      );
+      const { tailorJobWithV2 } = await import('./server/tailorV2/tailorService.js');
+      // Manual JD Tailor runs the SAME canonical V2 pipeline. The manual JD
+      // is DATA ONLY — it can influence emphasis and gap reporting, never
+      // candidate facts. includeSkills (user's chip selection) is accepted
+      // for API compatibility; unsupported selections surface as
+      // notIntegrable gaps because the verifier rejects JD-only facts.
+      const tailoredResult = await tailorJobWithV2(virtualJob);
+      const tailoredCv = tailoredResult.tailoredCv;
 
       const token = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       manualResults.set(token, {
@@ -3654,7 +3666,7 @@ const sanitizeAttemptDryRun = (a: any) => ({
       });
 
       // Diff payload for the UI's "what we add & why" panel
-      const audit = tailoredCv.audit;
+      const audit = tailoredResult.audit;
       const diffPayload = {
         beforeScore: audit?.beforeScore ?? 0,
         afterScore: audit?.afterScore ?? 0,

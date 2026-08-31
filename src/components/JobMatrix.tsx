@@ -333,8 +333,8 @@ const JobCard = React.memo(function JobCard({
           )}
         </div>
 
-        {/* Tailor CV — Tailor V1: generates the actual tailored CV via the
-            standard template pipeline; Download appears once tailored. */}
+        {/* Tailor CV — runs the canonical fact-verified tailoring pipeline
+            (V2); Download appears once tailored. */}
         <div className="relative group">
         <button
           type="button"

@@ -45,6 +45,13 @@ async function deterministicRepair(draft: TailorDraft, cv: MasterCv, profile: Ap
     summary: await repairSummary(draft.summary || '', supported),
     skills: (draft.skills || []).filter(supported),
     certifications: (draft.certifications || []).filter((c) => ledger.certifications.some((lc) => lc.includes(c.toLowerCase()) || c.toLowerCase().includes(lc))),
+    // Projects are additive sections: an invented project is DROPPED (never
+    // auto-rewritten). Bullet-level achievements are NOT repairable here —
+    // they fail closed in the engine.
+    projects: (draft.projects || []).filter((p) => {
+      const name = String(p?.name || '').toLowerCase().trim();
+      return !!name && (ledger.projects.some((lp) => lp.includes(name) || name.includes(lp)) || JSON.stringify({ cv, profile }).toLowerCase().includes(name));
+    }),
   };
   return cleaned;
 }
@@ -96,17 +103,14 @@ export async function runTailorV2(
     const cleaned = await deterministicRepair(draft, cv, profile);
     const recheck = await verifyDraft(toVerifierDraft(cleaned), cv, profile, terms);
     if (!recheck.passed) {
-      const history = recheck.issues.filter((i) => ['employer', 'title', 'dates', 'education'].includes(i.type));
-      if (history.length) {
-        // History claims can never be repaired by deletion → FAIL CLOSED.
-        throw new TailorVerificationFailedError('Tailoring failed factual verification: unsupported employment/education claims remain.');
-      }
-      verification = recheck;
-      draft = cleaned;
-    } else {
-      verification = recheck;
-      draft = cleaned;
+      // FAIL CLOSED: any remaining error-severity violation means the resume
+      // is not grounded in the candidate's facts. It is never persisted or
+      // published. No fallback to any other tailoring engine.
+      const summary = recheck.issues.slice(0, 5).map((i) => `${i.type}: ${i.claim}`).join('; ');
+      throw new TailorVerificationFailedError(`Tailoring failed factual verification after cleanup: ${summary}`);
     }
+    verification = recheck;
+    draft = cleaned;
   }
 
   // Persist version (v1+; mark older versions stale when inputs change).
@@ -143,7 +147,7 @@ async function defaultLlmDraft(cv: MasterCv, profile: ApplicantProfile, job: Job
 }
 
 /** Map a TailorDraft into the verifier/TailoredCv-compatible shape. */
-export function toVerifierDraft(draft: TailorDraft): { professionalSummary: string; coreCompetencies: string[]; workExperience: TailorDraft['experience']; education: TailorDraft['education']; technicalSkills: Array<{ category: string; skills: string[] }>; certifications: string[] } {
+export function toVerifierDraft(draft: TailorDraft): { professionalSummary: string; coreCompetencies: string[]; workExperience: TailorDraft['experience']; education: TailorDraft['education']; technicalSkills: Array<{ category: string; skills: string[] }>; certifications: string[]; projects?: Array<{ name?: string; description?: string }> } {
   return {
     professionalSummary: draft.summary || '',
     coreCompetencies: draft.skills || [],
@@ -151,6 +155,7 @@ export function toVerifierDraft(draft: TailorDraft): { professionalSummary: stri
     education: draft.education || [],
     technicalSkills: draft.skills?.length ? [{ category: 'Skills', skills: draft.skills }] : [],
     certifications: draft.certifications || [],
+    projects: draft.projects || [],
   };
 }
 
