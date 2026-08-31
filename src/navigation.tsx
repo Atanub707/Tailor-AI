@@ -7,7 +7,7 @@ import { List } from '@phosphor-icons/react';
 // Single source of truth for global navigation.
 // Drives: hamburger items, active states, and navigation tests.
 import type { Icon } from '@phosphor-icons/react';
-import { House, SuitcaseSimple, UserCircle, IdentificationBadge, Tray, GlobeSimple, PaperPlaneTilt, ChatCircleDots, FileText } from '@phosphor-icons/react';
+import { House, UserCircle, IdentificationBadge, Tray, GlobeSimple, PaperPlaneTilt, ChatCircleDots, FileText } from '@phosphor-icons/react';
 
 export type NavGroupId = 'library' | 'profile' | 'tools';
 
@@ -29,7 +29,6 @@ export const NAV_GROUPS: Array<{ id: NavGroupId; label: string }> = [
 
 export const NAV_ITEMS: NavigationItem[] = [
   { id: 'home', label: 'Home', icon: House, route: '/', group: 'library', activeFor: (p) => p === '/' },
-  { id: 'applications', label: 'Applications', icon: SuitcaseSimple, route: '/applications', group: 'library', badgeKey: 'applications', activeFor: (p) => p === '/applications' || p.startsWith('/applications/') },
   { id: 'master-cv', label: 'Master CV', icon: IdentificationBadge, route: '/master-cv', group: 'profile', activeFor: (p) => p === '/master-cv' },
   { id: 'recruiters', label: 'Recruiters', icon: Tray, route: '/recruiters', group: 'tools', badgeKey: 'recruiters', activeFor: (p) => p === '/recruiters' },
   { id: 'job-portals', label: 'Job Portals', icon: GlobeSimple, route: '/job-portals', group: 'tools', activeFor: (p) => p === '/job-portals' },

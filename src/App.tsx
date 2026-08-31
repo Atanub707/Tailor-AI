@@ -13,8 +13,6 @@ import { JobPortalsScreen } from './components/JobPortalsScreen';
 import { RecruitersScreen } from './components/RecruitersScreen';
 import { AiSystemScreen } from './components/AiSystemScreen';
 import { LinkedInPostsScreen } from './components/LinkedInPostsScreen';
-import ApplicationsScreen from './components/ApplicationsScreen';
-import ApplicationDrawer from './components/ApplicationDrawer';
 import { OnboardingTour, startTour } from './components/OnboardingTour';
 import { LoginScreen } from './components/LoginScreen';
 import { Job, JobState, MasterCv, AppConfig, JobSource, TemplateId } from './types';
@@ -38,41 +36,22 @@ export default function App() {
   const isJobPortalsOpen = pathname === '/job-portals';
   const isAiSystemOpen = pathname === '/ai-interview';
   const isLinkedInPostsOpen = pathname === '/linkedin-posts';
-  const isApplicationsOpen = pathname === '/applications' || pathname.startsWith('/applications/');
-  // Canonical per-application route: /applications/:applicationId — reloads
-  // land back on the same application's detail view.
-  const applicationDetailId = pathname.startsWith('/applications/') ? decodeURIComponent(pathname.slice('/applications/'.length)) : undefined;
 
   // Unknown paths (stale bookmarks, typos) land on the dashboard instead of
   // a blank screen. Done BEFORE any screen renders.
-  const knownPaths = ['/', '/settings', '/recruiters', '/master-cv', '/applicant-profile', '/manual-jd', '/job-portals', '/ai-interview', '/linkedin-posts', '/applications'];
-  const knownPrefixes = ['/applications/'];
-  if (!knownPaths.includes(pathname) && !knownPrefixes.some((p) => pathname.startsWith(p))) return <Navigate to="/" replace />;
-
+  const knownPaths = ['/', '/settings', '/recruiters', '/master-cv', '/applicant-profile', '/manual-jd', '/job-portals', '/ai-interview', '/linkedin-posts'];
+  const knownPrefixes: string[] = [];
   const [jobs, setJobs] = useState<Job[]>([]);
   const [masterCv, setMasterCv] = useState<MasterCv | null>(null);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [currentUser, setCurrentUser] = useState<{ id: string; email: string; name: string; isGuest: boolean } | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [applicationBadge, setApplicationBadge] = useState(0);
-  React.useEffect(() => {
-    if (!currentUser) return;
-    let alive = true;
-    fetch('/api/applications?filter=action')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (alive && d) setApplicationBadge(d.counts.action ?? 0); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [currentUser, pathname]);
-
   // Active filters and views
   const [activeStateTab, setActiveStateTab] = useState<'all' | JobState>('all');
   // Current-search view: when set, the job list shows ONLY the jobs of this
   // search context (searchId → search_jobs → jobs). null = the full library.
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [selectedJobTab, setSelectedJobTab] = useState<'details' | 'gap' | 'tailored'>('details');
-  const [reviewApplicationId, setReviewApplicationId] = useState<string | null>(null);
-  const [reviewNonce, setReviewNonce] = useState(0);
 
   // Drawers and Modals — visibility comes from the URL above; these hold
   // transient payloads only.
@@ -546,6 +525,10 @@ export default function App() {
       console.error('Save config error:', err);
     }
   };
+  // Unknown paths (stale bookmarks, typos) land on the dashboard instead of
+  // a blank screen. MUST run after every hook to keep hook order stable.
+  if (!knownPaths.includes(pathname) && !knownPrefixes.some((p) => pathname.startsWith(p))) return <Navigate to="/" replace />;
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased selection:bg-blue-600 selection:text-white">
       <OnboardingTour ready={!!currentUser && !authLoading} />
@@ -562,7 +545,6 @@ export default function App() {
           onNavigate={(id) => {
             switch (id) {
               case 'home': navigate('/'); break;
-              case 'applications': navigate('/applications'); break;
               case 'applicant-profile': navigate('/applicant-profile'); break;
               case 'master-cv': navigate('/master-cv'); break;
               case 'recruiters': setRecruiterBadge(0); navigate('/recruiters'); break;
@@ -573,7 +555,7 @@ export default function App() {
               case 'settings': navigate('/settings'); break;
             }
           }}
-          badges={{ applications: applicationBadge, recruiters: recruiterBadge }}
+          badges={{ recruiters: recruiterBadge }}
           user={currentUser}
           installedVersion={installedVersion}
         >
@@ -666,8 +648,6 @@ export default function App() {
               onTailorJob={handleTailorJob}
               onDeleteJob={handleDeleteJob}
               onUpdateStatus={handleUpdateStatus}
-              onReviewApplication={(applicationId) => setReviewApplicationId(applicationId)}
-              reviewNonce={reviewNonce}
               onClearAll={handleClearAll}
               loadingJobIds={loadingJobIds}
               scoreMessages={scoreMessages}
@@ -739,14 +719,6 @@ export default function App() {
           {/* AI Interview */}
           {isAiSystemOpen && <AiSystemScreen onClose={goHome} />}
           {isLinkedInPostsOpen && <LinkedInPostsScreen onClose={goHome} />}
-          {isApplicationsOpen && <ApplicationsScreen onBackToJobs={goHome} initialApplicationId={applicationDetailId} />}
-
-          {/* Application Detail drawer over the Home job list (Review) */}
-          <ApplicationDrawer
-            applicationId={reviewApplicationId}
-            onClose={() => setReviewApplicationId(null)}
-            onChanged={() => setReviewNonce((n) => n + 1)}
-          />
         </NavigationProvider>
       )}
     </div>

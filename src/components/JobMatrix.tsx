@@ -1,5 +1,4 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Job, JobState, JobSource } from '../types';
 import { formatTimeAgoSemantic } from '../lib/dateUtils';
 import { getValidJobUrl } from '../lib/jobUrlUtils';
@@ -128,34 +127,12 @@ const JobCard = React.memo(function JobCard({
     void onMatchJob(job.id);
   };
 
-  // Applied → after 3s the job moves into the Applications tracker:
-  // create the package (no LLM), record a manual applied entry, then open
-  // the Applications screen. Marking unapplied stays instant/local.
-  const navigate = useNavigate();
+  // Applied — marks the job applied (green toggle). No navigation,
+  // no tracker — it's just a status on the card.
   const toggleApplied = async () => {
-    const next = job.state === 'applied' ? 'pending' : 'applied';
-    await onUpdateStatus(job.id, next);
-    if (next !== 'applied') return;
-    window.setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/jobs/${job.id}/application-package`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        });
-        if (res.ok) {
-          const d = await res.json();
-          const appId = d.package?.id || d.application?.applicationId;
-          if (appId) await fetch(`/api/applications/${appId}/mark-applied`, { method: 'POST' });
-        }
-      } catch { /* the job is still marked applied; tracker creation is best-effort */ }
-      navigate('/applications');
-    }, 3000);
+    await onUpdateStatus(job.id, job.state === 'applied' ? 'pending' : 'applied');
   };
 
-  // Apply (paused auto-apply): the button links directly to the job post —
-  // people complete the application manually on the employer's site.
-  // "Applied" keeps the tracking record.
   const SCORE_TONE = (score: number) => (score >= 80 ? 'text-emerald-700' : score >= 60 ? 'text-amber-700' : 'text-red-700');
 
   return (

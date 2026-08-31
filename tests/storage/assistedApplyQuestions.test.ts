@@ -182,16 +182,7 @@ describe('Approval — gated on readiness, never submits', () => {
 });
 
 describe('UI wiring guards', () => {
-  it('the shared Application drawer renders Questions to Answer + Review/Approve panels', () => {
-    const scr = fs.readFileSync(path.join(process.cwd(), 'src/components/ApplicationDrawer.tsx'), 'utf8');
-    expect(scr).toContain('Questions to Answer');
-    expect(scr).toContain('Save & Continue');
-    expect(scr).toContain('Review before continuing');
-    expect(scr).toContain('Approve & Continue');
-    expect(scr).toContain('requiredQuestions');
-    expect(scr).toContain('needsApproval');
-    expect(scr).toContain('/api/submission-plans/${details.planId}/answers');
-  });
+
 
   it('planStore persists repeated saves idempotently (UPSERT)', () => {
     const store = fs.readFileSync(path.join(process.cwd(), 'server/applicationEngine/planStore.ts'), 'utf8');

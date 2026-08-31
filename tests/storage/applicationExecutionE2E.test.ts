@@ -83,8 +83,6 @@ afterAll(() => {
 
 const CARD = fs.readFileSync(path.join(process.cwd(), 'src/components/JobMatrix.tsx'), 'utf8');
 const APP = fs.readFileSync(path.join(process.cwd(), 'src/App.tsx'), 'utf8');
-const SCREEN = fs.readFileSync(path.join(process.cwd(), 'src/components/ApplicationsScreen.tsx'), 'utf8');
-const DRAWER = fs.readFileSync(path.join(process.cwd(), 'src/components/ApplicationDrawer.tsx'), 'utf8');
 const SERVER = fs.readFileSync(path.join(process.cwd(), 'server.ts'), 'utf8');
 
 describe('Apply — paused auto-apply: direct link to the job post', () => {
@@ -99,17 +97,12 @@ describe('Apply — paused auto-apply: direct link to the job post', () => {
     expect(CARD).not.toContain('Could not prepare the application.');
   });
 
-  it('the Applied toggle moves the job into Applications after 3 seconds', () => {
+  it('the Applied toggle only marks the job applied — no navigation, no tracker', () => {
     expect(CARD).toContain('toggleApplied');
-    expect(CARD).toContain("navigate('/applications')");
-    expect(CARD).toContain(', 3000');
-    expect(CARD).toContain('mark-applied');
-    expect(CARD).toContain('application-package');
-  });
-
-  it('the Applications drawer stays available for existing tracked applications', () => {
-    expect(APP).toContain('<ApplicationDrawer');
-    expect(APP).toContain('initialApplicationId={applicationDetailId}');
+    expect(CARD).toContain('onUpdateStatus(job.id');
+    expect(CARD).not.toContain("navigate('/applications')");
+    expect(CARD).not.toContain(', 3000');
+    expect(CARD).not.toContain('mark-applied');
   });
 });
 
@@ -171,16 +164,12 @@ describe('Unsupported provider — Manual application required, never Failed', (
   });
 });
 
-describe('Application Detail — refresh recovery surface', () => {
-  it('the details endpoint exposes events and the shared drawer renders them', () => {
-    expect(DRAWER).toContain('Recent activity');
-    expect(DRAWER).toContain('EVENT_LABEL');
-    expect(SCREEN).toContain('initialApplicationId');
-    expect(SCREEN).toContain("rows.find((r) => r.applicationId === initialApplicationId)");
-    expect(DRAWER).toContain('Open original application');
-    expect(DRAWER).toContain('Mark as applied');
+describe('Application Detail — server surfaces remain (UI removed)', () => {
+  it('details serve events and manual confirmation; every route is protected server-side', () => {
     const ui = fs.readFileSync(path.join(process.cwd(), 'src/components/applicationUi.ts'), 'utf8');
     expect(ui).toContain('Manual application required');
+    expect(SERVER).toContain("app.get('/api/applications/:applicationId/details'");
+    expect(SERVER).toContain("app.post('/api/applications/:applicationId/mark-applied'");
   });
 
   it('the mark-applied endpoint exists server-side', () => {
@@ -239,9 +228,9 @@ describe('Easy Flow — auto-tailor on Apply, deterministic CV attachment', () =
     expect(srv).toContain('cvSource');
   });
 
-  it('Questions drawer surfaces Auto-filled from profile strip', () => {
-    expect(DRAWER).toContain('Auto-filled from your profile');
-    expect(DRAWER).toContain('autoFilled');
+  it('details endpoint surfaces autoFilled for the profile strip', () => {
+    const detailsSrc = fs.readFileSync(path.join(process.cwd(), 'server/applicationExperience/applicationDetails.ts'), 'utf8');
+    expect(detailsSrc).toContain('autoFilled');
   });
 });
 
@@ -253,8 +242,9 @@ describe('Attached CV transparency — the drawer names the exact resume', () =>
     expect(details.resumeSource).toBe('TAILORED');
     expect(details.resumeVersion).toBe(1);
   });
-  it('drawer renders the attached-CV badge with source', () => {
-    expect(DRAWER).toContain('Attached CV');
-    expect(DRAWER).toContain('resumeSource');
+  it('details expose the attached CV source + version for the badge', () => {
+    const detailsSrc = fs.readFileSync(path.join(process.cwd(), 'server/applicationExperience/applicationDetails.ts'), 'utf8');
+    expect(detailsSrc).toContain('resumeSource');
+    expect(detailsSrc).toContain('resumeVersion');
   });
 });

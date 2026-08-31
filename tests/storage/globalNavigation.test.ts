@@ -12,7 +12,6 @@ const NAV = fs.readFileSync(path.join(process.cwd(), 'src/navigation.tsx'), 'utf
 // Config-driven inventory — mirrors src/navigation.ts without React imports.
 const EXPECTED_ITEMS: Array<{ id: string; label: string; route: string; group: 'library' | 'profile' | 'tools' }> = [
   { id: 'home', label: 'Home', route: '/', group: 'library' },
-  { id: 'applications', label: 'Applications', route: '/applications', group: 'library' },
   { id: 'master-cv', label: 'Master CV', route: '/master-cv', group: 'profile' },
   { id: 'recruiters', label: 'Recruiters', route: '/recruiters', group: 'tools' },
   { id: 'job-portals', label: 'Job Portals', route: '/job-portals', group: 'tools' },
@@ -44,8 +43,7 @@ describe('Single source of truth — src/navigation.ts', () => {
     }
   });
 
-  it('active-state rules: applications detail keeps Applications active', () => {
-    expect(NAV).toContain("p === '/applications' || p.startsWith('/applications/')");
+  it('active-state rules: activeNavId used for nav highlight', () => {
     expect(NAV).toContain('activeNavId');
   });
 });
@@ -104,7 +102,7 @@ describe('App shell — navigation system', () => {
     expect(mainIdx).toBeGreaterThan(-1);
     expect(APP.indexOf('</main>', mainIdx)).toBeGreaterThan(mainIdx);
     // Feature screens never render the full Home bar (Navbar has no route condition inside it)
-    for (const file of ['SettingsModal.tsx', 'ManualJdScreen.tsx', 'ApplicationsScreen.tsx', 'ApplicantProfileScreen.tsx', 'MasterCvScreen.tsx']) {
+    for (const file of ['SettingsModal.tsx', 'ManualJdScreen.tsx', 'ApplicantProfileScreen.tsx', 'MasterCvScreen.tsx']) {
       const src = fs.readFileSync(path.join(process.cwd(), 'src/components', file), 'utf8');
       expect(src).not.toContain('Created by');
       expect(src).not.toContain('<Navbar');
@@ -115,7 +113,7 @@ describe('App shell — navigation system', () => {
     expect(APP).toContain('<NavigationProvider');
     expect(APP).toContain('onNavigate=');
     expect(APP).toContain('</NavigationProvider>');
-    for (const file of ['SettingsModal.tsx', 'ManualJdScreen.tsx', 'ApplicationsScreen.tsx', 'ApplicantProfileScreen.tsx', 'MasterCvScreen.tsx', 'RecruitersScreen.tsx', 'JobPortalsScreen.tsx', 'LinkedInPostsScreen.tsx', 'AiSystemScreen.tsx']) {
+    for (const file of ['SettingsModal.tsx', 'ManualJdScreen.tsx', 'ApplicantProfileScreen.tsx', 'MasterCvScreen.tsx', 'RecruitersScreen.tsx', 'JobPortalsScreen.tsx', 'LinkedInPostsScreen.tsx', 'AiSystemScreen.tsx']) {
       const src = fs.readFileSync(path.join(process.cwd(), 'src/components', file), 'utf8');
       expect(src).toContain('HamburgerTrigger');
     }
