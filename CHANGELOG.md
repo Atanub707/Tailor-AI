@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.6.0 (2026-08-31)
+
+### 🗑️ Deleted jobs stay deleted
+
+- Removed jobs never reappear: every search now filters out per-user hidden jobs, so a deleted job (from any source — job boards, Greenhouse, Lever, Ashby) cannot re-enter your list on a new search.
+- Remove shows a 6-second "Removed — it won't appear in new searches" toast with Undo (undo un-hides for a future search without re-adding to the current list).
+- Clear All also resets the hidden list for a true fresh start.
+
 ## v2.5.0 (2026-08-31)
 
 ### 🧹 Removed
