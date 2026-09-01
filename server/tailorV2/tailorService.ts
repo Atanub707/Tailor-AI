@@ -136,6 +136,8 @@ export async function tailorJobWithV2(
   // (before/after scores, gaps, keyword incorporation) and display-only
   // counters. The versioned draft itself stays canonical.
   enrichTailoredCv(tailoredCv, audit, masterCv);
+  // Skills render grouped exactly like the Master CV preview.
+  groupSkillsLikeMasterCv(tailoredCv, masterCv);
 
   return {
     version: result.version,
@@ -151,6 +153,48 @@ export async function tailorJobWithV2(
 /** Latest verified Tailor V2 version for a job (for package/immutable use). */
 export function latestVerifiedVersion(userId: string, jobId: string) {
   return getLatestTailorVersion(userId, jobId);
+}
+
+/** Re-group the tailored flat skill list into the Master CV's skill
+ *  categories so the Tailored Resume renders EXACTLY like the Master CV
+ *  preview (same category labels, same order, same grouping). Skilled
+ *  terms the master CV doesn't categorize go to 'Core Competencies'. */
+export function groupSkillsLikeMasterCv(tailoredCv: TailoredCv, masterCv: MasterCv): TailoredCv {
+  const flat = Array.isArray(tailoredCv.coreCompetencies) ? tailoredCv.coreCompetencies : [];
+  if (!flat.length) return tailoredCv;
+  const norm = (s: string) => String(s || '').toLowerCase().trim().replace(/\s+/g, ' ');
+  const masterGroups: Array<{ category: string; items: string[] }> = [];
+  for (const g of masterCv.skills || []) {
+    masterGroups.push({ category: g.category || 'Skills', items: (g.items || []).map(norm) });
+  }
+  const buckets = new Map<string, string[]>();
+  const order: string[] = [];
+  for (const g of masterGroups) {
+    buckets.set(norm(g.category), []);
+    order.push(norm(g.category));
+  }
+  const residual: string[] = [];
+  for (const skill of flat) {
+    const s = norm(skill);
+    let placed = false;
+    for (const g of masterGroups) {
+      if (g.items.some((item) => item === s || item.includes(s) || s.includes(item))) {
+        buckets.get(norm(g.category))!.push(skill);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) residual.push(skill);
+  }
+  const grouped: Array<{ category: string; skills: string[] }> = [];
+  for (const key of order) {
+    const items = buckets.get(key) || [];
+    if (items.length) grouped.push({ category: masterGroups.find((g) => norm(g.category) === key)!.category, skills: items });
+  }
+  if (residual.length) grouped.push({ category: 'Core Competencies', skills: residual });
+  if (!grouped.length) return tailoredCv;
+  tailoredCv.technicalSkills = grouped;
+  return tailoredCv;
 }
 
 /** Attach the UI metadata the legacy engine provided (contact block, audit,
@@ -188,7 +232,9 @@ export function backfillTailoredAudits(): number {
     if (job.state !== 'tailored' || !cv) continue;
     const needsAudit = !cv.audit;
     const needsContact = !cv.contactInfo || !cv.contactInfo.email;
-    if (!needsAudit && !needsContact) continue;
+    // Skills still flat ('Skills' single bucket) → regroup like Master CV.
+    const needsSkillGrouping = Array.isArray(cv.technicalSkills) && cv.technicalSkills.length === 1 && cv.technicalSkills[0]?.category === 'Skills' && (cv.coreCompetencies?.length || 0) > 0;
+    if (!needsAudit && !needsContact && !needsSkillGrouping) continue;
     // Terms: from the real JD when stored; otherwise the gap analysis the
     // match produced (deterministic, grounded, never LLM).
     const terms = needsAudit ? jdSkillTerms(String(job.description || '')) : [];
@@ -222,6 +268,7 @@ function backfillRowWithTerms(job: Job, cv: TailoredCv, terms: string[], db: Ret
     audit = buildTailorAudit(job, draft, { passed: true, issues: [], supportedJdTermsBefore: 0, supportedJdTermsAfter: terms.length, unsupportedInserted: 0 }, terms, getMasterCv());
   }
   enrichTailoredCv(cv, audit as TailoringAudit, getMasterCv());
+  groupSkillsLikeMasterCv(cv, getMasterCv());
   job.tailoredCv = cv;
   db.prepare('UPDATE jobs SET data = ? WHERE id = ?').run(JSON.stringify(job), rowId);
 }

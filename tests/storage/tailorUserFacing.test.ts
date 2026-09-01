@@ -315,4 +315,15 @@ describe('Tailor V2 — user-facing migration', () => {
   it('no paid calls: fetch is the only LLM boundary and it is fully stubbed', async () => {
     expect(typeof globalThis.fetch).toBe('function'); // stub installed by test helper
   });
+
+  it('skills are grouped into the Master CV categories (render like the master preview)', async () => {
+    const r = await run(goodDraft(), 'j1');
+    const cats = (r.tailoredCv.technicalSkills || []).map((c) => c.category);
+    expect(cats).toContain('Infra'); // master CV category of Kubernetes/AWS/Terraform
+    expect(cats).not.toContain('Skills'); // no more single flat bucket
+    const infra = (r.tailoredCv.technicalSkills || []).find((c) => c.category === 'Infra');
+    expect(infra?.skills.length).toBeGreaterThan(0);
+    const allGrouped = (r.tailoredCv.technicalSkills || []).flatMap((c) => c.skills);
+    expect(allGrouped).toContain('Kubernetes');
+  });
 });
