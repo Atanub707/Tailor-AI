@@ -24,6 +24,25 @@ import { verifyPdfTextLayer } from './pdfText.js';
 
 export const MAX_GENERATION_ATTEMPTS = 2;
 
+/** Ratio of draft highlights that are byte-identical to the source
+ *  responsibility at the same position (verbatim copies = not tailored). */
+export function verbatimBulletRatio(draft: TailorDraft, cv: MasterCv): number {
+  const srcByCompany = new Map<string, string[]>();
+  for (const e of cv.experiences || []) {
+    const key = String(e.company || '').toLowerCase().trim();
+    srcByCompany.set(key, (e.responsibilities || []).map((r) => String(r || '').trim()));
+  }
+  let total = 0, verbatim = 0;
+  for (const w of draft.experience || []) {
+    const src = srcByCompany.get(String(w.company || '').toLowerCase().trim()) || [];
+    (w.highlights || []).forEach((h, i) => {
+      total++;
+      if (src[i] && String(h || '').trim() === src[i]) verbatim++;
+    });
+  }
+  return total === 0 ? 0 : verbatim / total;
+}
+
 export class TailorVerificationFailedError extends Error {
   constructor(message: string) {
     super(message);
@@ -90,11 +109,22 @@ export async function runTailorV2(
 
   let draft: TailorDraft | undefined;
   let verification: TailorVerification | undefined;
+  let verbatimNote: string | undefined;
   for (let attempt = 0; attempt < MAX_GENERATION_ATTEMPTS; attempt++) {
     const violations = verification && verification.issues.length ? verification.issues.map((i) => `${i.type}: ${i.claim}`).slice(0, 12) : undefined;
-    draft = await llmDraft(cv, profile, job, jd, fit, violations);
+    const retryNotes = [...(violations || []), ...(verbatimNote ? [verbatimNote] : [])];
+    verbatimNote = undefined;
+    draft = await llmDraft(cv, profile, job, jd, fit, retryNotes.length ? retryNotes : undefined);
     verification = await verifyDraft(toVerifierDraft(draft), cv, profile, terms);
-    if (verification.passed) break;
+    if (!verification.passed) continue;
+    // If the draft passed fact verification but copied source bullets
+    // verbatim, it was NOT tailored — demand a rewrite on the next attempt.
+    const ratio = verbatimBulletRatio(draft, cv);
+    if (ratio > 0.5 && attempt + 1 < MAX_GENERATION_ATTEMPTS) {
+      verbatimNote = `REWRITE REQUIRED: ${Math.round(ratio * 100)}% of your experience bullets are byte-identical copies of the source. Rephrase EVERY bullet in fresh, job-specific wording (same facts, new wording).`;
+      continue;
+    }
+    break;
   }
 
   if (!verification || !draft) throw new TailorVerificationFailedError('Tailoring failed factual verification.');

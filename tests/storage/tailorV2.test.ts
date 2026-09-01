@@ -12,7 +12,7 @@ const { getDb, runWithUser } = await import('../../server/storage/fileStorage.js
 const { ensureV2Tables } = await import('../../server/storage/v2Tables.js');
 const { ensureApplicantProfileSchema, defaultApplicantProfile, saveApplicantProfile } = await import('../../server/storage/applicantProfile.js');
 const { computeFit } = await import('../../server/fit/fitEngine.js');
-const { runTailorV2, toVerifierDraft, TailorVerificationFailedError } = await import('../../server/tailorV2/tailorV2Engine.js');
+const { runTailorV2, toVerifierDraft, TailorVerificationFailedError, verbatimBulletRatio } = await import('../../server/tailorV2/tailorV2Engine.js');
 const { verifyDraft } = await import('../../server/tailorV2/verifier.js');
 const { buildCandidateFactLedger } = await import('../../server/tailorV2/candidateLedger.js');
 const { getLatestTailorVersion, listTailorVersions, markTailorVersionsStale } = await import('../../server/tailorV2/versionStore.js');
@@ -330,6 +330,40 @@ describe('Tailor V2', () => {
     expect(types.has('certification')).toBe(true);
     expect(types.has('metric')).toBe(true);
     expect(types.has('skill')).toBe(true);
+  });
+
+  it('VERBATIM-FIX: source bullets copied byte-identical → retried with rewrite demand', async () => {
+    // Draft 1: exact copies of source responsibilities (would pass the
+    // fact verifier, but fails the rewrite-coverage check → attempt 2).
+    const verbatim: TailorDraft = {
+      ...goodDraft(),
+      experience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', location: 'Bengaluru', dates: 'Jan 2021 – Present', highlights: ['Reduced deployment time by 70%', 'Managed GKE and EKS production clusters', 'Built CI/CD pipelines with GitLab'] }],
+    };
+    // Draft 2 (retry): same facts, fresh wording.
+    const rewritten: TailorDraft = {
+      ...goodDraft(),
+      experience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', location: 'Bengaluru', dates: 'Jan 2021 – Present', highlights: ['Cut deployment time by 70% through automation', 'Operated production GKE and EKS clusters', 'Delivered CI/CD pipelines on GitLab'] }],
+    };
+    let calls = 0;
+    let sawRewriteDemand = false;
+    vi.stubGlobal('fetch', async (_url: string, init: any) => {
+      calls++;
+      const promptBody = String((init?.body || '')).slice(0, 20000);
+      if (calls === 2) {
+        // The retry prompt must carry the verbatim-copy feedback.
+        sawRewriteDemand = /byte-identical copies|REWRITE REQUIRED/i.test(promptBody);
+      }
+      const d = calls === 1 ? verbatim : rewritten;
+      return { status: 200, ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(d) } }] }), text: async () => '' };
+    });
+    const res = await runWithUser(USER, () =>
+      runTailorV2(USER, cv, profile(), job(), JD, fitFor(), { jdHash: 'h-vb', fitEngineVersion: 3 })
+    );
+    vi.unstubAllGlobals();
+    expect(calls).toBe(2);          // verbatim draft triggered the rewrite retry
+    expect(sawRewriteDemand).toBe(true);
+    expect(res.verification.passed).toBe(true);
+    expect(verbatimBulletRatio(res.draft, cv)).toBeLessThanOrEqual(0.5); // final draft is rewritten
   });
 
   it('verifier speed: <100ms deterministic', async () => {
