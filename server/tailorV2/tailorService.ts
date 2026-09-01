@@ -138,8 +138,9 @@ export async function tailorJobWithV2(
   enrichTailoredCv(tailoredCv, audit, masterCv);
   // Skills render grouped exactly like the Master CV preview.
   groupSkillsLikeMasterCv(tailoredCv, masterCv);
-  // Every Master CV project appears (drafter may omit some).
-  ensureProjectCompleteness(tailoredCv, masterCv);
+  // Projects/education/certs copied verbatim — only summary, skills and
+  // experience bullets are tailored.
+  applyMasterSectionsVerbatim(tailoredCv, masterCv);
 
   return {
     version: result.version,
@@ -203,24 +204,26 @@ export function groupSkillsLikeMasterCv(tailoredCv: TailoredCv, masterCv: Master
  *  may omit projects (the verifier only rejects invented ones, and dropping
  *  is not a violation). Deterministically append any missing project from
  *  the Master CV — candidate-owned evidence is always safe to include. */
-export function ensureProjectCompleteness(tailoredCv: TailoredCv, masterCv: MasterCv): TailoredCv {
-  const norm = (s: string) => String(s || '').toLowerCase().trim().replace(/\s+/g, ' ');
-  const existing = new Set((tailoredCv.projects || []).map((p) => norm(p.name)));
-  const missing: TailoredCv['projects'] = [];
-  for (const p of masterCv.projects || []) {
-    if (!p?.name) continue;
-    if (existing.has(norm(p.name))) continue;
-    missing.push({
-      id: p.id || `proj-${norm(p.name).replace(/[^a-z0-9]+/g, '-')}`,
-      name: p.name,
-      description: p.description || '',
-      technologies: p.technologies || [],
-      link: p.link,
-      dates: p.dates,
-    });
-    existing.add(norm(p.name));
-  }
-  if (missing.length) tailoredCv.projects = [...(tailoredCv.projects || []), ...missing];
+/** Tailoring scope: summary, skill sections and experience bullets only.
+ *  Projects, education and certifications are copied VERBATIM from the
+ *  Master CV — same entries, same wording, same order. No LLM touches them
+ *  (the AI may not rename/reorder/add/remove these sections). */
+export function applyMasterSectionsVerbatim(tailoredCv: TailoredCv, masterCv: MasterCv): TailoredCv {
+  tailoredCv.projects = (masterCv.projects || []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    description: p.description || '',
+    technologies: [...(p.technologies || [])],
+    link: p.link,
+    dates: p.dates,
+  }));
+  tailoredCv.education = (masterCv.education || []).map((e) => ({
+    degree: e.degree,
+    institution: e.institution,
+    dates: e.dates,
+    details: e.details,
+  }));
+  tailoredCv.certifications = (masterCv.certifications || []).map((c) => (typeof c === 'string' ? c : { ...c }));
   return tailoredCv;
 }
 
@@ -257,9 +260,12 @@ export function backfillTailoredAudits(): number {
 
 function backfillForCurrentUser(): number {
   const db = getDb();
+  const currentUserId = getCurrentUserId();
   let count = 0;
-  // jobs are stored as JSON blobs (id, user_id, data) — no state column.
-  const rows = db.prepare(`SELECT id, data FROM jobs`).all() as Array<{ id: string; data: string }>;
+  // jobs are stored as JSON blobs (id, user_id, data) — filter by the
+  // CURRENT user: job ids are shared across users (ATS fingerprints), so
+  // updates MUST be scoped by user_id or they collide (PK = user_id, id).
+  const rows = db.prepare('SELECT id, data FROM jobs WHERE user_id = ?').all(currentUserId) as Array<{ id: string; data: string }>;
   for (const row of rows) {
     let job: Job;
     try {
@@ -273,13 +279,16 @@ function backfillForCurrentUser(): number {
     const needsContact = !cv.contactInfo || !cv.contactInfo.email;
     // Skills still flat ('Skills' single bucket) → regroup like Master CV.
     const needsSkillGrouping = Array.isArray(cv.technicalSkills) && cv.technicalSkills.length === 1 && cv.technicalSkills[0]?.category === 'Skills' && (cv.coreCompetencies?.length || 0) > 0;
-    // Projects the drafter omitted → every Master CV project must appear.
-    const hasProjectGap = (() => {
-      const norm = (s: string) => String(s || '').toLowerCase().trim().replace(/\s+/g, ' ');
-      const existing = new Set((cv.projects || []).map((p) => norm(p.name)));
-      return (getMasterCv().projects || []).some((p) => p?.name && !existing.has(norm(p.name)));
+    // Sections the LLM may have touched (projects/education/certs) must be
+    // replaced with the Master CV's verbatim content.
+    const needsVerbatim = (() => {
+      const master = getMasterCv();
+      const projEq = JSON.stringify((cv.projects || []).map((p) => p.name)) === JSON.stringify((master.projects || []).map((p) => p.name));
+      const eduEq = (cv.education || []).length === (master.education || []).length;
+      const certEq = (cv.certifications || []).length === (master.certifications || []).length;
+      return !projEq || !eduEq || !certEq;
     })();
-    if (!needsAudit && !needsContact && !needsSkillGrouping && !hasProjectGap) continue;
+    if (!needsAudit && !needsContact && !needsSkillGrouping && !needsVerbatim) continue;
     // Terms: from the real JD when stored; otherwise the gap analysis the
     // match produced (deterministic, grounded, never LLM).
     const terms = needsAudit ? jdSkillTerms(String(job.description || '')) : [];
@@ -314,9 +323,9 @@ function backfillRowWithTerms(job: Job, cv: TailoredCv, terms: string[], db: Ret
   }
   enrichTailoredCv(cv, audit as TailoringAudit, getMasterCv());
   groupSkillsLikeMasterCv(cv, getMasterCv());
-  ensureProjectCompleteness(cv, getMasterCv());
+  applyMasterSectionsVerbatim(cv, getMasterCv());
   job.tailoredCv = cv;
-  db.prepare('UPDATE jobs SET data = ? WHERE id = ?').run(JSON.stringify(job), rowId);
+  db.prepare('UPDATE jobs SET data = ? WHERE id = ? AND user_id = ?').run(JSON.stringify(job), rowId, getCurrentUserId());
 }
 
 export { TailorVerificationFailedError };

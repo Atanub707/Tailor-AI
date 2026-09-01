@@ -327,13 +327,18 @@ describe('Tailor V2 — user-facing migration', () => {
     expect(allGrouped).toContain('Kubernetes');
   });
 
-  it('every Master CV project is present in the tailored resume (drafter drop repair)', async () => {
-    // goodDraft has 1 project; master CV has 1 ('K8s Cluster Autoscaler').
-    // Simulate a drafter that dropped ALL projects:
-    const dropped = goodDraft();
-    dropped.projects = [];
-    const r = await run(dropped, 'j1');
-    const names = (r.tailoredCv.projects || []).map((p) => p.name);
-    expect(names).toContain('K8s Cluster Autoscaler'); // omitted project restored
+  it('projects/education/certifications are copied verbatim; summary/skills/bullets are tailored', async () => {
+    const r = await run(goodDraft(), 'j1');
+    // Projects = EXACT Master CV list (name, description, dates — no AI edits):
+    expect(r.tailoredCv.projects?.map((p) => p.name)).toEqual((cv.projects || []).map((p) => p.name));
+    expect(r.tailoredCv.projects?.[0]?.description).toBe((cv.projects || [])[0]?.description);
+    // Education + certifications identical to Master CV:
+    expect(r.tailoredCv.education?.map((e) => e.degree)).toEqual(['B.Tech']);
+    expect(r.tailoredCv.education?.[0]?.institution).toBe('IIT');
+    expect(r.tailoredCv.certifications?.map((c) => (typeof c === 'string' ? c : c.name))).toEqual(['CKA']);
+    // Summary + experience bullets are the TAILORED draft, not verbatim:
+    expect(r.tailoredCv.professionalSummary).toBe(goodDraft().summary);
+    expect(r.tailoredCv.workExperience[0].highlights[0]).toContain('70%');
+    expect(r.tailoredCv.workExperience[0].company).toBe('Human Managed');
   });
 });
