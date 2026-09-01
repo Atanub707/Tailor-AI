@@ -4025,7 +4025,10 @@ const sanitizeAttemptDryRun = (a: any) => ({
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*all', (req, res) => {
+    // SPA fallback — final middleware, catches every route not served by
+    // static files (deep links, refreshes on /settings, unknown paths).
+    // ('*all' as a route pattern would only match paths ending in "all".)
+    app.use((req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
