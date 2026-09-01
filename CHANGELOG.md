@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.7.2 (2026-09-01)
+
+### 🖥️ UI reliability fixes
+
+- **Tailor updates cards live**: the app now runs in production mode (no Vite dev middleware / HMR client). The Tailor button's result appears in-place — no more "it did nothing" until a manual reload. (Fix: inverted HMR toggle + NODE_ENV=production.)
+- **Job modal always shows the authoritative CV**: opening any job refetches the server copy, so Skills/Projects/Education/Certifications can never render a stale in-memory version again.
+
 ## v2.7.1 (2026-09-01)
 
 ### 🔧 Tailored Resumes now match the Master CV
