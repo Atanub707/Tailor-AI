@@ -12,7 +12,12 @@ RUN npm install --loglevel=error \
   && rm -rf node_modules/better-sqlite3/prebuilds \
   && cd node_modules/better-sqlite3 && npx node-gyp rebuild
 
+# Build the frontend so dist/ ships inside the image. With NODE_ENV=production
+# in docker-compose the server serves dist/ via express.static — without this
+# step a freshly built image has no dist/ and GET / falls through to the
+# bare Express "Cannot GET /" default.
 COPY . .
+RUN npm run build
 
 EXPOSE 3000
 
