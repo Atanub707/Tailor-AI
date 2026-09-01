@@ -17,8 +17,12 @@ RUN npm install --loglevel=error \
 # step a freshly built image has no dist/ and GET / falls through to the
 # bare Express "Cannot GET /" default.
 COPY . .
-RUN npm run build
+RUN npm run build \
+  && cp -r /app/dist /image-dist
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 3000
 
+ENTRYPOINT ["sh", "/entrypoint.sh"]
 CMD ["npm", "run", "dev"]

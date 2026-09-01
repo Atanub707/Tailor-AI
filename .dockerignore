@@ -7,3 +7,4 @@ screenshot.png
 *.bat
 *.sh
 *.md
+!entrypoint.sh
