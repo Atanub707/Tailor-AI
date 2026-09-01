@@ -529,6 +529,14 @@ async function startServer() {
       if (lockBefore !== lockAfter) {
         execSync('npm install --loglevel=error', { cwd: '/app', stdio: 'inherit', timeout: 600000 });
       }
+      // Rebuild the frontend: the server serves the HOST dist/ folder (the
+      // compose bind mount shadows the image), so a source-only update would
+      // leave users on the stale UI (or the 'frontend not built' page).
+      try {
+        execSync('npm run build', { cwd: '/app', stdio: 'inherit', timeout: 900000 });
+      } catch (buildErr: any) {
+        console.error('Frontend rebuild failed after update:', buildErr?.message || buildErr);
+      }
       // Let the response flush, then hand over to Docker's restart policy.
       setTimeout(() => process.exit(0), 2000);
     } catch (err: any) {
