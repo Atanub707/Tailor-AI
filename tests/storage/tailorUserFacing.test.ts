@@ -326,4 +326,14 @@ describe('Tailor V2 — user-facing migration', () => {
     const allGrouped = (r.tailoredCv.technicalSkills || []).flatMap((c) => c.skills);
     expect(allGrouped).toContain('Kubernetes');
   });
+
+  it('every Master CV project is present in the tailored resume (drafter drop repair)', async () => {
+    // goodDraft has 1 project; master CV has 1 ('K8s Cluster Autoscaler').
+    // Simulate a drafter that dropped ALL projects:
+    const dropped = goodDraft();
+    dropped.projects = [];
+    const r = await run(dropped, 'j1');
+    const names = (r.tailoredCv.projects || []).map((p) => p.name);
+    expect(names).toContain('K8s Cluster Autoscaler'); // omitted project restored
+  });
 });
