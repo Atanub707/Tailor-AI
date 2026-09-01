@@ -1,5 +1,32 @@
 # Changelog
 
+## v2.7.0 (2026-09-01)
+
+### 🤖 CV extraction is now model-agnostic
+
+- CV upload/paste extraction previously broke with every model: raw `JSON.parse` could not read fenced model replies, so both minimax-m3 and deepseek-v4-flash silently fell back to a crude regex parser (hardcoded "Senior Engineer / IT Specialist", location "Remote", empty LinkedIn/GitHub).
+- The parser now uses the proven `askJson` pipeline (markers + JSON repair cascade + bounded retry) — any model in the catalog extracts correctly.
+- `designation` added to the extraction schema (was never extractable).
+- The fallback parser no longer fabricates values — empty fields stay empty.
+- The success banner is field-aware: shows exactly which fields were extracted.
+
+### 🎯 Tailored CV scores are real per-job values
+
+- V2-tailored CVs were missing the audit metadata the UI reads, so every card showed the hard-coded 92% fallback. Tailored CVs now carry their own before/after score, keyword incorporation and contact block (header renders correctly in preview + download).
+- Existing tailored CVs were backfilled deterministically (no LLM).
+
+### ✉️ Human, short outreach emails
+
+- Drafted emails are 60-90 words, sell your level with one real number, mention projects in one passing clause, and ban em/en dashes (prompt + deterministic strip).
+
+### 📧 SMTP send auto-corrects SSL vs STARTTLS
+
+- Port 465 = SSL, 587/25 = STARTTLS decided deterministically; a mismatched toggle no longer blocks sending ("wrong version number" error) — retries with the flipped mode.
+
+### 🧭 Settings in the hamburger
+
+- Settings is now reachable from the hamburger drawer (and still from the account menu + ⌘,).
+
 ## v2.6.0 (2026-08-31)
 
 ### 🗑️ Deleted jobs stay deleted
