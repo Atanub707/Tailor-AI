@@ -19,6 +19,7 @@ services:
       - tailor-data:/app/data
       - ./config.ini:/app/config.ini
     environment:
+      - NODE_ENV=production
       - DISABLE_HMR=true
       # LLM request budget — deepseek-v4-flash via opencode-go commonly
       # takes 85-120s+ (Tailor V1 makes two back-to-back calls); 4 minutes
