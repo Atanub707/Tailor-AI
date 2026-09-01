@@ -41,6 +41,7 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
   const [showPasteBox, setShowPasteBox] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const [extractedFileName, setExtractedFileName] = useState<string | null>(null);
+  const [extractionNote, setExtractionNote] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [skillGaps, setSkillGaps] = useState<{ skill: string; count: number; totalScored: number }[]>([]);
@@ -132,11 +133,31 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
     setTimeout(() => setGapsAddedMsg(null), 4000);
   };
 
+  /** Field-aware extraction summary — the banner reports what actually landed. */
+  const summarizeExtraction = (cv: any): string => {
+    const parts: string[] = [];
+    if (cv?.fullName) parts.push('Name');
+    if (cv?.designation) parts.push('Designation');
+    if (cv?.email) parts.push('Email');
+    if (cv?.phone) parts.push('Phone');
+    if (cv?.location) parts.push('Location');
+    if (cv?.linkedin) parts.push('LinkedIn');
+    if (cv?.github) parts.push('GitHub');
+    if (cv?.website) parts.push('Portfolio');
+    if (cv?.summary) parts.push('Summary');
+    if (cv?.experiences?.length) parts.push(`Experience (${cv.experiences.length})`);
+    if (cv?.education?.length) parts.push(`Education (${cv.education.length})`);
+    if (cv?.skills?.length) parts.push(`Skills (${cv.skills.length})`);
+    if (cv?.certifications?.length) parts.push(`Certs (${cv.certifications.length})`);
+    return parts.length ? parts.join(' · ') : 'Nothing could be extracted — fields left empty for you to fill';
+  };
+
   const handleParseRawText = async () => {
     if (!rawPasteText.trim()) return;
     setIsParsingText(true);
     setParseError(null);
     setExtractedFileName(null);
+    setExtractionNote(null);
     try {
       const res = await fetch('/api/cv/parse-text', {
         method: 'POST',
@@ -160,6 +181,7 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
         setShowPasteBox(false);
         setRawPasteText('');
         setExtractedFileName('Pasted Raw Text');
+        setExtractionNote(summarizeExtraction(data.cv));
       } else {
         setParseError(data.error || 'Failed to extract resume details');
       }
@@ -176,6 +198,7 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
     setIsParsingText(true);
     setParseError(null);
     setExtractedFileName(null);
+    setExtractionNote(null);
     const bodyData = new FormData();
     bodyData.append('resume', file);
     try {
@@ -195,6 +218,7 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
       if (data.success && data.cv) {
         setFormData(data.cv);
         setExtractedFileName(file.name);
+        setExtractionNote(summarizeExtraction(data.cv));
       } else {
         setParseError(data.error || 'Failed to extract resume from file');
       }
@@ -402,7 +426,7 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
           <div className="bg-[var(--color-cta-soft)] border border-[var(--color-cta-line)] p-2.5 rounded-lg flex items-center justify-between text-emerald-800 text-xs font-medium">
             <div className="flex items-center space-x-2">
               <CheckCircle2 className="w-4 h-4 text-[var(--color-cta)]" />
-              <span>Successfully extracted from <strong>{extractedFileName}</strong>! All fields populated below.</span>
+              <span>Extracted from <strong>{extractedFileName}</strong>: {extractionNote || 'processing…'}</span>
             </div>
           </div>
         )}

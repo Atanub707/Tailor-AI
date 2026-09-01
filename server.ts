@@ -133,9 +133,12 @@ const upload = multer({
 });
 
 function fallbackParseCvFromText(rawText: string) {
+  // Deterministic last-resort extraction. NEVER fabricates: fields that
+  // cannot be found stay empty so the UI shows the truth (and the success
+  // banner reports exactly what was extracted).
   const lines = (rawText || '').split('\n').map((l) => l.trim()).filter(Boolean);
 
-  let fullName = 'Candidate Name';
+  let fullName = '';
   let email = '';
   let phone = '';
   let location = '';
@@ -184,45 +187,20 @@ function fallbackParseCvFromText(rawText: string) {
   }
 
   const paragraphs = (rawText || '').split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
-  const summary = paragraphs[0] || (rawText || '').slice(0, 300) || 'Experienced software professional.';
+  const summary = paragraphs[0] || '';
 
   return {
     fullName,
-    email: email || 'candidate@example.com',
-    phone: phone || '+1 (555) 000-0000',
-    location: location || 'Remote',
+    email,
+    phone,
+    location,
     linkedin,
     github,
     website,
     summary,
-    experiences: [
-      {
-        id: 'exp-1',
-        title: 'Senior Engineer / IT Specialist',
-        company: 'Professional Organization',
-        location: location || 'Remote / Hybrid',
-        dates: '2021 - Present',
-        responsibilities: paragraphs.slice(1, 6).map((p) => p.slice(0, 200)) || [
-          'Engineered scalability, infrastructure resilience, and cloud operations.',
-          'Collaborated with cross-functional technical teams.',
-        ],
-      },
-    ],
-    education: [
-      {
-        id: 'edu-1',
-        degree: 'Degree in Engineering / Science / Technology',
-        institution: 'Academic Institution',
-        dates: 'Graduated',
-        details: 'Core technical focus',
-      },
-    ],
-    skills: [
-      {
-        category: 'Core Competencies',
-        items: foundSkills.length > 0 ? foundSkills : ['Engineering', 'Software Development', 'System Architecture'],
-      },
-    ],
+    experiences: [],
+    education: [],
+    skills: foundSkills.length > 0 ? [{ category: 'Core Competencies', items: foundSkills }] : [],
     projects: [],
     certifications: [],
     rawText: rawText || '',
@@ -302,6 +280,7 @@ async function parseCvWithLLM(
     }
   }
 
+  const { askJson } = await import('./server/llm/askJson.js');
   const promptText = `You are an expert ATS resume parser. 
 Extract every detail from A to Z from the resume into clean, structured JSON.
 
@@ -314,19 +293,19 @@ INSTRUCTIONS:
 6. Projects: Extract any key projects mentioned with Project Name, Description, Technologies used (array of strings), Link/URL, and Dates/Period.
 7. Certifications: Extract any professional certifications, licenses, or credentials with Certification Name, Issuer (e.g., AWS, Microsoft, Google), Date obtained, and Link if available.
 
-Return valid JSON with these exact fields: fullName, email, phone, location, linkedin, github, website, summary, experiences (array of {title, company, location, dates, responsibilities[]}), education (array of {degree, institution, dates, details}), skills (array of {category, items[]}), projects (array of {name, description, technologies[], link, dates}), certifications (array of {name, issuer, date, link}).
+Return valid JSON with these exact fields: fullName, designation, email, phone, location, linkedin, github, website, summary, experiences (array of {title, company, location, dates, responsibilities[]}), education (array of {degree, institution, dates, details}), skills (array of {category, items[]}), projects (array of {name, description, technologies[], link, dates}), certifications (array of {name, issuer, date, link}).
 
 RAW RESUME TEXT:
 ${rawText || 'No readable text extracted.'}`;
 
   try {
-    const jsonText = await ask(promptText, 0.1);
-    const parsedData = JSON.parse(jsonText);
+    const parsedData = await askJson<any>(promptText, { temperature: 0.1 });
 
     return {
-      fullName: parsedData.fullName || 'Candidate Name',
+      fullName: parsedData.fullName || '',
       email: parsedData.email || '',
       phone: parsedData.phone || '',
+      designation: parsedData.designation || '',
       location: parsedData.location || '',
       linkedin: parsedData.linkedin || '',
       github: parsedData.github || '',
