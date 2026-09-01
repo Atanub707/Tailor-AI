@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.7.1 (2026-09-01)
+
+### 🔧 Tailored Resumes now match the Master CV
+
+- **Skills grouped into Master CV categories**: Tailored resumes previously rendered a single flat "Skills:" blob; they now render the same grouped category blocks as the Master CV preview (Cloud & DevOps, Languages, Core Competencies, ... — no LLM involved, deterministic re-grouping).
+- **All projects guaranteed**: the drafter could omit projects (e.g. 2 of 4). Every Master CV project (Tailor AI, Expenzee AI, POS, Netflix DevSecOps Pipeline) is now deterministically appended — the Tailored Resume's Project section always matches your Master CV.
+- Boot backfill repairs every existing tailored CV (runs per-user against the correct Master CV).
+
 ## v2.7.0 (2026-09-01)
 
 ### 🤖 CV extraction is now model-agnostic
