@@ -87,6 +87,21 @@ if (-not (Test-Path $cfgPath)) {
 Say 'Refreshing the app…'
 & $dockerExe compose -f (Join-Path $AppDir 'docker-compose.yml') up -d --build --pull missing
 if ($LASTEXITCODE -ne 0) { Fail 'docker compose failed — see the output above.' }
+
+# The host folder is bind-mounted over the image's /app, shadowing the image's
+# built frontend — the server serves the HOST dist/ folder. Refresh it from
+# the freshly built image so updates never land on "frontend not built".
+$distPath = Join-Path $AppDir 'dist'
+if (Test-Path (Join-Path $distPath 'index.html')) {
+  Ok 'Frontend already present on disk'
+} else {
+  $img = & $dockerExe compose -f (Join-Path $AppDir 'docker-compose.yml') config --images 2>$null | Select-Object -First 1
+  if ($img) {
+    Say "Copying the built frontend from the image into $distPath …"
+    & $dockerExe run --rm -v "${AppDir}:/out" --entrypoint cp $img -r /app/dist /out/dist 2>$null
+    if ($LASTEXITCODE -ne 0) { Warn 'Could not copy the frontend — re-run the updater if you see ''frontend not built''.' }
+  }
+}
 Ok 'Tailor CV updated and running'
 
 Start-Sleep -Seconds 2

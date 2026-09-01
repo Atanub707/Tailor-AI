@@ -100,7 +100,22 @@ if [ ! -f "$APP_DIR/config.ini" ]; then touch "$APP_DIR/config.ini"; fi
 
 # ── 6. Run ──────────────────────────────────────────────────────────────────
 echo "Starting Tailor CV…"
-docker compose -f "$APP_DIR/docker-compose.yml" up -d --pull missing || fail "docker compose failed — see the output above."
+docker compose -f "$APP_DIR/docker-compose.yml" up -d --build --pull missing || fail "docker compose failed — see the output above."
+
+# The host folder is bind-mounted over the image's /app, which SHADOWS the
+# image's built frontend. The server therefore serves the frontend from the
+# HOST dist/ folder — seed it from the image (no Node needed on this machine).
+# Without this, first-time installs hit the "frontend not built" page.
+if [ -f "$APP_DIR/dist/index.html" ]; then
+  ok "Frontend already present on disk"
+else
+  IMG=$(docker compose -f "$APP_DIR/docker-compose.yml" config --images 2>/dev/null | head -1)
+  if [ -n "$IMG" ]; then
+    echo "Copying the built frontend from the image into $APP_DIR/dist …"
+    docker run --rm -v "$APP_DIR":/out --entrypoint cp "$IMG" -r /app/dist /out/dist 2>/dev/null \
+      || warn "Could not copy the frontend — the app may show 'frontend not built'. Re-run the installer, or run 'npm run build' inside $APP_DIR."
+  fi
+fi
 ok "Tailor CV is running"
 
 sleep 2

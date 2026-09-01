@@ -30,6 +30,20 @@ if [ ! -f "$APP_DIR/config.ini" ]; then touch "$APP_DIR/config.ini"; fi
 
 echo "Refreshing the app…"
 docker compose -f "$APP_DIR/docker-compose.yml" up -d --build --pull missing || fail "docker compose failed — see the output above."
+
+# The host folder is bind-mounted over the image's /app, shadowing the image's
+# built frontend — the server serves the HOST dist/ folder. Refresh it from
+# the freshly built image so updates never land on "frontend not built".
+if [ -f "$APP_DIR/dist/index.html" ] && [ -n "$(find "$APP_DIR/dist" -newer "$APP_DIR/package.json" -name index.html 2>/dev/null)" ]; then
+  ok "Frontend already up to date"
+else
+  IMG=$(docker compose -f "$APP_DIR/docker-compose.yml" config --images 2>/dev/null | head -1)
+  if [ -n "$IMG" ]; then
+    echo "Refreshing the frontend in $APP_DIR/dist from the image …"
+    docker run --rm -v "$APP_DIR":/out --entrypoint cp "$IMG" -r /app/dist /out/dist 2>/dev/null \
+      || warn "Could not refresh the frontend — re-run the updater if you see 'frontend not built'."
+  fi
+fi
 ok "Tailor CV updated and running"
 
 sleep 2

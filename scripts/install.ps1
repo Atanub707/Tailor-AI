@@ -277,8 +277,24 @@ if (-not (Test-Path $cfgPath)) {
 
 # ── 7. Run ──────────────────────────────────────────────────────────────────
 Say 'Starting Tailor CV…'
-& (Find-Docker) compose -f (Join-Path $AppDir 'docker-compose.yml') up -d --pull missing
+& (Find-Docker) compose -f (Join-Path $AppDir 'docker-compose.yml') up -d --build --pull missing
 if ($LASTEXITCODE -ne 0) { Fail 'docker compose failed — see the output above.' }
+
+# The host folder is bind-mounted over the image's /app, shadowing the image's
+# built frontend — the server serves the HOST dist/ folder. Seed it from the
+# image (no Node needed on this machine) or first-time installs hit the
+# "frontend not built" page.
+$distPath = Join-Path $AppDir 'dist'
+if (Test-Path (Join-Path $distPath 'index.html')) {
+  Ok 'Frontend already present on disk'
+} else {
+  $img = & (Find-Docker) compose -f (Join-Path $AppDir 'docker-compose.yml') config --images 2>$null | Select-Object -First 1
+  if ($img) {
+    Say "Copying the built frontend from the image into $distPath …"
+    & (Find-Docker) run --rm -v "${AppDir}:/out" --entrypoint cp $img -r /app/dist /out/dist 2>$null
+    if ($LASTEXITCODE -ne 0) { Warn 'Could not copy the frontend — the app may show ''frontend not built''. Re-run the installer.' }
+  }
+}
 Ok 'Tailor CV container started'
 
 # ── 7. Verify the app is healthy ────────────────────────────────────────────
