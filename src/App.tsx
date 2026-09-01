@@ -344,6 +344,20 @@ export default function App() {
   };
 
   // Batch Match Handler
+  /** Open the job detail modal with the SERVER-authoritative job object —
+   *  never the stale in-memory card (a tailored CV could have been upgraded
+   *  by a running backfill, e.g. verbatim sections/skill grouping). */
+  const selectJobFresh = async (job: Job) => {
+    setSelectedJob(job);
+    try {
+      const res = await fetch(`/api/jobs/${job.id}`);
+      if (res.ok) {
+        const fresh = await res.json();
+        if (fresh && typeof fresh === 'object' && fresh.id) setSelectedJob(fresh);
+      }
+    } catch { /* keep the in-memory job on network failure */ }
+  };
+
   // Tailor CV Handler
   const handleTailorJob = async (jobId: string) => {
     runWithMessages(jobId, [
@@ -641,9 +655,15 @@ export default function App() {
               setPage={setPage}
               pageSize={pageSize}
               setPageSize={setPageSize}
-              onSelectJob={(job) => { setSelectedJob(job); setSelectedJobTab('details'); }}
+              onSelectJob={(job) => {
+                selectJobFresh(job);
+                setSelectedJobTab('details');
+              }}
             onOpenRecruiter={(job) => { setRecruiterFocus({ name: job.recruiterName, url: job.recruiterUrl }); navigate('/recruiters'); }}
-              onSelectTailoredReview={(job) => { setSelectedJob(job); setSelectedJobTab('tailored'); }}
+              onSelectTailoredReview={(job) => {
+                selectJobFresh(job);
+                setSelectedJobTab('tailored');
+              }}
               onMatchJob={handleMatchJob}
               onTailorJob={handleTailorJob}
               onDeleteJob={handleDeleteJob}
