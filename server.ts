@@ -2,6 +2,7 @@ import 'dotenv/config';
 import crypto from 'crypto';
 import { execSync } from 'node:child_process';
 import express from 'express';
+import fs from 'fs';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import multer from 'multer';
@@ -4024,12 +4025,28 @@ const sanitizeAttemptDryRun = (a: any) => ({
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
+    const distIndex = path.join(distPath, 'index.html');
+    if (!fs.existsSync(distIndex)) {
+      console.error(`[FRONTEND] dist/index.html is MISSING. Run 'npm run build' (or rebuild the Docker image — it runs this step) before serving in production mode.`);
+    }
     app.use(express.static(distPath));
     // SPA fallback — final middleware, catches every route not served by
     // static files (deep links, refreshes on /settings, unknown paths).
     // ('*all' as a route pattern would only match paths ending in "all".)
     app.use((req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      if (!fs.existsSync(distIndex)) {
+        res.status(503).send(
+          '<html><body style="font-family:system-ui;padding:40px;line-height:1.6">' +
+          '<h2>Tailor AI — frontend not built</h2>' +
+          '<p>The server is running in production mode but the frontend files are missing.</p>' +
+          '<p>On this machine, run:</p>' +
+          '<pre style="background:#f4f4f4;padding:12px;border-radius:8px">npm run build</pre>' +
+          '<p>Then restart the app. (If using Docker: <code>docker compose up -d --build</code> — the image builds the frontend automatically.)</p>' +
+          '</body></html>'
+        );
+        return;
+      }
+      res.sendFile(distIndex);
     });
   }
 
