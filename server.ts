@@ -4068,6 +4068,17 @@ const sanitizeAttemptDryRun = (a: any) => ({
   } catch (err: any) {
     console.warn('[Contacts] Backfill skipped:', err?.message || err);
   }
+
+  // Backfill: tailored CVs generated before the V2 service attached
+  // contactInfo/audit metadata (details view showed a hard 92% fallback;
+  // header contact block was empty). Deterministic — no LLM calls.
+  try {
+    const { backfillTailoredAudits } = await import('./server/tailorV2/tailorService.js');
+    const count = backfillTailoredAudits();
+    if (count) console.log(`[Tailor] Backfilled audit + contactInfo on ${count} tailored CV(s)`);
+  } catch (err: any) {
+    console.warn('[Tailor] Backfill skipped:', err?.message || err);
+  }
 }
 
 startServer();
