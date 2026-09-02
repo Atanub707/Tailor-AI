@@ -366,6 +366,34 @@ describe('Tailor V2', () => {
     expect(verbatimBulletRatio(res.draft, cv)).toBeLessThanOrEqual(0.5); // final draft is rewritten
   });
 
+  it('COMPLETENESS: empty-experience draft is rejected (fail closed), retry demanded', async () => {
+    const empty: TailorDraft = {
+      summary: '', skills: [],
+      experience: [],
+      education: [{ degree: 'B.Tech', institution: 'IIT', dates: '2012 – 2016' }],
+      certifications: [],
+      projects: [],
+    };
+    let calls = 0;
+    let sawCompletenessDemand = false;
+    vi.stubGlobal('fetch', async (_url: string, init: any) => {
+      calls++;
+      const body = String((init?.body || '')).slice(0, 20000);
+      if (calls === 2) sawCompletenessDemand = /COMPLETENESS FAILED|no experience bullets/i.test(body);
+      return { status: 200, ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(empty) } }] }), text: async () => '' };
+    });
+    const outcome = await runWithUser(USER, () =>
+      runTailorV2(USER, cv, profile(), job(), JD, fitFor(), { jdHash: 'h-compl', fitEngineVersion: 3 })
+        .then(() => ({ threw: false }))
+        .catch((e: any) => ({ threw: true, name: e?.name }))
+    );
+    vi.unstubAllGlobals();
+    expect(outcome.threw).toBe(true);
+    expect((outcome as { name: string }).name).toBe('TailorVerificationFailedError');
+    expect(calls).toBe(2); // retry happened with the completeness demand
+    expect(sawCompletenessDemand).toBe(true);
+  });
+
   it('verifier speed: <100ms deterministic', async () => {
     const t0 = Date.now();
     const draft = { professionalSummary: 'x', coreCompetencies: ['Kubernetes', 'AWS', 'Terraform'], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['Reduced deployment time by 70%'] }], education: [], technicalSkills: [], certifications: [] };

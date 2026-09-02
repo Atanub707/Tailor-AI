@@ -127,6 +127,19 @@ export async function runTailorV2(
     draft = await llm(cv, profile, job, jd, fit, retryNotes.length ? retryNotes : undefined);
     verification = await verifyDraft(toVerifierDraft(draft), cv, profile, terms, { mode, enhancementLedger: { entries: parseEnhancementAnnotations(draft) } });
     if (!verification.passed) continue;
+    // Completeness: when the candidate HAS experience, the tailored resume
+    // MUST carry it. An empty/near-empty draft (no highlights) passes the
+    // fact verifier trivially but produces a useless 'tailored' CV.
+    const srcHasExperience = (cv.experiences || []).some((e) => (e.responsibilities || []).length > 0);
+    const totalHighlights = (draft.experience || []).reduce((n, w) => n + (w.highlights || []).length, 0);
+    if (srcHasExperience && totalHighlights === 0) {
+      if (attempt + 1 < MAX_GENERATION_ATTEMPTS) {
+        // Carry the demand into the retry via the same note channel.
+        verbatimNote = `COMPLETENESS FAILED: the draft contains NO experience bullets. Include the candidate's experience verbatim sources, then rewrite them in fresh wording. Keep every employer, title, date and responsibility.`;
+        continue;
+      }
+      throw new TailorVerificationFailedError('Tailoring failed completeness: the generated resume omitted all experience bullets.');
+    }
     // If the draft passed fact verification but copied source bullets
     // verbatim, it was NOT tailored — demand a rewrite on the next attempt.
     const ratio = verbatimBulletRatio(draft, cv);
