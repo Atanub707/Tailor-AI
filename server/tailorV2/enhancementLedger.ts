@@ -4,7 +4,12 @@ import type { TailorDraft } from './drafter.js';
 export type EnhancementType = 'metric' | 'scope' | 'tool' | 'leadership';
 
 export interface EnhancementEntry {
+  /** Work-experience index (outer) — deprecated alias, use expIndex. */
   bulletIndex: number;
+  /** Work-experience index (outer forEach). */
+  expIndex: number;
+  /** Per-highlight index within that experience (inner forEach). */
+  hIndex: number;
   type: EnhancementType;
   claim: string;
   basis: string;
@@ -18,15 +23,17 @@ export const ENHANCEMENT_ANNOTATION_RE = /\{"__enhanced":\s*\{[^}]+\}\}\s*$/;
 
 export function parseEnhancementAnnotations(draft: TailorDraft): EnhancementEntry[] {
   const entries: EnhancementEntry[] = [];
-  (draft.experience || []).forEach((w, bulletIndex) => {
-    (w.highlights || []).forEach((h) => {
+  (draft.experience || []).forEach((w, expIndex) => {
+    (w.highlights || []).forEach((h, hIndex) => {
       const m = String(h || '').match(ENHANCEMENT_ANNOTATION_RE);
       if (!m) return;
       try {
         const ann = JSON.parse(m[0]);
         if (ann.__enhanced && typeof ann.__enhanced.type === 'string') {
           entries.push({
-            bulletIndex,
+            bulletIndex: expIndex,
+            expIndex,
+            hIndex,
             type: ann.__enhanced.type as EnhancementType,
             claim: String(h).replace(ENHANCEMENT_ANNOTATION_RE, '').trim(),
             basis: String(ann.__enhanced.basis || ''),

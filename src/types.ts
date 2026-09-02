@@ -81,6 +81,17 @@ export interface TailoringAudit {
   beforeScore: number;
   afterScore: number;
   scoreBoost: number;
+  /** Per-resume record of yellow-zone embellishments (Enhanced mode only). */
+  enhancementLedger?: {
+    entries: Array<{
+      bulletIndex: number;
+      expIndex: number;
+      hIndex: number;
+      type: string;
+      claim: string;
+      basis: string;
+    }>;
+  };
   scoreBreakdown: {
     alreadyMatched: number;
     newlyIntegrated: number;
@@ -99,15 +110,6 @@ export interface TailoringAudit {
   };
   notIntegrable: string[];
   auditNotes: string[];
-  // Enhanced mode (Task 7 attaches the ledger to the audit)
-  enhancementLedger?: {
-    entries: {
-      bulletIndex: number;
-      type: 'metric' | 'scope' | 'tool' | 'leadership';
-      claim: string;
-      basis: string;
-    }[];
-  };
 }
 
 export interface TailoredCv {

@@ -21,8 +21,28 @@ describe('enhancement ledger', () => {
     const entries = parseEnhancementAnnotations(draft);
     expect(entries).toHaveLength(1);
     expect(entries[0].type).toBe('metric');
-    expect(entries[0].bulletIndex).toBe(0);
+    expect(entries[0].expIndex).toBe(0);
+    expect(entries[0].hIndex).toBe(0);
+    expect(entries[0].bulletIndex).toBe(0); // deprecated alias of expIndex
     expect(entries[0].basis).toContain('70%');
+  });
+
+  it('records per-work-experience and per-highlight indices (chip reconciliation)', () => {
+    const multi: TailorDraft = {
+      ...draft,
+      experience: [
+        draft.experience[0],
+        { title: 'Cloud Engineer', company: 'Nexus', dates: '2018 – 2020',
+          highlights: [
+            'Automated AWS with Terraform {"__enhanced":{"type":"tool","basis":"AWS in source"}}',
+            'Managed CI/CD pipelines',
+          ] },
+      ],
+    };
+    const entries = parseEnhancementAnnotations(multi);
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({ expIndex: 0, hIndex: 0 });
+    expect(entries[1]).toMatchObject({ expIndex: 1, hIndex: 0 });
   });
 
   it('counts claim elements as summary + highlights + skills', () => {
@@ -30,7 +50,7 @@ describe('enhancement ledger', () => {
   });
 
   it('budget exceeded at >30%', () => {
-    const ledger = { entries: [ { bulletIndex: 0, type: 'metric' as const, claim: 'x', basis: 'y' } ] };
+    const ledger = { entries: [ { bulletIndex: 0, expIndex: 0, hIndex: 0, type: 'metric' as const, claim: 'x', basis: 'y' } ] };
     // 1 enhancement / 5 elements = 20% → OK
     expect(budgetExceeded(ledger, 5)).toBe(false);
     // 2 / 5 = 40% → exceeded

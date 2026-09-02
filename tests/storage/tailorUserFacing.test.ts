@@ -356,6 +356,10 @@ describe('Tailor V2 — user-facing migration', () => {
     const r = await runWithUser(USER, () => tailorJobWithV2(getJobById('j1')!, { userId: USER, mode: 'enhanced' }));
     expect(r.verification.passed).toBe(true);
     expect(r.enhancementLedger?.entries).toHaveLength(1);
+    // Audit carries the ledger for the UI; annotation JSON never leaks into
+    // the rendered/stored artifact.
+    expect(r.tailoredCv.audit?.enhancementLedger?.entries).toHaveLength(1);
+    expect(JSON.stringify(r.tailoredCv)).not.toContain('__enhanced');
     // strict mode: the same annotated draft is treated as a normal metric violation
     stubLlm(enhancedDraft);
     const s = await runWithUser(USER, () => tailorJobWithV2(getJobById('j1')!, { userId: USER, mode: 'strict' }))

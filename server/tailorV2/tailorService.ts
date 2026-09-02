@@ -134,11 +134,15 @@ export async function tailorJobWithV2(
 
   const tailoredCv = toTailoredCv(result.draft, masterCv.fullName || '');
   const audit = buildTailorAudit(fullJob, result.draft, result.verification, result.jdTerms, masterCv);
+  // Carry the enhancement ledger onto the artifact (via a non-persisted
+  // stash) so the audit the UI reads includes it.
+  (tailoredCv as any).__enhancementLedger = result.enhancementLedger;
   // The UI artifact carries the same metadata the legacy engine provided:
   // contact block (templates render the header/contact area), audit
   // (before/after scores, gaps, keyword incorporation) and display-only
   // counters. The versioned draft itself stays canonical.
   enrichTailoredCv(tailoredCv, audit, masterCv);
+  delete (tailoredCv as any).__enhancementLedger;
   // Skills render grouped exactly like the Master CV preview.
   groupSkillsLikeMasterCv(tailoredCv, masterCv);
   // Projects/education/certs copied verbatim — only summary, skills and
@@ -244,6 +248,8 @@ export function enrichTailoredCv(tailoredCv: TailoredCv, audit: TailoringAudit, 
       website: masterCv.website,
     };
   }
+  const stash = (tailoredCv as any).__enhancementLedger;
+  if (stash && audit) audit.enhancementLedger = stash;
   tailoredCv.audit = audit;
   tailoredCv.rephraseHighlightsCount = audit.addedAfter.rephrasedHighlightsCount;
   tailoredCv.keywordsIncorporated = audit.addedAfter.keywordsIncorporated;

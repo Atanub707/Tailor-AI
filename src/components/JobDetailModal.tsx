@@ -801,7 +801,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                           const rest = entries.length - shown.length;
                           const enhancedBullets = tailored.workExperience.flatMap((exp, expIndex) =>
                             exp.highlights.map((h, hIndex) => ({ text: h, expIndex, hIndex }))
-                          ).filter(({ hIndex }) => entries.some((e) => e.bulletIndex === hIndex));
+                          ).filter(({ expIndex, hIndex }) => entries.some((e) => e.expIndex === expIndex && e.hIndex === hIndex));
                           return (
                             <div className="bg-[var(--color-ink)]/90 border border-amber-900/40 rounded-lg p-3.5 space-y-3">
                               <div className="flex items-center justify-between border-b border-amber-900/30 pb-2">
