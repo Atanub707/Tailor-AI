@@ -341,4 +341,25 @@ describe('Tailor V2 — user-facing migration', () => {
     expect(r.tailoredCv.workExperience[0].highlights[0]).toContain('70%');
     expect(r.tailoredCv.workExperience[0].company).toBe('Human Managed');
   });
+
+  it('enhanced mode end-to-end: annotated metric passes; strict mode identical to today', async () => {
+    const enhancedDraft = (): TailorDraft => ({
+      summary: 'DevOps engineer with 7+ years experience.',
+      skills: ['Kubernetes', 'AWS', 'Terraform', 'CI/CD', 'GitLab CI'],
+      experience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', location: 'Bengaluru', dates: 'Jan 2021 – Present',
+        highlights: ['Cut deployment time by 70% across 40+ services {"__enhanced":{"type":"metric","basis":"70% deploy cut"}}', 'Managed GKE and EKS production clusters', 'Built CI/CD pipelines with GitLab'] }],
+      education: [{ degree: 'B.Tech', institution: 'IIT', dates: '2012 – 2016' }],
+      certifications: ['CKA'],
+      projects: [{ name: 'K8s Cluster Autoscaler', description: 'Autoscaling for GKE' }],
+    });
+    stubLlm(enhancedDraft);
+    const r = await runWithUser(USER, () => tailorJobWithV2(getJobById('j1')!, { userId: USER, mode: 'enhanced' }));
+    expect(r.verification.passed).toBe(true);
+    expect(r.enhancementLedger?.entries).toHaveLength(1);
+    // strict mode: the same annotated draft is treated as a normal metric violation
+    stubLlm(enhancedDraft);
+    const s = await runWithUser(USER, () => tailorJobWithV2(getJobById('j1')!, { userId: USER, mode: 'strict' }))
+      .then(() => 'ok').catch((e: any) => e?.name);
+    expect(s).toBe('TailorVerificationFailedError');
+  });
 });

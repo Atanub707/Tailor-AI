@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseEnhancementAnnotations, countClaimElements, budgetExceeded, normalizeRedZoneTokens } from '../../server/tailorV2/enhancementLedger.js';
+import { parseEnhancementAnnotations, countClaimElements, budgetExceeded, normalizeRedZoneTokens, stripEnhancementAnnotations } from '../../server/tailorV2/enhancementLedger.js';
 import type { TailorDraft } from '../../server/tailorV2/drafter.js';
 import type { MasterCv } from '../../src/types.js';
 
@@ -47,5 +47,12 @@ describe('enhancement ledger', () => {
     expect(s.has('b.tech')).toBe(true);
     expect(s.has('cka')).toBe(true);
     expect(s.has('k8s cluster autoscaler')).toBe(true);
+  });
+
+  it('strips enhancement annotation suffixes but preserves plain text', () => {
+    const stripped = stripEnhancementAnnotations(draft);
+    expect(stripped.experience[0].highlights[0]).toBe('Reduced deployment time by 70%');
+    expect(stripped.experience[0].highlights[1]).toBe('Managed production clusters');
+    expect(JSON.stringify(stripped)).not.toContain('__enhanced');
   });
 });

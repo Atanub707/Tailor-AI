@@ -14,13 +14,13 @@ export interface EnhancementLedger {
   entries: EnhancementEntry[];
 }
 
-const ANNOTATION_RE = /\{"__enhanced":\s*\{[^}]+\}\}\s*$/;
+export const ENHANCEMENT_ANNOTATION_RE = /\{"__enhanced":\s*\{[^}]+\}\}\s*$/;
 
 export function parseEnhancementAnnotations(draft: TailorDraft): EnhancementEntry[] {
   const entries: EnhancementEntry[] = [];
   (draft.experience || []).forEach((w, bulletIndex) => {
     (w.highlights || []).forEach((h) => {
-      const m = String(h || '').match(ANNOTATION_RE);
+      const m = String(h || '').match(ENHANCEMENT_ANNOTATION_RE);
       if (!m) return;
       try {
         const ann = JSON.parse(m[0]);
@@ -28,7 +28,7 @@ export function parseEnhancementAnnotations(draft: TailorDraft): EnhancementEntr
           entries.push({
             bulletIndex,
             type: ann.__enhanced.type as EnhancementType,
-            claim: String(h).replace(ANNOTATION_RE, '').trim(),
+            claim: String(h).replace(ENHANCEMENT_ANNOTATION_RE, '').trim(),
             basis: String(ann.__enhanced.basis || ''),
           });
         }
@@ -36,6 +36,19 @@ export function parseEnhancementAnnotations(draft: TailorDraft): EnhancementEntr
     });
   });
   return entries;
+}
+
+/** Remove the trailing `{"__enhanced":{...}}` JSON suffix from every
+ *  highlight. Emitted bullets must render clean; the ledger (parsed from
+ *  the UNSTRIPPED draft) keeps the claims for the UI. */
+export function stripEnhancementAnnotations(draft: TailorDraft): TailorDraft {
+  return {
+    ...draft,
+    experience: (draft.experience || []).map((w) => ({
+      ...w,
+      highlights: (w.highlights || []).map((h) => String(h || '').replace(ENHANCEMENT_ANNOTATION_RE, '').trim()),
+    })),
+  };
 }
 
 export function countClaimElements(draft: TailorDraft): number {

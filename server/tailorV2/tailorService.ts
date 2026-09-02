@@ -19,7 +19,7 @@
 
 import type { Job, MasterCv, TailoredCv, TailoringAudit } from '../../src/types.js';
 import type { FitResult } from '../fit/fitEngine.js';
-import { TailorVerificationFailedError, runTailorV2, toTailoredCv, type TailorV2Result } from './tailorV2Engine.js';
+import { TailorVerificationFailedError, runTailorV2, toTailoredCv, type TailorV2Result, type EnhancementLedger } from './tailorV2Engine.js';
 import { getLatestTailorVersion } from './versionStore.js';
 import { getCurrentUserId, getMasterCv, getMasterCvUpdatedAt, getDb, listUsers, runWithUser } from '../storage/fileStorage.js';
 import { getApplicantProfile } from '../storage/applicantProfile.js';
@@ -37,6 +37,7 @@ export interface TailorJobResult {
   jdTerms: string[];
   pdfOk: boolean;
   audit: TailoringAudit;
+  enhancementLedger?: EnhancementLedger;
 }
 
 /** Resolve the real job description or throw (never tailor on a stub). */
@@ -114,7 +115,7 @@ export function buildTailorAudit(job: Job, draft: TailorDraft, verification: Tai
 /** The one canonical user-facing tailoring entry point. */
 export async function tailorJobWithV2(
   job: Job,
-  opts: { userId?: string } = {}
+  opts: { userId?: string; mode?: 'strict' | 'enhanced' } = {}
 ): Promise<TailorJobResult> {
   const userId = opts.userId || getCurrentUserId();
 
@@ -126,7 +127,9 @@ export async function tailorJobWithV2(
 
   const result: TailorV2Result = await runTailorV2(
     userId, masterCv, profile, fullJob, jd, fit,
-    { masterCvUpdatedAt: getMasterCvUpdatedAt(userId), profileUpdatedAt: profile.updatedAt, jdHash: jdHash(jd), fitEngineVersion: fit.version }
+    { masterCvUpdatedAt: getMasterCvUpdatedAt(userId), profileUpdatedAt: profile.updatedAt, jdHash: jdHash(jd), fitEngineVersion: fit.version },
+    undefined,
+    { mode: opts.mode }
   );
 
   const tailoredCv = toTailoredCv(result.draft, masterCv.fullName || '');
@@ -150,6 +153,7 @@ export async function tailorJobWithV2(
     jdTerms: result.jdTerms,
     pdfOk: result.pdfOk,
     audit,
+    enhancementLedger: result.enhancementLedger,
   };
 }
 
