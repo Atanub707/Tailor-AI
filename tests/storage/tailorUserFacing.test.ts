@@ -362,4 +362,11 @@ describe('Tailor V2 — user-facing migration', () => {
       .then(() => 'ok').catch((e: any) => e?.name);
     expect(s).toBe('TailorVerificationFailedError');
   });
+
+  it('tailor routes read the mode from the request body and persist it', () => {
+    const src = fs.readFileSync(path.join(process.cwd(), 'server.ts'), 'utf8');
+    expect(src).toContain("const mode = req.body?.mode === 'strict' ? 'strict' : 'enhanced'");
+    expect(src).toContain("tailorJobWithV2(jobToTailor, { mode })");
+    expect(src).toContain("tailorMode: mode");
+  });
 });
