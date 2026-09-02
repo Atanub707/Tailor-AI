@@ -380,6 +380,14 @@ describe('Tailor V2', () => {
     expect(v.enhancementLedger?.entries).toHaveLength(1);
   });
 
+  it('ENHANCED: self-declared annotation parsed by the fallback when no ledger is passed', async () => {
+    const draft = { professionalSummary: 'x', coreCompetencies: [], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['Reduced deployment time by 70% across 40+ services {"__enhanced":{"type":"metric","basis":"70%"}}'] }], education: [], technicalSkills: [], certifications: [] };
+    const v = await verifyDraft(draft as any, cv, profile(), ['kubernetes'], { mode: 'enhanced' });
+    expect(v.passed).toBe(true);
+    expect(v.enhancementLedger?.entries).toHaveLength(1);
+    expect(v.enhancementLedger?.entries[0]).toMatchObject({ type: 'metric', basis: '70%' });
+  });
+
   it('ENHANCED: yellow metric WITHOUT a real base number fails', async () => {
     const draft = { professionalSummary: 'x', coreCompetencies: [], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['Reduced deployment time by 95% {"__enhanced":{"type":"metric","basis":"invented"}}'] }], education: [], technicalSkills: [], certifications: [] };
     const v = await verifyDraft(draft as any, cv, profile(), ['kubernetes'], { mode: 'enhanced', enhancementLedger: { entries: [{ bulletIndex: 0, type: 'metric', claim: 'Reduced deployment time by 95%', basis: 'invented' }] } });

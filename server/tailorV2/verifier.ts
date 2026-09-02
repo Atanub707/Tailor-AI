@@ -8,6 +8,7 @@ import type { TailoredCv } from '../../src/types.js';
 import { buildCandidateFactLedger, normalizeWord, type LedgerFact } from './candidateLedger.js';
 import { skillCovered } from '../fit/skillAliases.js';
 import { parseEnhancementAnnotations, countClaimElements, budgetExceeded, normalizeRedZoneTokens, type EnhancementLedger } from './enhancementLedger.js';
+import type { TailorDraft } from './drafter.js';
 
 export interface VerificationIssue {
   type: 'employer' | 'title' | 'dates' | 'education' | 'certification' | 'skill' | 'metric' | 'technology' | 'unsupported_jd_skill' | 'claim_strength' | 'project' | 'achievement' | 'red_zone' | 'budget_exceeded' | 'invalid_enhancement';
@@ -171,7 +172,16 @@ export async function verifyDraft(
   // each annotation is re-verified in the enhanced block; yellow is tracked,
   // not rejected ("real 70% may become 70% across 40+ services").
   const enhLedger: EnhancementLedger = opts.mode === 'enhanced'
-    ? opts.enhancementLedger ?? { entries: parseEnhancementAnnotations(draft as any) }
+    // Self-declared annotations fall back to parsing the verifier draft
+    // directly — mapped into the TailorDraft shape the parser expects
+    // (VerifierDraftShape uses `workExperience`, the parser reads
+    // `experience[].highlights`). Never trust the LLM's declaration alone.
+    ? opts.enhancementLedger ?? { entries: parseEnhancementAnnotations({
+        summary: draft.professionalSummary || '',
+        skills: [...(draft.coreCompetencies || []), ...(draft.technicalSkills || []).flatMap((s) => s.skills || [])],
+        experience: (draft.workExperience || []).map((w) => ({ title: w.title, company: w.company, dates: w.dates, highlights: w.highlights || [] })),
+        education: [], certifications: [],
+      } as TailorDraft) }
     : { entries: [] };
   const yellowNumbers = new Set<string>();
   if (opts.mode === 'enhanced') {
