@@ -31,6 +31,7 @@ interface JobDetailModalProps {
   onClose: () => void;
   onMatchJob: (jobId: string) => Promise<void>;
   onTailorJob: (jobId: string) => Promise<void>;
+  onTailorModeChange?: (mode: 'strict' | 'enhanced') => void;
   onUpdateStatus: (jobId: string, state: JobState) => Promise<void>;
   isLoading: boolean;
   initialTab?: 'details' | 'gap' | 'tailored';
@@ -46,12 +47,19 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   onMatchJob,
   cvTemplate = 'harvard',
   onTailorJob,
+  onTailorModeChange,
   onUpdateStatus,
   isLoading,
   initialTab,
   masterCv,
 }) => {
   const [activeTab, setActiveTab] = useState<'details' | 'gap' | 'tailored'>(initialTab || 'details');
+  const [tailorMode, setTailorMode] = useState<'strict' | 'enhanced'>(job?.tailorMode ?? 'enhanced');
+
+  const handleTailorModeChange = (mode: 'strict' | 'enhanced') => {
+    setTailorMode(mode);
+    onTailorModeChange?.(mode);
+  };
 
   // Emails mentioned in the raw description (client-side mirror of the
   // server extractor — used for the in-modal display only).
@@ -482,6 +490,38 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
           {/* TAB 3: Tailored Resume */}
           {activeTab === 'tailored' && (
             <div className="space-y-6">
+              {/* Tailoring Mode toggle — Strict / Enhanced (per-job; applied on next Tailor/Re-Tailor) */}
+              <div className="flex items-center justify-between gap-4 bg-[#FAFAF9] p-3 rounded-lg border border-[var(--color-hairline)]">
+                <div>
+                  <span className="font-semibold text-[var(--color-ink)] text-xs">Tailoring Mode</span>
+                  <p className="text-[10px] text-[var(--color-faint)] mt-0.5">Mode applies on next Tailor/Re-Tailor</p>
+                </div>
+                <div className="flex items-center rounded-md border border-[var(--color-hairline)] bg-white overflow-hidden shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleTailorModeChange('strict')}
+                    className={`px-3 py-1.5 text-[11px] font-bold transition-colors cursor-pointer ${
+                      tailorMode === 'strict'
+                        ? 'bg-[var(--color-ink)] text-white'
+                        : 'text-[var(--color-muted)] hover:bg-[var(--color-brand-soft)]'
+                    }`}
+                  >
+                    Strict
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTailorModeChange('enhanced')}
+                    className={`px-3 py-1.5 text-[11px] font-bold transition-colors cursor-pointer ${
+                      tailorMode === 'enhanced'
+                        ? 'bg-[var(--color-cta)] text-white'
+                        : 'text-[var(--color-muted)] hover:bg-[var(--color-cta-soft)]'
+                    }`}
+                  >
+                    Enhanced
+                  </button>
+                </div>
+              </div>
+
               {!tailored ? (
                 <div className="text-center py-10 bg-[#FAFAF9] rounded-lg border border-[var(--color-hairline)]">
                   <Sparkles className="w-8 h-8 text-[var(--color-cta)] mx-auto mb-2" />
@@ -746,6 +786,69 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                             ))}
                           </ul>
                         </div>
+
+                        {/* Enhanced mode ledger — chips on enhanced bullets + budget panel.
+                            Rendered only when the ledger is attached to the audit (Task 7). */}
+                        {(() => {
+                          const ledger = tailored.audit?.enhancementLedger;
+                          const entries = ledger?.entries ?? [];
+                          if (entries.length === 0) return null;
+                          const highlightsCount = tailored.workExperience.reduce((n, w) => n + (w.highlights?.length || 0), 0);
+                          const totalElements = 1 + highlightsCount + (tailored.coreCompetencies?.length || 0);
+                          const used = entries.length;
+                          const pct = totalElements > 0 ? Math.round((used / totalElements) * 100) : 0;
+                          const shown = entries.slice(0, 5);
+                          const rest = entries.length - shown.length;
+                          const enhancedBullets = tailored.workExperience.flatMap((exp, expIndex) =>
+                            exp.highlights.map((h, hIndex) => ({ text: h, expIndex, hIndex }))
+                          ).filter(({ hIndex }) => entries.some((e) => e.bulletIndex === hIndex));
+                          return (
+                            <div className="bg-[var(--color-ink)]/90 border border-amber-900/40 rounded-lg p-3.5 space-y-3">
+                              <div className="flex items-center justify-between border-b border-amber-900/30 pb-2">
+                                <div className="flex items-center space-x-1.5">
+                                  <Sparkles className="w-4 h-4 text-amber-400" />
+                                  <span className="font-bold text-xs text-amber-200 uppercase tracking-wide">
+                                    Enhanced Bullets
+                                  </span>
+                                </div>
+                                <span className="text-[10px] bg-[var(--color-amber-soft,#FFF7ED)]0/10 text-amber-300 px-2 py-0.5 rounded border border-amber-500/20 font-semibold">
+                                  {used} / {totalElements} ({pct}%)
+                                </span>
+                              </div>
+
+                              <p className="text-[11px] text-slate-300">
+                                Enhancement budget: {used} used / {totalElements} total ({pct}%)
+                              </p>
+
+                              {enhancedBullets.length > 0 && (
+                                <ul className="space-y-1.5">
+                                  {enhancedBullets.map(({ text, expIndex, hIndex }) => (
+                                    <li key={`${expIndex}-${hIndex}`} className="flex items-start space-x-2 text-xs text-slate-200">
+                                      <span className="text-amber-400 font-bold select-none">•</span>
+                                      <span className="flex-1">{text}</span>
+                                      <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide bg-[var(--color-amber-soft,#FFF7ED)] text-[#92400E] border border-[var(--color-amber-line,#FED7AA)] shrink-0">
+                                        Enhanced
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+
+                              <div className="border-t border-amber-900/30 pt-2 space-y-1">
+                                {shown.map((e, i) => (
+                                  <p key={i} className="text-[10.5px] text-slate-400 leading-snug">
+                                    <span className="text-amber-300 font-semibold">{e.claim}</span>
+                                    <span className="text-slate-500"> — </span>
+                                    <span>{e.basis}</span>
+                                  </p>
+                                ))}
+                                {rest > 0 && (
+                                  <p className="text-[10px] text-amber-400/70 font-medium">+{rest} more</p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     );
                   })()}

@@ -41,6 +41,7 @@ export interface Job {
   // AI Tailoring output
   tailoredCv?: TailoredCv;
   tailoredAt?: string;
+  tailorMode?: 'strict' | 'enhanced'; // per-job tailoring mode; default 'enhanced' when absent
 
   createdAt: string;
   updatedAt: string;
@@ -98,6 +99,15 @@ export interface TailoringAudit {
   };
   notIntegrable: string[];
   auditNotes: string[];
+  // Enhanced mode (Task 7 attaches the ledger to the audit)
+  enhancementLedger?: {
+    entries: {
+      bulletIndex: number;
+      type: 'metric' | 'scope' | 'tool' | 'leadership';
+      claim: string;
+      basis: string;
+    }[];
+  };
 }
 
 export interface TailoredCv {
