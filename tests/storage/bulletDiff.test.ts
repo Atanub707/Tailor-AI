@@ -59,4 +59,20 @@ describe('bullet diff', () => {
     expect(status[0].kind).toBe('enhanced');
     expect(status[0].basis).toBe('70%');
   });
+
+  it('matches punctuation-variant multi-word JD terms (CI/CD) but not unaliasable shorthand (K8s vs Kubernetes)', () => {
+    const punctDraft: TailorDraft = {
+      summary: 'DevOps engineer.',
+      skills: [],
+      experience: [
+        { title: 'DevOps Engineer', company: 'Veo', dates: '2020 – Present',
+          highlights: ['Managed CI/CD pipelines and deployment automation', 'Managed Kubernetes clusters in production'] },
+      ],
+      education: [], certifications: [],
+    };
+    const status = computeKeywordStatus(['CI/CD', 'K8s'], punctDraft, cv, { entries: [] } as any);
+    const byTerm = Object.fromEntries(status.map((s) => [s.term, s.kind]));
+    expect(byTerm['CI/CD']).toBe('added_experience');
+    expect(byTerm['K8s']).toBe('unsupported');
+  });
 });

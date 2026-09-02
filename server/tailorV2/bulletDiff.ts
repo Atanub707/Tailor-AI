@@ -44,10 +44,6 @@ export function computeBulletDiffs(masterCv: MasterCv, draft: TailorDraft, ledge
       });
     });
   });
-  // Second pass: addedTerms needs the full JD term set? No — addedTerms are
-  // JD terms that appear in the rewritten bullet, computed by the caller via
-  // keywordStatus; here we fill them from the draft text alone is not
-  // possible. The audit task (Task 2) fills addedTerms using jdTerms.
   return out;
 }
 
