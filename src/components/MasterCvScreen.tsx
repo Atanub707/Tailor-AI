@@ -124,9 +124,44 @@ export const MasterCvScreen: React.FC<MasterCvScreenProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [templateMenuOpen]);
 
+  const [saveMenuOpen, setSaveMenuOpen] = useState(false);
+  // ── Save/download dropdown: SAME portal approach as the template menu —
+  //    absolute-positioned dropdowns get clipped by the screen's
+  //    overflow-auto preview container, making the menu look like it
+  //    "goes back"/cuts off. Fixed positioning at document.body avoids it.
+  const [saveMenuPos, setSaveMenuPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
+  const saveBtnRef = useRef<HTMLButtonElement>(null);
+  const openSaveMenu = () => {
+    const btn = saveBtnRef.current;
+    if (!btn) return;
+    const r = btn.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - r.bottom;
+    const up = spaceBelow < 180;
+    setSaveMenuPos({
+      top: up ? undefined : r.bottom + 6,
+      bottom: up ? window.innerHeight - r.top + 6 : undefined,
+      left: Math.max(8, Math.min(r.right - 224, window.innerWidth - 232)),
+    });
+    setSaveMenuOpen(true);
+  };
+  const closeSaveMenu = () => {
+    setSaveMenuOpen(false);
+    setSaveMenuPos(null);
+  };
+  useEffect(() => {
+    if (!saveMenuOpen) return;
+    const reposition = () => openSaveMenu();
+    window.addEventListener('scroll', reposition, true);
+    window.addEventListener('resize', reposition);
+    return () => {
+      window.removeEventListener('scroll', reposition, true);
+      window.removeEventListener('resize', reposition);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveMenuOpen]);
+
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versions, setVersions] = useState<{ id: string; note: string; pages: number; createdAt: string }[]>([]);
-  const [saveMenuOpen, setSaveMenuOpen] = useState(false);
 
   const loadVersions = async () => {
     try {
@@ -252,8 +287,9 @@ export const MasterCvScreen: React.FC<MasterCvScreenProps> = ({
                   <span>{isSaving ? 'Saving...' : 'Save'}</span>
                 </button>
                 <button
+                  ref={saveBtnRef}
                   type="button"
-                  onClick={() => setSaveMenuOpen((v) => !v)}
+                  onClick={() => (saveMenuOpen ? closeSaveMenu() : openSaveMenu())}
                   className="px-1.5 py-1.5 rounded-r-lg text-white bg-[var(--color-brand)] hover:bg-[var(--color-brand-strong)] border-l border-blue-500 transition-colors cursor-pointer"
                   title="More options"
                 >
@@ -261,16 +297,20 @@ export const MasterCvScreen: React.FC<MasterCvScreenProps> = ({
                 </button>
               </div>
 
-              {saveMenuOpen && (
+              {saveMenuOpen && saveMenuPos && createPortal(
                 <>
-                  <div className="fixed inset-0 z-40" onClick={() => setSaveMenuOpen(false)} />
-                  <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-[var(--color-hairline)] rounded-xl shadow-lg z-50 p-1.5">
+                  <div className="fixed inset-0 z-[90]" onClick={closeSaveMenu} />
+                  <div
+                    role="menu"
+                    className="fixed z-[100] w-56 bg-white border border-[var(--color-hairline)] rounded-xl shadow-2xl p-1.5"
+                    style={{ top: saveMenuPos.top, bottom: saveMenuPos.bottom, left: saveMenuPos.left }}
+                  >
                     <div className="px-2.5 pt-1.5 pb-1 text-[10px] font-bold uppercase tracking-widest text-[var(--color-faint)]">
                       Export
                     </div>
                     <button
                       type="button"
-                      onClick={() => { setSaveMenuOpen(false); handleDownloadPdf(); }}
+                      onClick={() => { closeSaveMenu(); void handleDownloadPdf(); }}
                       className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium text-[var(--color-muted)] hover:bg-[var(--color-brand-soft)] cursor-pointer text-left"
                     >
                       <FileDown className="w-4 h-4 text-[var(--color-faint)]" />
@@ -278,14 +318,15 @@ export const MasterCvScreen: React.FC<MasterCvScreenProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => { setSaveMenuOpen(false); handleSave(); }}
+                      onClick={() => { closeSaveMenu(); void handleSave(); }}
                       className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium text-[var(--color-muted)] hover:bg-[var(--color-brand-soft)] cursor-pointer text-left"
                     >
                       <Save className="w-4 h-4 text-[var(--color-faint)]" />
                       Save changes
                     </button>
                   </div>
-                </>
+                </>,
+                document.body
               )}
             </div>
 
