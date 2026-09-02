@@ -372,4 +372,40 @@ describe('Tailor V2', () => {
     await verifyDraft(draft, cv, profile(), ['kubernetes', 'aws', 'terraform']);
     expect(Date.now() - t0).toBeLessThan(100);
   });
+
+  it('ENHANCED: yellow metric derived from a real number passes and is tracked', async () => {
+    const draft = { professionalSummary: 'x', coreCompetencies: [], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['Reduced deployment time by 70% across 40+ services {"__enhanced":{"type":"metric","basis":"70%"}}'] }], education: [], technicalSkills: [], certifications: [] };
+    const v = await verifyDraft(draft as any, cv, profile(), ['kubernetes'], { mode: 'enhanced', enhancementLedger: { entries: [{ bulletIndex: 0, type: 'metric', claim: 'Reduced deployment time by 70% across 40+ services', basis: '70%' }] } });
+    expect(v.passed).toBe(true);
+    expect(v.enhancementLedger?.entries).toHaveLength(1);
+  });
+
+  it('ENHANCED: yellow metric WITHOUT a real base number fails', async () => {
+    const draft = { professionalSummary: 'x', coreCompetencies: [], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['Reduced deployment time by 95% {"__enhanced":{"type":"metric","basis":"invented"}}'] }], education: [], technicalSkills: [], certifications: [] };
+    const v = await verifyDraft(draft as any, cv, profile(), ['kubernetes'], { mode: 'enhanced', enhancementLedger: { entries: [{ bulletIndex: 0, type: 'metric', claim: 'Reduced deployment time by 95%', basis: 'invented' }] } });
+    expect(v.passed).toBe(false);
+    expect(v.issues.some((i) => i.type === 'invalid_enhancement')).toBe(true);
+  });
+
+  it('ENHANCED: invented red-zone organization fails', async () => {
+    const draft = { professionalSummary: 'Built the payment platform at Stripe', coreCompetencies: [], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['x'] }], education: [], technicalSkills: [], certifications: [] };
+    const v = await verifyDraft(draft as any, cv, profile(), ['kubernetes'], { mode: 'enhanced', enhancementLedger: { entries: [] } });
+    expect(v.passed).toBe(false);
+    expect(v.issues.some((i) => i.type === 'red_zone')).toBe(true);
+  });
+
+  it('ENHANCED: budget >30% fails', async () => {
+    const draft = { professionalSummary: 'x', coreCompetencies: ['A', 'B', 'C', 'D'], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['Reduced deployment time by 70% one {"__enhanced":{"type":"metric","basis":"70%"}}', 'Reduced deployment time by 70% two {"__enhanced":{"type":"metric","basis":"70%"}}', 'Reduced deployment time by 70% three {"__enhanced":{"type":"metric","basis":"70%"}}'] }], education: [], technicalSkills: [], certifications: [] };
+    const v = await verifyDraft(draft as any, cv, profile(), ['kubernetes'], { mode: 'enhanced', enhancementLedger: { entries: [{ bulletIndex: 0, type: 'metric', claim: '1', basis: '70%' }, { bulletIndex: 0, type: 'metric', claim: '2', basis: '70%' }, { bulletIndex: 0, type: 'metric', claim: '3', basis: '70%' }] } });
+    // elements = 1 summary + 3 highlights + 4 skills = 8; 3/8 = 37.5% > 30%
+    expect(v.passed).toBe(false);
+    expect(v.issues.some((i) => i.type === 'budget_exceeded')).toBe(true);
+  });
+
+  it('ENHANCED: tool adjacency — Flask supported only if Flask/Python in source', async () => {
+    const withFlaskCv: MasterCv = { ...cv, experiences: [{ id: '1', title: 'Senior DevSecOps Engineer', company: 'Human Managed', location: 'Bengaluru', dates: 'Jan 2021 – Present', responsibilities: ['Built Python services with Flask'] }] };
+    const draft = { professionalSummary: 'x', coreCompetencies: [], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['Built Python services with FastAPI {"__enhanced":{"type":"tool","basis":"Flask"}}'] }], education: [], technicalSkills: [], certifications: [] };
+    const v = await verifyDraft(draft as any, withFlaskCv, profile(), ['kubernetes'], { mode: 'enhanced', enhancementLedger: { entries: [{ bulletIndex: 0, type: 'tool', claim: 'Built Python services with FastAPI', basis: 'Flask' }] } });
+    expect(v.passed).toBe(true);
+  });
 });

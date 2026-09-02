@@ -16,6 +16,7 @@ import type { FitResult } from '../fit/fitEngine.js';
 import { parseJobRequirements } from '../fit/requirementsParser.js';
 import { draftResume, parseDraftJson, type TailorDraft } from './drafter.js';
 import { verifyDraft, type TailorVerification } from './verifier.js';
+import type { EnhancementLedger } from './enhancementLedger.js';
 import { buildCandidateFactLedger } from './candidateLedger.js';
 import { skillCovered } from '../fit/skillAliases.js';
 import { storeTailorVersion, markTailorVersionsStale, getLatestTailorVersion } from './versionStore.js';
@@ -23,6 +24,11 @@ import { generatePdfBuffer } from '../builder/docxGenerator.js';
 import { verifyPdfTextLayer } from './pdfText.js';
 
 export const MAX_GENERATION_ATTEMPTS = 2;
+
+// Task 2: verifyDraft gained an opts param (mode + enhancementLedger). The
+// engine call sites stay strict-mode (4 args) until Task 4 plumbs the mode;
+// this re-export gives the mode plumbing a stable type surface.
+export type { EnhancementLedger };
 
 /** Ratio of draft highlights that are byte-identical to the source
  *  responsibility at the same position (verbatim copies = not tailored). */
