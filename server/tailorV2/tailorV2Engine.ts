@@ -160,7 +160,10 @@ export async function runTailorV2(
     ? { entries: parseEnhancementAnnotations(draft) }
     : undefined;
   if (enhancementLedger) verification = { ...verification, enhancementLedger };
-  draft = stripEnhancementAnnotations(draft);
+  // I3: only enhanced mode carries annotation envelopes to strip. Strict mode
+  // drafts are persisted byte-identical — the unconditional strip was
+  // trimming (and byte-shifting) every highlight in strict mode.
+  if (mode === 'enhanced') draft = stripEnhancementAnnotations(draft);
 
   // Persist version (v1+; mark older versions stale when inputs change).
   const latest = getLatestTailorVersion(userId, job.id);

@@ -7,7 +7,7 @@
 import type { TailoredCv } from '../../src/types.js';
 import { buildCandidateFactLedger, normalizeWord, type LedgerFact } from './candidateLedger.js';
 import { skillCovered } from '../fit/skillAliases.js';
-import { parseEnhancementAnnotations, countClaimElements, budgetExceeded, normalizeRedZoneTokens, type EnhancementLedger } from './enhancementLedger.js';
+import { parseEnhancementAnnotations, countClaimElements, budgetExceeded, normalizeRedZoneTokens, ENHANCEMENT_ANNOTATION_RE, type EnhancementLedger } from './enhancementLedger.js';
 import type { TailorDraft } from './drafter.js';
 
 export interface VerificationIssue {
@@ -143,6 +143,22 @@ export async function verifyDraft(
   // in the curated skill lists.
   const sourceText = JSON.stringify({ cv, profile }).toLowerCase();
 
+  // The inline `{"__enhanced":{...}}` envelope is self-declared metadata, NOT
+  // draft content. Pattern scans over the raw draft text would read the
+  // literal type words inside the envelope (e.g. "leadership") and misfire
+  // (C1). Every whole-draft pattern scan runs against a CLEANED copy with
+  // each highlight's annotation suffix stripped; only the enhancement parser
+  // ever reads the envelope.
+  const stripAll = (d: VerifierDraftShape) => ({
+    ...d,
+    workExperience: (d.workExperience || []).map((w) => ({
+      ...w,
+      highlights: (w.highlights || []).map((h) => String(h || '').replace(ENHANCEMENT_ANNOTATION_RE, '').trim()),
+    })),
+  });
+  const cleanedDraft = stripAll(draft);
+  const draftTextAll = JSON.stringify(cleanedDraft).toLowerCase();
+
   const supportedSkill = (term: string): boolean => {
     if (ledger.explicitSkills.some((s) => skillCovered(term, [s]).covered)) return true;
     if (ledger.technologies.some((t) => skillCovered(term, [t]).covered)) return true;
@@ -168,9 +184,10 @@ export async function verifyDraft(
   };
 
   // Enhanced mode: self-declared yellow-zone claims (Task 1 ledger). The
-  // strict sweeps below exempt numbers inside annotated (yellow) claims —
+  // strict sweeps below exempt numbers inside ANY annotated (yellow) claim —
   // each annotation is re-verified in the enhanced block; yellow is tracked,
-  // not rejected ("real 70% may become 70% across 40+ services").
+  // not rejected ("real 70% may become 70% across 40+ services", "Managed a
+  // team of 4 engineers" may become "across 3 regions").
   const enhLedger: EnhancementLedger = opts.mode === 'enhanced'
     // Self-declared annotations fall back to parsing the verifier draft
     // directly — mapped into the TailorDraft shape the parser expects
@@ -185,8 +202,12 @@ export async function verifyDraft(
     : { entries: [] };
   const yellowNumbers = new Set<string>();
   if (opts.mode === 'enhanced') {
+    // I2: the strict-metric exemption applies to numbers inside ANY annotated
+    // yellow claim (metric, scope, leadership, tool) — scope/leadership/tool
+    // numbers are scope tokens re-verified via the ledger's own branch, so
+    // they must not fail the strict metric sweeps.
     for (const e of enhLedger.entries) {
-      if (e.type === 'metric') for (const n of extractDraftNumbers(e.claim)) yellowNumbers.add(n);
+      for (const n of extractDraftNumbers(e.claim)) yellowNumbers.add(n);
     }
   }
   for (const n of draftNumbers(draft)) {
@@ -398,7 +419,6 @@ export async function verifyDraft(
   // ── Claim-strength scan (ownership/leadership/scale inflation) ───────
   const STRENGTH_VERBS = ['led ', 'spearheaded', 'owned ', 'directed ', 'architected ', 'scaled to', 'managed a team', 'built the enterprise', 'engineering leader', 'technical leader', 'team lead', 'leadership', 'director of'];
   const strengthVerbs = STRENGTH_VERBS;
-  const draftTextAll = JSON.stringify(draft).toLowerCase();
   for (const v of STRENGTH_VERBS) {
     const inDraft = new RegExp(`\\b${v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(draftTextAll);
     if (inDraft && !sourceText.includes(v)) {
@@ -424,11 +444,13 @@ export async function verifyDraft(
     }
     for (const e of enhLedger.entries) {
       if (e.type === 'metric') {
-        // The BASE number must be real; additional (scaled/scope) numbers are
-        // the invention itself and are allowed. Fail only when NO number in
-        // the claim is supported by the source.
+        // The BASE number must be real; ONE invented scope token ("40+") is
+        // the tolerated yellow case (real "70%" + one scope token). More than
+        // one unsupported number-token means the claim launders invented
+        // metrics ("70% ... and 99.9% ... and $2m") — hard invalid.
         const nums = extractDraftNumbers(e.claim);
-        if (!nums.length || !nums.some((n) => metricSupported(n))) {
+        const unsupportedCount = nums.filter((n) => !metricSupported(n)).length;
+        if (!nums.some((n) => metricSupported(n)) || unsupportedCount > 1) {
           issues.push({ type: 'invalid_enhancement', claim: `metric: ${e.claim}`.slice(0, 100), severity: 'error' });
         }
       } else if (e.type === 'tool') {
@@ -464,11 +486,10 @@ export async function verifyDraft(
   }
 
   // JD-only skills (unsupported by candidate) must NOT appear anywhere
-  const draftText = JSON.stringify(draft).toLowerCase();
   let unsupportedInserted = 0;
   for (const term of jdTerms) {
     const t = term.toLowerCase();
-    if (!supportedSkill(t) && new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(draftText)) {
+    if (!supportedSkill(t) && new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(draftTextAll)) {
       unsupportedInserted++;
       issues.push({ type: 'unsupported_jd_skill', claim: term.slice(0, 100), severity: 'error' });
     }
@@ -476,8 +497,7 @@ export async function verifyDraft(
 
   // Keyword coverage (supported JD terms present in draft)
   const supportedTerms = jdTerms.filter((t) => supportedSkill(t));
-  const draftLower = draftText;
-  const supportedAfter = supportedTerms.filter((t) => new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(draftLower)).length;
+  const supportedAfter = supportedTerms.filter((t) => new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(draftTextAll)).length;
 
   return {
     passed: issues.filter((i) => i.severity === 'error').length === 0,
