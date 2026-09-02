@@ -125,10 +125,18 @@ export function buildTailorAudit(job: Job, draft: TailorDraft, verification: Tai
 }
 
 /** The one canonical user-facing tailoring entry point. */
+// Product decision (2026-09-03): the user-facing Tailor engine is V1 —
+// its whole point is integrating the JD's missing keywords so the score
+// MOVES (rephrasing without keyword gains = not tailoring). V2 stays in
+// the codebase as a dormant engine; this flag is the single switch.
+// Tests set TAILOR_ENGINE=v2 to validate the dormant engine directly.
+const TAILOR_ENGINE: 'v1' | 'v2' = process.env.TAILOR_ENGINE === 'v2' ? 'v2' : 'v1';
+
 export async function tailorJobWithV2(
   job: Job,
   opts: { userId?: string; mode?: 'strict' | 'enhanced' } = {}
 ): Promise<TailorJobResult> {
+  if (TAILOR_ENGINE === 'v1') return tailorJobWithV1(job, opts);
   const userId = opts.userId || getCurrentUserId();
 
   const fullJob = await resolveJobDescription(job);
@@ -351,3 +359,71 @@ function backfillRowWithTerms(job: Job, cv: TailoredCv, terms: string[], db: Ret
 }
 
 export { TailorVerificationFailedError };
+/** V1-backed tailoring (the user-facing engine). V1 integrates the JD's
+ *  missing keywords into bullets/skills — the score boost is its whole
+ *  purpose. The informative audit fields are enriched deterministically
+ *  so the UI (What changed / Keyword placement) keeps working unchanged. */
+async function tailorJobWithV1(job: Job, opts: { userId?: string; mode?: 'strict' | 'enhanced' } = {}): Promise<TailorJobResult> {
+  const userId = opts.userId || getCurrentUserId();
+  const fullJob = await resolveJobDescription(job);
+  const jd = fullJob.description || '';
+  const masterCv = getMasterCv(userId);
+
+  // Match analysis when missing (same as the pre-V2 route behavior).
+  if (!fullJob.gapAnalysis) {
+    const { LlmMatcher } = await import('../matcher/llmMatcher.js');
+    const matchResult = await new LlmMatcher().matchJob(fullJob, masterCv);
+    fullJob.gapAnalysis = matchResult.gapAnalysis;
+    fullJob.matchScore = matchResult.matchScore;
+  }
+
+  const { LlmCvTailor } = await import('../builder/llmCvTailor.js');
+  const tailoredCv = await new LlmCvTailor().tailorCv(fullJob, masterCv);
+
+  // Informative audit (deterministic) — the UI reads audit.bulletDiffs /
+  // keywordStatus; compute from V1's output so nothing changes in the UI.
+  const draft = tailoredCvToDraft(tailoredCv);
+  // JD terms for the informative audit: prefer the deterministic parse, but
+  // fall back to the match's gap-analysis keywords (V1's keyword universe).
+  const parsedTerms = jdSkillTerms(jd);
+  const gapTerms = [
+    ...(fullJob.gapAnalysis?.missingSkills || []),
+    ...(fullJob.gapAnalysis?.missingKeywords || []),
+    ...(fullJob.gapAnalysis?.matchingSkills || []),
+  ];
+  const jdTerms = [...new Set([...parsedTerms, ...gapTerms])];
+  const bulletDiffs = computeBulletDiffs(masterCv, draft);
+  const normT = (s: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  for (const d of bulletDiffs) {
+    const dn = normT(d.rewritten);
+    d.addedTerms = jdTerms.filter((t) => normT(t) && dn.includes(normT(t)));
+  }
+  const keywordStatus = computeKeywordStatus(jdTerms, draft, masterCv);
+  if (tailoredCv.audit) {
+    tailoredCv.audit.bulletDiffs = bulletDiffs;
+    tailoredCv.audit.keywordStatus = keywordStatus;
+  }
+
+  return {
+    version: 0,
+    tailoredCv,
+    draft,
+    verification: undefined,
+    jdTerms,
+    pdfOk: true,
+    audit: tailoredCv.audit as TailoringAudit,
+    enhancementLedger: undefined,
+  };
+}
+
+/** Adapter: TailoredCv → TailorDraft shape for the deterministic audit. */
+function tailoredCvToDraft(cv: TailoredCv): TailorDraft {
+  return {
+    summary: cv.professionalSummary || '',
+    skills: cv.coreCompetencies || [],
+    experience: (cv.workExperience || []).map((w) => ({ title: w.title, company: w.company, dates: w.dates, highlights: w.highlights || [] })),
+    education: (cv.education || []).map((e) => ({ degree: e.degree, institution: e.institution, dates: e.dates })),
+    certifications: (cv.certifications || []).map((c) => (typeof c === 'string' ? c : c.name || '')),
+    projects: (cv.projects || []).map((p) => ({ name: p.name, description: p.description || '' })),
+  };
+}

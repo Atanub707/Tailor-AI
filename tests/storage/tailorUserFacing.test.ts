@@ -11,6 +11,8 @@ import path from 'node:path';
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tailor-user-facing-'));
 process.env.TAILOR_DATA_DIR = tmpDir;
+// This suite pins the (now dormant) V2 engine; the product engine is V1.
+process.env.TAILOR_ENGINE = 'v2';
 
 const { getDb, runWithUser, saveMasterCv, updateJobInStorage, getJobById } = await import('../../server/storage/fileStorage.js');
 const { ensureV2Tables } = await import('../../server/storage/v2Tables.js');
