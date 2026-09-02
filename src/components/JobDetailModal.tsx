@@ -540,6 +540,58 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                 </div>
               ) : (
                 <div className="space-y-6 text-xs">
+                  {/* WHAT CHANGED — bullet diffs + keyword placement (informative audit) */}
+                  {(() => {
+                    const diffs = tailored.audit?.bulletDiffs;
+                    const status = tailored.audit?.keywordStatus;
+                    if (!diffs || diffs.length === 0) return null;
+                    const chip = (kind: string) => ({
+                      added_experience: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                      added_skills: 'bg-sky-50 text-sky-700 border-sky-200',
+                      already_present: 'bg-slate-100 text-slate-600 border-slate-200',
+                      enhanced: 'bg-amber-50 text-amber-700 border-amber-200',
+                      unsupported: 'bg-red-50 text-red-600 border-red-200',
+                    } as Record<string, string>)[kind] || 'bg-slate-100 text-slate-600 border-slate-200';
+                    return (
+                      <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-4">
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">What changed</h4>
+                        {diffs.map((d, i) => (
+                          <div key={i} className="space-y-1">
+                            <div className="text-[11px] font-semibold text-slate-500">{d.title} · {d.company}</div>
+                            {d.original !== undefined && (
+                              <div className="text-xs text-slate-400 line-through">{d.original}</div>
+                            )}
+                            <div className="text-xs text-slate-800">
+                              {d.original === undefined && <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 rounded px-1 py-0.5 mr-1">NEW</span>}
+                              {d.rewritten}
+                              {d.enhanced && <span className="ml-2 text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1 py-0.5">Enhanced</span>}
+                            </div>
+                            {d.addedTerms.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {d.addedTerms.map((t) => (
+                                  <span key={t} className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 py-0.5">+ {t}</span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        {status && status.length > 0 && (
+                          <div className="pt-2 border-t border-slate-100">
+                            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">Keyword placement</h4>
+                            <div className="flex flex-wrap gap-1.5">
+                              {status.map((s) => (
+                                <span key={s.term} title={s.location || (s.kind === 'unsupported' ? 'not in your experience' : '')} className={`text-[9px] font-bold border rounded-full px-1.5 py-0.5 ${chip(s.kind)}`}>
+                                  {s.kind === 'unsupported' ? '⛔ ' : '✓ '}{s.term}
+                                  {s.location ? ` · ${s.location}` : s.kind === 'unsupported' ? ' · not in your experience' : ''}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                   {/* BEFORE VS AFTER ATS SCORE & TAILORING AUDIT CARD */}
                   {(() => {
                     const beforeScore = tailored.audit?.beforeScore ?? job.matchScore ?? gap?.matchScore ?? 68;
