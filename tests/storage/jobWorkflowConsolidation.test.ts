@@ -190,3 +190,13 @@ describe('Delete — direct removal without confirmation', () => {
     expect(APP_TSX).toContain('mode:');
   });
 });
+
+describe('Tailored tab — informative audit (What changed + Keyword placement)', () => {
+  it('Tailored tab renders What changed (bullet diffs) and Keyword placement', () => {
+    expect(DETAIL).toContain('What changed');
+    expect(DETAIL).toContain('Keyword placement');
+    expect(DETAIL).toContain('bulletDiffs');
+    expect(DETAIL).toContain('keywordStatus');
+    expect(DETAIL).toContain('not in your experience');
+  });
+});

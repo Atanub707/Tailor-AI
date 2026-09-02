@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Job, JobState, TemplateId } from '../types';
+import type { TailoringAudit } from '../types';
 import { formatTimeAgoSemantic } from "../lib/dateUtils";
 import { applicantCountLabel } from '../lib/applicantInfo';
 import { getValidJobUrl } from '../lib/jobUrlUtils';
@@ -19,6 +20,7 @@ import {
   Copy,
   Check,
   Calendar,
+  ChevronDown,
   TrendingUp,
   FileInput,
   Printer,
@@ -37,6 +39,147 @@ interface JobDetailModalProps {
   initialTab?: 'details' | 'gap' | 'tailored';
   cvTemplate?: TemplateId;
   masterCv?: import('../types').MasterCv | null;
+}
+
+interface WhatChangedGroup {
+  expIndex: number;
+  title: string;
+  company: string;
+  items: NonNullable<TailoringAudit['bulletDiffs']>;
+}
+
+function highlightAddedTerms(text: string, addedTerms: string[]): React.ReactNode {
+  const terms = addedTerms.filter((t) => t && t.trim().length > 0);
+  if (terms.length === 0) return text;
+  const escaped = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const re = new RegExp(`(${escaped.join('|')})`, 'gi');
+  return text.split(re).map((seg, i) =>
+    i % 2 === 1 ? (
+      <mark key={i} className="bg-emerald-100 text-emerald-800 rounded px-0.5">
+        {seg}
+      </mark>
+    ) : (
+      seg
+    )
+  );
+}
+
+function WhatChangedCard({ diffs, status, ledger }: {
+  diffs: NonNullable<TailoringAudit['bulletDiffs']>;
+  status?: TailoringAudit['keywordStatus'];
+  ledger?: TailoringAudit['enhancementLedger'];
+}) {
+  const chip = (kind: string) => ({
+    added_experience: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    added_skills: 'bg-sky-50 text-sky-700 border-sky-200',
+    already_present: 'bg-slate-100 text-slate-600 border-slate-200',
+    enhanced: 'bg-amber-50 text-amber-700 border-amber-200',
+    unsupported: 'bg-red-50 text-red-600 border-red-200',
+  } as Record<string, string>)[kind] || 'bg-slate-100 text-slate-600 border-slate-200';
+
+  const basisByKey = new Map<string, string>();
+  for (const e of ledger?.entries ?? []) basisByKey.set(`${e.expIndex}:${e.hIndex}`, e.basis);
+
+  const groups: WhatChangedGroup[] = [];
+  for (const d of diffs) {
+    const last = groups[groups.length - 1];
+    if (!last || last.expIndex !== d.expIndex) {
+      groups.push({ expIndex: d.expIndex, title: d.title, company: d.company, items: [d] });
+    } else {
+      last.items.push(d);
+    }
+  }
+
+  const [expanded, setExpanded] = useState<ReadonlySet<number>>(() => (groups.length ? new Set([groups[0].expIndex]) : new Set()));
+
+  const toggle = (expIndex: number) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(expIndex)) next.delete(expIndex);
+      else next.add(expIndex);
+      return next;
+    });
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">What changed</h4>
+      <div className="space-y-2">
+        {groups.map((g) => {
+          const open = expanded.has(g.expIndex);
+          return (
+            <div key={g.expIndex} className="border border-slate-100 rounded-lg overflow-hidden">
+              <button
+                type="button"
+                onClick={() => toggle(g.expIndex)}
+                aria-expanded={open}
+                className="w-full flex items-center gap-1.5 px-3 py-2 bg-slate-50 hover:bg-slate-100 text-left transition-colors cursor-pointer"
+              >
+                <ChevronDown className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform ${open ? '' : '-rotate-90'}`} />
+                <span className="text-[11px] font-bold text-slate-700">{g.title} · {g.company}</span>
+                <span className="ml-auto text-[10px] font-semibold text-slate-400">{g.items.length} {g.items.length === 1 ? 'bullet' : 'bullets'}</span>
+              </button>
+              {open && (
+                <ul className="px-3 py-2 space-y-2">
+                  {g.items.map((d, hIndex) => {
+                    const basis = basisByKey.get(`${g.expIndex}:${hIndex}`);
+                    return (
+                      <li key={hIndex} className="space-y-1">
+                        <div className="flex items-start gap-1.5 leading-relaxed">
+                          {d.original !== undefined ? (
+                            <>
+                              <span className="text-xs text-slate-400 line-through min-w-0">{d.original}</span>
+                              <ArrowRight className="w-3 h-3 text-slate-300 mt-[3px] shrink-0" />
+                            </>
+                          ) : (
+                            <span className="shrink-0 mt-0.5 text-[9px] font-bold text-emerald-600 bg-emerald-50 rounded px-1 py-0.5">NEW</span>
+                          )}
+                          <span className="text-xs text-slate-800 flex-1 min-w-0">
+                            {highlightAddedTerms(d.rewritten, d.addedTerms)}
+                            {d.enhanced && (
+                              <span
+                                title={basis ? `Basis: ${basis}` : 'Enhanced bullet'}
+                                className="ml-1.5 align-middle text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1 py-0.5"
+                              >
+                                Enhanced{basis ? ` · ${basis}` : ''}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        {d.addedTerms.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {d.addedTerms.map((t) => (
+                              <span key={t} className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 py-0.5">+ {t}</span>
+                            ))}
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {status && status.length > 0 && (
+        <div className="pt-2 border-t border-slate-100">
+          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">Keyword placement</h4>
+          <div className="flex flex-wrap gap-1.5">
+            {status.map((s) => (
+              <span
+                key={s.term}
+                title={s.basis ? `Basis: ${s.basis}` : s.location || (s.kind === 'unsupported' ? 'not in your experience' : '')}
+                className={`text-[9px] font-bold border rounded-full px-1.5 py-0.5 ${chip(s.kind)}`}
+              >
+                {s.kind === 'unsupported' ? '⛔ ' : '✓ '}{s.term}
+                {s.basis ? ` · ${s.basis}` : s.location ? ` · ${s.location}` : s.kind === 'unsupported' ? ' · not in your experience' : ''}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 
@@ -540,6 +683,15 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                 </div>
               ) : (
                 <div className="space-y-6 text-xs">
+                  {/* WHAT CHANGED — bullet diffs + keyword placement (informative audit) */}
+                  {tailored.audit?.bulletDiffs && tailored.audit.bulletDiffs.length > 0 && (
+                    <WhatChangedCard
+                      diffs={tailored.audit.bulletDiffs}
+                      status={tailored.audit.keywordStatus}
+                      ledger={tailored.audit.enhancementLedger}
+                    />
+                  )}
+
                   {/* BEFORE VS AFTER ATS SCORE & TAILORING AUDIT CARD */}
                   {(() => {
                     const beforeScore = tailored.audit?.beforeScore ?? job.matchScore ?? gap?.matchScore ?? 68;
