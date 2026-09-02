@@ -123,27 +123,34 @@ function WhatChangedCard({ diffs, status, ledger }: {
                   {g.items.map((d, hIndex) => {
                     const basis = basisByKey.get(`${g.expIndex}:${hIndex}`);
                     return (
-                      <li key={hIndex} className="space-y-1">
-                        <div className="flex items-start gap-1.5 leading-relaxed">
+                      <li key={hIndex} className="space-y-1 w-full max-w-full">
+                        <div className="space-y-0.5 leading-relaxed">
                           {d.original !== undefined ? (
                             <>
-                              <span className="text-xs text-slate-400 line-through min-w-0">{d.original}</span>
-                              <ArrowRight className="w-3 h-3 text-slate-300 mt-[3px] shrink-0" />
+                              <div className="text-xs text-slate-400 line-through w-full max-w-full break-words">
+                                {d.original}
+                              </div>
+                              <div className="flex items-center gap-1 text-slate-300">
+                                <ArrowRight className="w-3 h-3 shrink-0" />
+                                <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Tailored</span>
+                              </div>
                             </>
                           ) : (
-                            <span className="shrink-0 mt-0.5 text-[9px] font-bold text-emerald-600 bg-emerald-50 rounded px-1 py-0.5">NEW</span>
+                            <div className="flex items-center gap-1">
+                              <span className="shrink-0 text-[9px] font-bold text-emerald-600 bg-emerald-50 rounded px-1 py-0.5">NEW</span>
+                            </div>
                           )}
-                          <span className="text-xs text-slate-800 flex-1 min-w-0">
+                          <div className="text-xs text-slate-800 w-full max-w-full break-words">
                             {highlightAddedTerms(d.rewritten, d.addedTerms)}
                             {d.enhanced && (
                               <span
                                 title={basis ? `Basis: ${basis}` : 'Enhanced bullet'}
-                                className="ml-1.5 align-middle text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1 py-0.5"
+                                className="ml-1.5 align-middle inline-block text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1 py-0.5"
                               >
                                 Enhanced{basis ? ` · ${basis}` : ''}
                               </span>
                             )}
-                          </span>
+                          </div>
                         </div>
                         {d.addedTerms.length > 0 && (
                           <div className="flex flex-wrap gap-1">
