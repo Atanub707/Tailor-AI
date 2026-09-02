@@ -4043,7 +4043,13 @@ const sanitizeAttemptDryRun = (a: any) => ({
     if (!fs.existsSync(distIndex)) {
       console.error(`[FRONTEND] dist/index.html is MISSING. Run 'npm run build' (or rebuild the Docker image — it runs this step) before serving in production mode.`);
     }
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, {
+      // index.html must never be cached: it references hashed asset files,
+      // so a stale cached index keeps serving the old UI after an update.
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+      },
+    }));
     // SPA fallback — final middleware, catches every route not served by
     // static files (deep links, refreshes on /settings, unknown paths).
     // ('*all' as a route pattern would only match paths ending in "all".)
