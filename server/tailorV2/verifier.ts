@@ -468,6 +468,11 @@ export async function verifyDraft(
         if (!inStrength && overlap === 0) {
           issues.push({ type: 'invalid_enhancement', claim: `${e.type}: ${e.claim}`.slice(0, 100), severity: 'error' });
         }
+        const scopeNums = extractDraftNumbers(e.claim);
+        const unsupportedCount = scopeNums.filter((n) => !metricSupported(n)).length;
+        if (unsupportedCount > 1) {
+          issues.push({ type: 'invalid_enhancement', claim: `${e.type}: ${e.claim}`.slice(0, 100), severity: 'error' });
+        }
       }
     }
     const enhElements = countClaimElements({

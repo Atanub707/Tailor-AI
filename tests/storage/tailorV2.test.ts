@@ -444,6 +444,16 @@ describe('Tailor V2', () => {
     expect(v.issues.some((i) => i.type === 'metric')).toBe(false);
   });
 
+  it('ENHANCED I3: scope claim laundering >1 invented number-token fails', async () => {
+    // The one-token yellow cap applies to scope/leadership claims too: real
+    // "4" plus two invented tokens (300 regions, 12 countries) is hard invalid.
+    const scopeCv: MasterCv = { ...cv, experiences: [{ id: '1', title: 'Senior DevSecOps Engineer', company: 'Human Managed', location: 'Bengaluru', dates: 'Jan 2021 – Present', responsibilities: ['Reduced deployment time by 70%', 'Managed a team of 4 engineers', 'Built CI/CD pipelines with GitLab'] }] };
+    const draft = { professionalSummary: 'x', coreCompetencies: [], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['Managed a team of 4 engineers across 300 regions in 12 countries {"__enhanced":{"type":"scope","basis":"managed a team of 4 engineers"}}'] }], education: [], technicalSkills: [], certifications: [] };
+    const v = await verifyDraft(draft as any, scopeCv, profile(), ['kubernetes'], { mode: 'enhanced' });
+    expect(v.passed).toBe(false);
+    expect(v.issues.some((i) => i.type === 'invalid_enhancement')).toBe(true);
+  });
+
   it('ENHANCED: red-org token grounded in the candidate source is suppressed (no red_zone)', async () => {
     const stripeCv: MasterCv = { ...cv, experiences: [{ id: '1', title: 'Senior DevSecOps Engineer', company: 'Human Managed', location: 'Bengaluru', dates: 'Jan 2021 – Present', responsibilities: ['Reduced deployment time by 70%', 'Managed GKE and EKS production clusters', 'Built integrations with Stripe payments'] }] };
     const draft = { professionalSummary: 'x', coreCompetencies: [], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['Reduced deployment time by 70%', 'Managed GKE and EKS production clusters', 'Built integrations with Stripe payments'] }], education: [], technicalSkills: [], certifications: [] };
