@@ -28,6 +28,7 @@ import { fitCacheKeyFor, getCachedFit, storeCachedFit, jdHash } from '../fit/fit
 import type { TailorDraft } from './drafter.js';
 import type { TailorVerification } from './verifier.js';
 import { jdSkillTerms } from './tailorV2Engine.js';
+import { computeBulletDiffs, computeKeywordStatus } from './bulletDiff.js';
 
 export interface TailorJobResult {
   version: number;
@@ -82,10 +83,21 @@ export function buildTailorAudit(job: Job, draft: TailorDraft, verification: Tai
   const draftBullets = (draft.experience || []).flatMap((w) => w.highlights || []);
   const rephrasedHighlightsCount = Math.min(sourceBullets.length, draftBullets.length);
 
+  // Informative audit: per-bullet before→after diffs (addedTerms filled from
+  // the JD terms present in each rewritten bullet) + per-JD-term reason.
+  const bulletDiffs = computeBulletDiffs(masterCv, draft);
+  for (const d of bulletDiffs) {
+    const dn = norm(d.rewritten);
+    d.addedTerms = jdTerms.filter((t) => norm(t) && dn.includes(norm(t)));
+  }
+  const keywordStatus = computeKeywordStatus(jdTerms, draft, masterCv, verification.enhancementLedger);
+
   return {
     beforeScore,
     afterScore,
     scoreBoost: afterScore - beforeScore,
+    bulletDiffs,
+    keywordStatus,
     scoreBreakdown: {
       alreadyMatched: jdTerms.length - notIntegrable.length,
       newlyIntegrated: verifiedAll.length,

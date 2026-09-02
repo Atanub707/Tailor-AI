@@ -92,6 +92,24 @@ export interface TailoringAudit {
       basis: string;
     }>;
   };
+  /** Per-bullet before→after diff (informative audit). */
+  bulletDiffs?: Array<{
+    expIndex: number;
+    title: string;
+    company: string;
+    original?: string;
+    rewritten: string;
+    changed: boolean;
+    addedTerms: string[];
+    enhanced: boolean;
+  }>;
+  /** Per-JD-term reason ("where it went" or why not). */
+  keywordStatus?: Array<{
+    term: string;
+    kind: 'added_experience' | 'added_skills' | 'already_present' | 'enhanced' | 'unsupported';
+    location?: string;
+    basis?: string;
+  }>;
   scoreBreakdown: {
     alreadyMatched: number;
     newlyIntegrated: number;
