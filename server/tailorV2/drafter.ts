@@ -89,8 +89,23 @@ Return STRICT JSON only — no markdown, no code fences:
 }`;
 }
 
-export async function askForDraft(cv: MasterCv, profile: ApplicantProfile, job: Job, jd: string, fit: FitResult, violations?: string[]): Promise<string> {
-  const base = buildTailorPrompt(cv, profile, job, jd, fit);
+const ENHANCEMENT_SCHEMA = `
+  ENHANCEMENT SCHEMA (Enhanced mode only — OPTIONAL, budget-capped at 30% of all lines):
+  You may STRENGTHEN a limited number of lines with plausible, experience-grounded embellishments. NEVER touch employers, job titles, dates, degrees, certifications, project names or organizations — those are FORBIDDEN.
+  Allowed (each used line must derive from the candidate's REAL evidence):
+  - metric: scale a REAL number from the candidate sources (e.g. real "70%" may become "70% across 40+ services"). NEVER invent a base number that has no source.
+  - tool: a tool within ONE step of the candidate's real stack (e.g. real Flask allows FastAPI; real GKE/EKS allows Kubernetes claims).
+  - scope / leadership: only when the candidate's source shows a weak signal (coordinated/managed people, team words).
+  Mark EVERY embellished bullet by appending a JSON annotation to the bullet string:
+  {"__enhanced":{"type":"metric|tool|scope|leadership","basis":"<the real source fact it derives from>"}}
+  Do not annotate plain rewrites.`;
+
+export function buildTailorPromptEnhanced(cv: MasterCv, profile: ApplicantProfile, job: Job, jd: string, fit: FitResult): string {
+  return buildTailorPrompt(cv, profile, job, jd, fit) + ENHANCEMENT_SCHEMA;
+}
+
+export async function askForDraft(cv: MasterCv, profile: ApplicantProfile, job: Job, jd: string, fit: FitResult, violations?: string[], mode: 'strict' | 'enhanced' = 'strict'): Promise<string> {
+  const base = mode === 'enhanced' ? buildTailorPromptEnhanced(cv, profile, job, jd, fit) : buildTailorPrompt(cv, profile, job, jd, fit);
   const repairNote = violations?.length
     ? `\n\nPREVIOUS DRAFT WAS REJECTED BY THE AUTOMATED VERIFIER. Fix ONLY these violations by removing/replacing unsupported claims with source-grounded content:\n${violations.map((v) => `- ${v}`).join('\n')}\nNever resolve a violation by inventing a new claim.`
     : '';

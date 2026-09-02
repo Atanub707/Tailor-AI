@@ -416,4 +416,15 @@ describe('Tailor V2', () => {
     const v = await verifyDraft(draft as any, withFlaskCv, profile(), ['kubernetes'], { mode: 'enhanced', enhancementLedger: { entries: [{ bulletIndex: 0, type: 'tool', claim: 'Built Python services with FastAPI', basis: 'Flask' }] } });
     expect(v.passed).toBe(true);
   });
+
+  it('ENHANCED prompt includes the enhancement schema', async () => {
+    const { buildTailorPrompt } = await import('../../server/tailorV2/drafter.js');
+    const strict = buildTailorPrompt(cv, profile(), job(), JD, fitFor());
+    expect(strict).not.toContain('ENHANCEMENT SCHEMA');
+    // enhanced variant built via a mode-aware exporter (added in Step 3)
+    const { buildTailorPromptEnhanced } = await import('../../server/tailorV2/drafter.js');
+    const enhanced = buildTailorPromptEnhanced(cv, profile(), job(), JD, fitFor());
+    expect(enhanced).toContain('ENHANCEMENT SCHEMA');
+    expect(enhanced).toContain('__enhanced');
+  });
 });
