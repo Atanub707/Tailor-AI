@@ -85,7 +85,7 @@ export function buildTailorAudit(job: Job, draft: TailorDraft, verification: Tai
 
   // Informative audit: per-bullet before→after diffs (addedTerms filled from
   // the JD terms present in each rewritten bullet) + per-JD-term reason.
-  const bulletDiffs = computeBulletDiffs(masterCv, draft);
+  const bulletDiffs = computeBulletDiffs(masterCv, draft, verification.enhancementLedger);
   for (const d of bulletDiffs) {
     const dn = norm(d.rewritten);
     d.addedTerms = jdTerms.filter((t) => norm(t) && dn.includes(norm(t)));

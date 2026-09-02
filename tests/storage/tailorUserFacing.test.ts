@@ -362,6 +362,8 @@ describe('Tailor V2 — user-facing migration', () => {
     expect(JSON.stringify(r.tailoredCv)).not.toContain('__enhanced');
     // Informative audit: per-bullet diffs + per-JD-term reasons ride on the audit.
     expect(r.tailoredCv.audit?.bulletDiffs?.length).toBeGreaterThan(0);
+    const enhancedDiff = r.tailoredCv.audit?.bulletDiffs?.find((d) => d.enhanced);
+    expect(enhancedDiff).toBeDefined();
     expect(r.tailoredCv.audit?.keywordStatus?.length).toBeGreaterThan(0);
     expect(r.tailoredCv.audit?.keywordStatus?.some((k) => k.kind === 'unsupported')).toBe(true);
     // strict mode: the same annotated draft is treated as a normal metric violation
