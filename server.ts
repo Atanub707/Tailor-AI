@@ -3475,6 +3475,7 @@ const sanitizeAttemptDryRun = (a: any) => ({
           return;
         }
         if (llmErr?.name === 'TailorVerificationFailedError') {
+          console.warn(`[Tailor] verification_failed for job ${req.params.id}: ${String(llmErr?.message || '').slice(0, 220)}`);
           res.status(422).json({
             error: "Tailoring couldn't produce a verified resume from your existing candidate information. Your master resume was left unchanged.",
             code: 'verification_failed',

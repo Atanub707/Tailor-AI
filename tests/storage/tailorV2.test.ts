@@ -394,6 +394,26 @@ describe('Tailor V2', () => {
     expect(sawCompletenessDemand).toBe(true);
   });
 
+  it('CLAIM-STRENGTH DOWNGRADE: unsupported strength verb is downgraded, not rejected', async () => {
+    const upgraded: TailorDraft = {
+      ...goodDraft(),
+      experience: [{ ...goodDraft().experience[0], highlights: ['Architected the CI/CD platform and cut deployment time by 70%', 'Managed GKE and EKS production clusters', 'Built CI/CD pipelines with GitLab'] }],
+    };
+    let calls = 0;
+    vi.stubGlobal('fetch', async (_url: string, init: any) => {
+      calls++;
+      return { status: 200, ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(upgraded) } }] }), text: async () => '' };
+    });
+    const res = await runWithUser(USER, () =>
+      runTailorV2(USER, cv, profile(), job(), JD, fitFor(), { jdHash: 'h-dw', fitEngineVersion: 3 })
+    );
+    vi.unstubAllGlobals();
+    expect(res.verification.passed).toBe(true);
+    const text = JSON.stringify(res.draft).toLowerCase();
+    expect(text).not.toContain('architected');
+    expect(text).toContain('designed');
+  });
+
   it('verifier speed: <100ms deterministic', async () => {
     const t0 = Date.now();
     const draft = { professionalSummary: 'x', coreCompetencies: ['Kubernetes', 'AWS', 'Terraform'], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['Reduced deployment time by 70%'] }], education: [], technicalSkills: [], certifications: [] };

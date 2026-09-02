@@ -77,8 +77,41 @@ async function deterministicRepair(draft: TailorDraft, cv: MasterCv, profile: Ap
       const name = String(p?.name || '').toLowerCase().trim();
       return !!name && (ledger.projects.some((lp) => lp.includes(name) || name.includes(lp)) || JSON.stringify({ cv, profile }).toLowerCase().includes(name));
     }),
+    // Claim-strength: an unsupported STRENGTH verb (the drafter upgraded one
+    // the source lacks, e.g. "architected") is DOWNGRADED to a supported
+    // equivalent — never rejected outright. Downgrading weakens the claim;
+    // facts and numbers stay untouched. Verifier re-checks after this.
+    experience: (draft.experience || []).map((w) => ({
+      ...w,
+      highlights: (w.highlights || []).map((h) => downgradeStrengthVerbs(String(h || ''), cv, profile)),
+    })),
   };
   return cleaned;
+}
+
+/** Replace unsupported strength verbs with neutral supported equivalents. */
+function downgradeStrengthVerbs(text: string, cv: MasterCv, profile: ApplicantProfile): string {
+  const source = JSON.stringify({ cv, profile }).toLowerCase();
+  const VERB_DOWNGRADE: Record<string, string> = {
+    spearheaded: 'led',
+    architected: 'designed',
+    owned: 'managed',
+    directed: 'led',
+    'scaled to': 'grew to',
+    'built the enterprise': 'built',
+    'engineering leader': 'engineer',
+    'technical leader': 'engineer',
+    'team lead': 'team member',
+  };
+  let out = text;
+  const has = (v: string) => source.includes(v) || new RegExp(`\\b${v.trim()}\\b`, 'i').test(source);
+  for (const [strong, neutral] of Object.entries(VERB_DOWNGRADE)) {
+    const re = new RegExp(`\\b${strong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+    if (re.test(out) && !has(strong)) {
+      out = out.replace(re, neutral);
+    }
+  }
+  return out;
 }
 
 /** Remove unsupported skill terms from free text (minimal, safe repair). */
@@ -207,8 +240,10 @@ export async function runTailorV2(
 }
 
 async function defaultLlmDraft(cv: MasterCv, profile: ApplicantProfile, job: Job, jd: string, fit: FitResult, violations?: string[], mode: 'strict' | 'enhanced' = 'strict'): Promise<TailorDraft> {
-  const raw = await (await import('./drafter.js')).askForDraft(cv, profile, job, jd, fit, violations, mode);
-  return parseDraftJson(raw);
+  // Markers-bounded extraction (askJson) — reasoning-model <think> traces and
+  // prose can otherwise make extractJsonObject grab the wrong object and
+  // yield an empty/garbled draft.
+  return await (await import('./drafter.js')).askDraftObject(cv, profile, job, jd, fit, violations, mode);
 }
 
 /** Map a TailorDraft into the verifier/TailoredCv-compatible shape. */
