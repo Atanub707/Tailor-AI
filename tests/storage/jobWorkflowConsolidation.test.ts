@@ -182,4 +182,11 @@ describe('Delete — direct removal without confirmation', () => {
     expect(CARD).toContain('Remove job');
     expect(CARD).not.toContain('window.confirm');
   });
+
+  it('UI exposes Strict/Enhanced toggle and Enhanced chips', () => {
+    expect(DETAIL).toContain('Strict');
+    expect(DETAIL).toContain('Enhanced');
+    expect(DETAIL).toContain('enhancementLedger');
+    expect(APP_TSX).toContain('mode:');
+  });
 });

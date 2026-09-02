@@ -7,9 +7,11 @@
 import type { TailoredCv } from '../../src/types.js';
 import { buildCandidateFactLedger, normalizeWord, type LedgerFact } from './candidateLedger.js';
 import { skillCovered } from '../fit/skillAliases.js';
+import { parseEnhancementAnnotations, countClaimElements, budgetExceeded, normalizeRedZoneTokens, ENHANCEMENT_ANNOTATION_RE, type EnhancementLedger } from './enhancementLedger.js';
+import type { TailorDraft } from './drafter.js';
 
 export interface VerificationIssue {
-  type: 'employer' | 'title' | 'dates' | 'education' | 'certification' | 'skill' | 'metric' | 'technology' | 'unsupported_jd_skill' | 'claim_strength' | 'project' | 'achievement';
+  type: 'employer' | 'title' | 'dates' | 'education' | 'certification' | 'skill' | 'metric' | 'technology' | 'unsupported_jd_skill' | 'claim_strength' | 'project' | 'achievement' | 'red_zone' | 'budget_exceeded' | 'invalid_enhancement';
   claim: string;
   severity: 'error' | 'warning';
 }
@@ -20,7 +22,37 @@ export interface TailorVerification {
   supportedJdTermsBefore: number;
   supportedJdTermsAfter: number;
   unsupportedInserted: number;
+  enhancementLedger?: EnhancementLedger;
 }
+
+// 1-hop tool adjacency: a claimed tool is grounded when the tool itself or
+// any adjacent family token is ledger-supported (e.g. claiming FastAPI is
+// grounded by a real Flask source mention).
+const TOOL_ADJACENCY: Record<string, string[]> = {
+  flask: ['fastapi'],
+  express: ['fastify', 'koa'],
+  jenkins: ['github actions', 'gitlab ci'],
+  docker: ['podman', 'containerd'],
+  mysql: ['postgresql'],
+  gke: ['kubernetes', 'eks'],
+  eks: ['kubernetes', 'gke'],
+  terraform: ['pulumi', 'cloudformation'],
+  react: ['next.js', 'vue'],
+  python: ['fastapi', 'django', 'flask'],
+};
+
+// Curated red-zone organizations: globally recognized employers a candidate
+// cannot plausibly claim without source evidence. Only enforced in enhanced
+// mode, and only when the token is INTRODUCED (absent from the candidate's
+// own source text — a tool/client mention in the source grounds it).
+const KNOWN_RED_ORGS = [
+  'google', 'alphabet', 'microsoft', 'amazon', 'apple', 'meta', 'facebook', 'netflix',
+  'stripe', 'tesla', 'spacex', 'uber', 'airbnb', 'linkedin', 'twitter', 'salesforce',
+  'oracle', 'ibm', 'intel', 'cisco', 'adobe', 'nvidia', 'amd', 'samsung', 'sony',
+  'goldman sachs', 'jpmorgan', 'jp morgan', 'morgan stanley', 'mckinsey', 'bain & company',
+  'boston consulting group', 'deloitte', 'pwc', 'ernst & young', 'kpmg', 'accenture',
+  'infosys', 'wipro', 'tcs', 'capgemini', 'atlassian', 'shopify', 'spotify', 'dropbox', 'palantir', 'red hat',
+];
 
 const METRIC_TOKEN_RE = /(\d+(?:[.,]\d+)?\s*(?:%|x|k|m|b|bn|mn|\+)?)/gi;
 
@@ -101,7 +133,8 @@ export async function verifyDraft(
   draft: VerifierDraftShape,
   cv: import('../../src/types.js').MasterCv,
   profile: import('../../src/types.js').ApplicantProfile,
-  jdTerms: string[]
+  jdTerms: string[],
+  opts: { mode?: 'strict' | 'enhanced'; enhancementLedger?: EnhancementLedger } = {}
 ): Promise<TailorVerification> {
   const ledger = buildCandidateFactLedger(cv, profile);
   const issues: VerificationIssue[] = [];
@@ -109,6 +142,22 @@ export async function verifyDraft(
   // a term mentioned anywhere in the source is grounded, even if it is not
   // in the curated skill lists.
   const sourceText = JSON.stringify({ cv, profile }).toLowerCase();
+
+  // The inline `{"__enhanced":{...}}` envelope is self-declared metadata, NOT
+  // draft content. Pattern scans over the raw draft text would read the
+  // literal type words inside the envelope (e.g. "leadership") and misfire
+  // (C1). Every whole-draft pattern scan runs against a CLEANED copy with
+  // each highlight's annotation suffix stripped; only the enhancement parser
+  // ever reads the envelope.
+  const stripAll = (d: VerifierDraftShape) => ({
+    ...d,
+    workExperience: (d.workExperience || []).map((w) => ({
+      ...w,
+      highlights: (w.highlights || []).map((h) => String(h || '').replace(ENHANCEMENT_ANNOTATION_RE, '').trim()),
+    })),
+  });
+  const cleanedDraft = stripAll(draft);
+  const draftTextAll = JSON.stringify(cleanedDraft).toLowerCase();
 
   const supportedSkill = (term: string): boolean => {
     if (ledger.explicitSkills.some((s) => skillCovered(term, [s]).covered)) return true;
@@ -133,7 +182,36 @@ export async function verifyDraft(
       return !dStrong || sStrong; // draft must not be stronger than source
     });
   };
+
+  // Enhanced mode: self-declared yellow-zone claims (Task 1 ledger). The
+  // strict sweeps below exempt numbers inside ANY annotated (yellow) claim —
+  // each annotation is re-verified in the enhanced block; yellow is tracked,
+  // not rejected ("real 70% may become 70% across 40+ services", "Managed a
+  // team of 4 engineers" may become "across 3 regions").
+  const enhLedger: EnhancementLedger = opts.mode === 'enhanced'
+    // Self-declared annotations fall back to parsing the verifier draft
+    // directly — mapped into the TailorDraft shape the parser expects
+    // (VerifierDraftShape uses `workExperience`, the parser reads
+    // `experience[].highlights`). Never trust the LLM's declaration alone.
+    ? opts.enhancementLedger ?? { entries: parseEnhancementAnnotations({
+        summary: draft.professionalSummary || '',
+        skills: [...(draft.coreCompetencies || []), ...(draft.technicalSkills || []).flatMap((s) => s.skills || [])],
+        experience: (draft.workExperience || []).map((w) => ({ title: w.title, company: w.company, dates: w.dates, highlights: w.highlights || [] })),
+        education: [], certifications: [],
+      } as TailorDraft) }
+    : { entries: [] };
+  const yellowNumbers = new Set<string>();
+  if (opts.mode === 'enhanced') {
+    // I2: the strict-metric exemption applies to numbers inside ANY annotated
+    // yellow claim (metric, scope, leadership, tool) — scope/leadership/tool
+    // numbers are scope tokens re-verified via the ledger's own branch, so
+    // they must not fail the strict metric sweeps.
+    for (const e of enhLedger.entries) {
+      for (const n of extractDraftNumbers(e.claim)) yellowNumbers.add(n);
+    }
+  }
   for (const n of draftNumbers(draft)) {
+    if (yellowNumbers.has(n)) continue;
     if (!metricSupported(n)) {
       issues.push({ type: 'metric', claim: n.slice(0, 50), severity: 'error' });
     }
@@ -287,6 +365,7 @@ export async function verifyDraft(
     const globalNumbers = extractDraftNumbers(sourceText);
     const localOrGlobal = (n: string) => (local ? localNumbers.some((s) => metricSupported(n, [s])) : globalNumbers.some((s) => metricSupported(n, [s])));
       for (const n of extractDraftNumbers(bulletText)) {
+      if (yellowNumbers.has(n)) continue; // yellow-zone (annotated) claim — verified via the ledger
       if (!localOrGlobal(n)) {
         issues.push({ type: 'metric', claim: `${n} in ${w.company || ''} bullet unsupported`.slice(0, 100), severity: 'error' });
       }
@@ -331,6 +410,7 @@ export async function verifyDraft(
 
   // Global metric check (summary and other free text)
   for (const n of draftNumbers(draft)) {
+    if (yellowNumbers.has(n)) continue; // yellow-zone (annotated) claim — verified via the ledger
     if (!metricSupported(n)) {
       issues.push({ type: 'metric', claim: n.slice(0, 50), severity: 'error' });
     }
@@ -339,7 +419,6 @@ export async function verifyDraft(
   // ── Claim-strength scan (ownership/leadership/scale inflation) ───────
   const STRENGTH_VERBS = ['led ', 'spearheaded', 'owned ', 'directed ', 'architected ', 'scaled to', 'managed a team', 'built the enterprise', 'engineering leader', 'technical leader', 'team lead', 'leadership', 'director of'];
   const strengthVerbs = STRENGTH_VERBS;
-  const draftTextAll = JSON.stringify(draft).toLowerCase();
   for (const v of STRENGTH_VERBS) {
     const inDraft = new RegExp(`\\b${v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(draftTextAll);
     if (inDraft && !sourceText.includes(v)) {
@@ -347,12 +426,75 @@ export async function verifyDraft(
     }
   }
 
+  // ── Enhanced mode: 3-zone rules ──────────────────────────────────────
+  // YELLOW: every self-declared enhancement is re-verified against the
+  // candidate's own evidence (real base number / tool adjacency / strength
+  // verb or provenance overlap) and counted against the 30% budget.
+  // RED: employer/title/degree/cert/project/org tokens must never be
+  // introduced anywhere in the draft (sweep over the whole draft text;
+  // per-experience employer/title checks already run above in both modes).
+  if (opts.mode === 'enhanced') {
+    const redTokens = [...normalizeRedZoneTokens(cv), ...KNOWN_RED_ORGS];
+    const sourceLower = sourceText;
+    for (const t of redTokens) {
+      const esc = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`\\b${esc}\\b`).test(draftTextAll) && !new RegExp(`\\b${esc}\\b`).test(sourceLower)) {
+        issues.push({ type: 'red_zone', claim: t.slice(0, 100), severity: 'error' });
+      }
+    }
+    for (const e of enhLedger.entries) {
+      if (e.type === 'metric') {
+        // The BASE number must be real; ONE invented scope token ("40+") is
+        // the tolerated yellow case (real "70%" + one scope token). More than
+        // one unsupported number-token means the claim launders invented
+        // metrics ("70% ... and 99.9% ... and $2m") — hard invalid.
+        const nums = extractDraftNumbers(e.claim);
+        const unsupportedCount = nums.filter((n) => !metricSupported(n)).length;
+        if (!nums.some((n) => metricSupported(n)) || unsupportedCount > 1) {
+          issues.push({ type: 'invalid_enhancement', claim: `metric: ${e.claim}`.slice(0, 100), severity: 'error' });
+        }
+      } else if (e.type === 'tool') {
+        const tool = e.claim.split(/\s+/).pop() || '';
+        const basis = (e.basis || '').toLowerCase().trim();
+        const adj = TOOL_ADJACENCY[tool.toLowerCase()] || [];
+        const ok = supportedSkill(tool) || adj.some((a) => supportedSkill(a)) || (!!basis && supportedSkill(basis) && (TOOL_ADJACENCY[basis] || []).includes(tool.toLowerCase()));
+        if (!ok) issues.push({ type: 'invalid_enhancement', claim: `tool: ${tool}`.slice(0, 100), severity: 'error' });
+      } else {
+        const inStrength = STRENGTH_VERBS.some((v) => e.claim.toLowerCase().includes(v) && sourceLower.includes(v));
+        const tokens = contentTokens(e.claim);
+        const ctxTokens = sourceTokens;
+        let overlap = 0;
+        for (const t of tokens) if (ctxTokens.has(t)) overlap++;
+        if (!inStrength && overlap === 0) {
+          issues.push({ type: 'invalid_enhancement', claim: `${e.type}: ${e.claim}`.slice(0, 100), severity: 'error' });
+        }
+        const scopeNums = extractDraftNumbers(e.claim);
+        const unsupportedCount = scopeNums.filter((n) => !metricSupported(n)).length;
+        if (unsupportedCount > 1) {
+          issues.push({ type: 'invalid_enhancement', claim: `${e.type}: ${e.claim}`.slice(0, 100), severity: 'error' });
+        }
+      }
+    }
+    const enhElements = countClaimElements({
+      summary: draft.professionalSummary || '',
+      skills: draft.coreCompetencies || [],
+      experience: draft.workExperience || [],
+      education: draft.education || [],
+      certifications: (draft.certifications || []) as unknown as string[],
+      projects: draft.projects || [],
+    } as any);
+    // A single tracked enhancement is the tolerated yellow case; the 30%
+    // budget applies from the second yellow element on.
+    if (enhLedger.entries.length >= 2 && budgetExceeded(enhLedger, enhElements)) {
+      issues.push({ type: 'budget_exceeded', claim: `budget > 30% (${enhLedger.entries.length}/${enhElements})`, severity: 'error' });
+    }
+  }
+
   // JD-only skills (unsupported by candidate) must NOT appear anywhere
-  const draftText = JSON.stringify(draft).toLowerCase();
   let unsupportedInserted = 0;
   for (const term of jdTerms) {
     const t = term.toLowerCase();
-    if (!supportedSkill(t) && new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(draftText)) {
+    if (!supportedSkill(t) && new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(draftTextAll)) {
       unsupportedInserted++;
       issues.push({ type: 'unsupported_jd_skill', claim: term.slice(0, 100), severity: 'error' });
     }
@@ -360,8 +502,7 @@ export async function verifyDraft(
 
   // Keyword coverage (supported JD terms present in draft)
   const supportedTerms = jdTerms.filter((t) => supportedSkill(t));
-  const draftLower = draftText;
-  const supportedAfter = supportedTerms.filter((t) => new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(draftLower)).length;
+  const supportedAfter = supportedTerms.filter((t) => new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(draftTextAll)).length;
 
   return {
     passed: issues.filter((i) => i.severity === 'error').length === 0,
@@ -369,6 +510,7 @@ export async function verifyDraft(
     supportedJdTermsBefore: 0,
     supportedJdTermsAfter: supportedAfter,
     unsupportedInserted,
+    ...(opts.mode === 'enhanced' ? { enhancementLedger: enhLedger } : {}),
   };
 }
 /**

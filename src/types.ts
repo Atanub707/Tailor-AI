@@ -41,6 +41,7 @@ export interface Job {
   // AI Tailoring output
   tailoredCv?: TailoredCv;
   tailoredAt?: string;
+  tailorMode?: 'strict' | 'enhanced'; // per-job tailoring mode; default 'enhanced' when absent
 
   createdAt: string;
   updatedAt: string;
@@ -80,6 +81,17 @@ export interface TailoringAudit {
   beforeScore: number;
   afterScore: number;
   scoreBoost: number;
+  /** Per-resume record of yellow-zone embellishments (Enhanced mode only). */
+  enhancementLedger?: {
+    entries: Array<{
+      bulletIndex: number;
+      expIndex: number;
+      hIndex: number;
+      type: string;
+      claim: string;
+      basis: string;
+    }>;
+  };
   scoreBreakdown: {
     alreadyMatched: number;
     newlyIntegrated: number;

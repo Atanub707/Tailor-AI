@@ -372,4 +372,111 @@ describe('Tailor V2', () => {
     await verifyDraft(draft, cv, profile(), ['kubernetes', 'aws', 'terraform']);
     expect(Date.now() - t0).toBeLessThan(100);
   });
+
+  it('ENHANCED: yellow metric derived from a real number passes and is tracked', async () => {
+    const draft = { professionalSummary: 'x', coreCompetencies: [], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['Reduced deployment time by 70% across 40+ services {"__enhanced":{"type":"metric","basis":"70%"}}'] }], education: [], technicalSkills: [], certifications: [] };
+    const v = await verifyDraft(draft as any, cv, profile(), ['kubernetes'], { mode: 'enhanced', enhancementLedger: { entries: [{ bulletIndex: 0, expIndex: 0, hIndex: 0, type: 'metric', claim: 'Reduced deployment time by 70% across 40+ services', basis: '70%' }] } });
+    expect(v.passed).toBe(true);
+    expect(v.enhancementLedger?.entries).toHaveLength(1);
+  });
+
+  it('ENHANCED: self-declared annotation parsed by the fallback when no ledger is passed', async () => {
+    const draft = { professionalSummary: 'x', coreCompetencies: [], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['Reduced deployment time by 70% across 40+ services {"__enhanced":{"type":"metric","basis":"70%"}}'] }], education: [], technicalSkills: [], certifications: [] };
+    const v = await verifyDraft(draft as any, cv, profile(), ['kubernetes'], { mode: 'enhanced' });
+    expect(v.passed).toBe(true);
+    expect(v.enhancementLedger?.entries).toHaveLength(1);
+    expect(v.enhancementLedger?.entries[0]).toMatchObject({ type: 'metric', basis: '70%' });
+  });
+
+  it('ENHANCED: yellow metric WITHOUT a real base number fails', async () => {
+    const draft = { professionalSummary: 'x', coreCompetencies: [], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['Reduced deployment time by 95% {"__enhanced":{"type":"metric","basis":"invented"}}'] }], education: [], technicalSkills: [], certifications: [] };
+    const v = await verifyDraft(draft as any, cv, profile(), ['kubernetes'], { mode: 'enhanced', enhancementLedger: { entries: [{ bulletIndex: 0, expIndex: 0, hIndex: 0, type: 'metric', claim: 'Reduced deployment time by 95%', basis: 'invented' }] } });
+    expect(v.passed).toBe(false);
+    expect(v.issues.some((i) => i.type === 'invalid_enhancement')).toBe(true);
+  });
+
+  it('ENHANCED: invented red-zone organization fails', async () => {
+    const draft = { professionalSummary: 'Built the payment platform at Stripe', coreCompetencies: [], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['x'] }], education: [], technicalSkills: [], certifications: [] };
+    const v = await verifyDraft(draft as any, cv, profile(), ['kubernetes'], { mode: 'enhanced', enhancementLedger: { entries: [] } });
+    expect(v.passed).toBe(false);
+    expect(v.issues.some((i) => i.type === 'red_zone')).toBe(true);
+  });
+
+  it('ENHANCED: budget >30% fails', async () => {
+    const draft = { professionalSummary: 'x', coreCompetencies: ['A', 'B', 'C', 'D'], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['Reduced deployment time by 70% one {"__enhanced":{"type":"metric","basis":"70%"}}', 'Reduced deployment time by 70% two {"__enhanced":{"type":"metric","basis":"70%"}}', 'Reduced deployment time by 70% three {"__enhanced":{"type":"metric","basis":"70%"}}'] }], education: [], technicalSkills: [], certifications: [] };
+    const v = await verifyDraft(draft as any, cv, profile(), ['kubernetes'], { mode: 'enhanced', enhancementLedger: { entries: [{ bulletIndex: 0, expIndex: 0, hIndex: 0, type: 'metric', claim: '1', basis: '70%' }, { bulletIndex: 0, expIndex: 0, hIndex: 0, type: 'metric', claim: '2', basis: '70%' }, { bulletIndex: 0, expIndex: 0, hIndex: 0, type: 'metric', claim: '3', basis: '70%' }] } });
+    // elements = 1 summary + 3 highlights + 4 skills = 8; 3/8 = 37.5% > 30%
+    expect(v.passed).toBe(false);
+    expect(v.issues.some((i) => i.type === 'budget_exceeded')).toBe(true);
+  });
+
+  it('ENHANCED: tool adjacency — Flask supported only if Flask/Python in source', async () => {
+    const withFlaskCv: MasterCv = { ...cv, experiences: [{ id: '1', title: 'Senior DevSecOps Engineer', company: 'Human Managed', location: 'Bengaluru', dates: 'Jan 2021 – Present', responsibilities: ['Built Python services with Flask'] }] };
+    const draft = { professionalSummary: 'x', coreCompetencies: [], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['Built Python services with FastAPI {"__enhanced":{"type":"tool","basis":"Flask"}}'] }], education: [], technicalSkills: [], certifications: [] };
+    const v = await verifyDraft(draft as any, withFlaskCv, profile(), ['kubernetes'], { mode: 'enhanced', enhancementLedger: { entries: [{ bulletIndex: 0, expIndex: 0, hIndex: 0, type: 'tool', claim: 'Built Python services with FastAPI', basis: 'Flask' }] } });
+    expect(v.passed).toBe(true);
+  });
+
+  it('ENHANCED C1: leadership-type annotation does not self-poison claim strength via its envelope', async () => {
+    const ledCv: MasterCv = { ...cv, experiences: [{ id: '1', title: 'Senior DevSecOps Engineer', company: 'Human Managed', location: 'Bengaluru', dates: 'Jan 2021 – Present', responsibilities: ['Reduced deployment time by 70%', 'Managed a team of 4 engineers', 'Built CI/CD pipelines with GitLab'] }] };
+    const draft = { professionalSummary: 'x', coreCompetencies: [], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['Managed a team of 4 engineers across 3 regions {"__enhanced":{"type":"leadership","basis":"managed a team"}}'] }], education: [], technicalSkills: [], certifications: [] };
+    const v = await verifyDraft(draft as any, ledCv, profile(), ['kubernetes'], { mode: 'enhanced' });
+    expect(v.issues.some((i) => i.type === 'claim_strength')).toBe(false);
+    expect(v.passed).toBe(true);
+  });
+
+  it('ENHANCED I1: metric claim laundering >1 invented number-token fails', async () => {
+    // The invented "$2m" must NOT be grounded by structural CV noise (id
+    // "2"); use non-numeric experience ids so the claim's only real token is
+    // "70%". Two unsupported tokens (99.9%, $2m) > the one-token yellow cap.
+    const launderCv: MasterCv = { ...cv, experiences: cv.experiences.map((e, i) => ({ ...e, id: String.fromCharCode(97 + i) })) };
+    const draft = { professionalSummary: 'x', coreCompetencies: [], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['Reduced deployment time by 70% and lifted uptime to 99.9% and saved $2m {"__enhanced":{"type":"metric","basis":"70%"}}'] }], education: [], technicalSkills: [], certifications: [] };
+    const v = await verifyDraft(draft as any, launderCv, profile(), ['kubernetes'], { mode: 'enhanced', enhancementLedger: { entries: [{ bulletIndex: 0, expIndex: 0, hIndex: 0, type: 'metric', claim: 'Reduced deployment time by 70% and lifted uptime to 99.9% and saved $2m', basis: '70%' }] } });
+    expect(v.passed).toBe(false);
+    expect(v.issues.some((i) => i.type === 'invalid_enhancement')).toBe(true);
+  });
+
+  it('ENHANCED I2: scope claim with a real + one invented scope number passes', async () => {
+    const scopeCv: MasterCv = { ...cv, experiences: [{ id: '1', title: 'Senior DevSecOps Engineer', company: 'Human Managed', location: 'Bengaluru', dates: 'Jan 2021 – Present', responsibilities: ['Reduced deployment time by 70%', 'Managed a team of 4 engineers', 'Built CI/CD pipelines with GitLab'] }] };
+    const draft = { professionalSummary: 'x', coreCompetencies: [], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['Managed a team of 4 engineers across 3 regions {"__enhanced":{"type":"scope","basis":"managed a team of 4 engineers"}}'] }], education: [], technicalSkills: [], certifications: [] };
+    const v = await verifyDraft(draft as any, scopeCv, profile(), ['kubernetes'], { mode: 'enhanced' });
+    expect(v.passed).toBe(true);
+    expect(v.issues.some((i) => i.type === 'metric')).toBe(false);
+  });
+
+  it('ENHANCED I3: scope claim laundering >1 invented number-token fails', async () => {
+    // The one-token yellow cap applies to scope/leadership claims too: real
+    // "4" plus two invented tokens (300 regions, 12 countries) is hard invalid.
+    const scopeCv: MasterCv = { ...cv, experiences: [{ id: '1', title: 'Senior DevSecOps Engineer', company: 'Human Managed', location: 'Bengaluru', dates: 'Jan 2021 – Present', responsibilities: ['Reduced deployment time by 70%', 'Managed a team of 4 engineers', 'Built CI/CD pipelines with GitLab'] }] };
+    const draft = { professionalSummary: 'x', coreCompetencies: [], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['Managed a team of 4 engineers across 300 regions in 12 countries {"__enhanced":{"type":"scope","basis":"managed a team of 4 engineers"}}'] }], education: [], technicalSkills: [], certifications: [] };
+    const v = await verifyDraft(draft as any, scopeCv, profile(), ['kubernetes'], { mode: 'enhanced' });
+    expect(v.passed).toBe(false);
+    expect(v.issues.some((i) => i.type === 'invalid_enhancement')).toBe(true);
+  });
+
+  it('ENHANCED: red-org token grounded in the candidate source is suppressed (no red_zone)', async () => {
+    const stripeCv: MasterCv = { ...cv, experiences: [{ id: '1', title: 'Senior DevSecOps Engineer', company: 'Human Managed', location: 'Bengaluru', dates: 'Jan 2021 – Present', responsibilities: ['Reduced deployment time by 70%', 'Managed GKE and EKS production clusters', 'Built integrations with Stripe payments'] }] };
+    const draft = { professionalSummary: 'x', coreCompetencies: [], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['Reduced deployment time by 70%', 'Managed GKE and EKS production clusters', 'Built integrations with Stripe payments'] }], education: [], technicalSkills: [], certifications: [] };
+    const v = await verifyDraft(draft as any, stripeCv, profile(), ['kubernetes'], { mode: 'enhanced', enhancementLedger: { entries: [] } });
+    expect(v.issues.some((i) => i.type === 'red_zone')).toBe(false);
+    expect(v.passed).toBe(true);
+  });
+
+  it('ENHANCED: tool claim unsupported and non-adjacent fails', async () => {
+    const draft = { professionalSummary: 'x', coreCompetencies: [], workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', dates: 'Jan 2021 – Present', highlights: ['Built data pipelines with Snowflake {"__enhanced":{"type":"tool","basis":"n/a"}}'] }], education: [], technicalSkills: [], certifications: [] };
+    const v = await verifyDraft(draft as any, cv, profile(), ['kubernetes'], { mode: 'enhanced' });
+    expect(v.passed).toBe(false);
+    expect(v.issues.some((i) => i.type === 'invalid_enhancement')).toBe(true);
+  });
+
+  it('ENHANCED prompt includes the enhancement schema', async () => {
+    const { buildTailorPrompt } = await import('../../server/tailorV2/drafter.js');
+    const strict = buildTailorPrompt(cv, profile(), job(), JD, fitFor());
+    expect(strict).not.toContain('ENHANCEMENT SCHEMA');
+    // enhanced variant built via a mode-aware exporter (added in Step 3)
+    const { buildTailorPromptEnhanced } = await import('../../server/tailorV2/drafter.js');
+    const enhanced = buildTailorPromptEnhanced(cv, profile(), job(), JD, fitFor());
+    expect(enhanced).toContain('ENHANCEMENT SCHEMA');
+    expect(enhanced).toContain('__enhanced');
+  });
 });

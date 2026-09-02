@@ -360,6 +360,7 @@ export default function App() {
 
   // Tailor CV Handler
   const handleTailorJob = async (jobId: string) => {
+    const mode = jobs.find((j) => j.id === jobId)?.tailorMode ?? 'enhanced';
     runWithMessages(jobId, [
       'Resolving the real job description...',
       'Analyzing requirements against your Master CV...',
@@ -367,7 +368,11 @@ export default function App() {
       'Applying the CV template...',
       'Preparing the tailored resume...',
     ], async () => {
-      const res = await fetch(`/api/jobs/${jobId}/tailor`, { method: 'POST' });
+      const res = await fetch(`/api/jobs/${jobId}/tailor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: mode }),
+      });
       if (res.ok) {
         const data = await res.json();
         setJobs((prev) => prev.map((j) => (j.id === jobId ? data.job : j)));
@@ -683,6 +688,12 @@ export default function App() {
             onClose={() => setSelectedJob(null)}
             onMatchJob={handleMatchJob}
             onTailorJob={handleTailorJob}
+            onTailorModeChange={(mode) => {
+              if (!selectedJob) return;
+              const patch = { ...selectedJob, tailorMode: mode };
+              setJobs((prev) => prev.map((j) => (j.id === selectedJob.id ? patch : j)));
+              setSelectedJob(patch);
+            }}
             onUpdateStatus={handleUpdateStatus}
             isLoading={selectedJob ? loadingJobIds.has(selectedJob.id) : false}
             initialTab={selectedJobTab}

@@ -3462,10 +3462,11 @@ const sanitizeAttemptDryRun = (a: any) => ({
       }
 
       const masterCv = getMasterCv();
+      const mode = req.body?.mode === 'strict' ? 'strict' : 'enhanced';
       const { tailorJobWithV2 } = await import('./server/tailorV2/tailorService.js');
       let tailoredResult: Awaited<ReturnType<typeof tailorJobWithV2>>;
       try {
-        tailoredResult = await tailorJobWithV2(jobToTailor);
+        tailoredResult = await tailorJobWithV2(jobToTailor, { mode });
       } catch (llmErr: any) {
         const { LLMError } = await import('./server/llm/llmErrors.js');
         if (llmErr instanceof LLMError) {
@@ -3488,7 +3489,8 @@ const sanitizeAttemptDryRun = (a: any) => ({
         tailoredCv: tailoredResult.tailoredCv,
         state: 'tailored',
         tailoredAt: new Date().toISOString(),
-      });
+        tailorMode: mode,
+      } as Job);
 
       res.json({
         success: true,
@@ -3519,6 +3521,7 @@ const sanitizeAttemptDryRun = (a: any) => ({
       );
 
       const masterCv = getMasterCv();
+      const mode = req.body?.mode === 'strict' ? 'strict' : 'enhanced';
       const { tailorJobWithV2 } = await import('./server/tailorV2/tailorService.js');
 
       // Process concurrently (bounded) so a large batch finishes fast
@@ -3534,14 +3537,15 @@ const sanitizeAttemptDryRun = (a: any) => ({
         while (cursor < candidateJobs.length) {
           const job = candidateJobs[cursor++];
           try {
-            const tailoredResult = await tailorJobWithV2(job);
+            const tailoredResult = await tailorJobWithV2(job, { mode });
 
             const updated = updateJobInStorage({
               ...job,
               tailoredCv: tailoredResult.tailoredCv,
               state: 'tailored',
               tailoredAt: new Date().toISOString(),
-            });
+              tailorMode: mode,
+            } as Job);
 
             tailoredResults.push(updated);
           } catch (err) {
@@ -3565,7 +3569,7 @@ const sanitizeAttemptDryRun = (a: any) => ({
   });
 
   // Analyze a manual JD (no scraping needed)
-  const manualResults = new Map<string, { tailoredCv: any; title: string; company: string }>();
+  const manualResults = new Map<string, { tailoredCv: any; title: string; company: string; tailorMode?: 'strict' | 'enhanced' }>();
 
   app.post('/api/analyze-jd', async (req, res) => {
     if (!hasApiKeyConfigured()) {
@@ -3672,12 +3676,13 @@ const sanitizeAttemptDryRun = (a: any) => ({
       };
 
       const { tailorJobWithV2 } = await import('./server/tailorV2/tailorService.js');
+      const mode = req.body?.mode === 'strict' ? 'strict' : 'enhanced';
       // Manual JD Tailor runs the SAME canonical V2 pipeline. The manual JD
       // is DATA ONLY — it can influence emphasis and gap reporting, never
       // candidate facts. includeSkills (user's chip selection) is accepted
       // for API compatibility; unsupported selections surface as
       // notIntegrable gaps because the verifier rejects JD-only facts.
-      const tailoredResult = await tailorJobWithV2(virtualJob);
+      const tailoredResult = await tailorJobWithV2(virtualJob, { mode });
       const tailoredCv = tailoredResult.tailoredCv;
 
       const token = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -3685,6 +3690,7 @@ const sanitizeAttemptDryRun = (a: any) => ({
         tailoredCv,
         title: virtualJob.title,
         company: virtualJob.company,
+        tailorMode: mode,
       });
       setTimeout(() => manualResults.delete(token), 30 * 60 * 1000);
 

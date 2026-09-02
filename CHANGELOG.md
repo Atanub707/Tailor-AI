@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.8.0 (2026-09-01)
+
+### ⚡ Enhanced Tailoring (new)
+
+- New Enhanced mode with a bounded 30% embellishment budget: metrics derived
+  from real numbers, one-hop-adjacent tools, and leadership/scope language
+  from real signals — each flagged as "Enhanced" in the preview and listed in
+  the audit panel with its source basis.
+- Strict mode (previous behavior) remains available per job.
+- Employers, titles, dates, education, certifications and projects are NEVER
+  changed in either mode.
+
 ## v2.7.2 (2026-09-01)
 
 ### 🖥️ UI reliability fixes

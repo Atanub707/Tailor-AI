@@ -16,6 +16,7 @@ import type { FitResult } from '../fit/fitEngine.js';
 import { parseJobRequirements } from '../fit/requirementsParser.js';
 import { draftResume, parseDraftJson, type TailorDraft } from './drafter.js';
 import { verifyDraft, type TailorVerification } from './verifier.js';
+import { parseEnhancementAnnotations, stripEnhancementAnnotations, type EnhancementLedger } from './enhancementLedger.js';
 import { buildCandidateFactLedger } from './candidateLedger.js';
 import { skillCovered } from '../fit/skillAliases.js';
 import { storeTailorVersion, markTailorVersionsStale, getLatestTailorVersion } from './versionStore.js';
@@ -23,6 +24,11 @@ import { generatePdfBuffer } from '../builder/docxGenerator.js';
 import { verifyPdfTextLayer } from './pdfText.js';
 
 export const MAX_GENERATION_ATTEMPTS = 2;
+
+// Task 2: verifyDraft gained an opts param (mode + enhancementLedger). The
+// engine call sites stay strict-mode (4 args) until Task 4 plumbs the mode;
+// this re-export gives the mode plumbing a stable type surface.
+export type { EnhancementLedger };
 
 /** Ratio of draft highlights that are byte-identical to the source
  *  responsibility at the same position (verbatim copies = not tailored). */
@@ -93,6 +99,7 @@ export interface TailorV2Result {
   jdTerms: string[];
   pdfOk: boolean;
   pdfCheck: { ok: boolean; missing: string[]; textLength: number };
+  enhancementLedger?: EnhancementLedger;
 }
 
 export async function runTailorV2(
@@ -103,9 +110,12 @@ export async function runTailorV2(
   jd: string,
   fit: FitResult,
   keys: { masterCvUpdatedAt?: string; profileUpdatedAt?: string; jdHash: string; fitEngineVersion?: number },
-  llmDraft: (cv: MasterCv, profile: ApplicantProfile, job: Job, jd: string, fit: FitResult, violations?: string[]) => Promise<TailorDraft> = defaultLlmDraft
+  llmDraft?: (cv: MasterCv, profile: ApplicantProfile, job: Job, jd: string, fit: FitResult, violations?: string[]) => Promise<TailorDraft>,
+  opts: { mode?: 'strict' | 'enhanced' } = {}
 ): Promise<TailorV2Result> {
+  const mode = opts.mode ?? 'strict';
   const terms = jdSkillTerms(jd);
+  const llm = llmDraft ?? ((cv: MasterCv, profile: ApplicantProfile, job: Job, jd: string, fit: FitResult, violations?: string[]) => defaultLlmDraft(cv, profile, job, jd, fit, violations, mode));
 
   let draft: TailorDraft | undefined;
   let verification: TailorVerification | undefined;
@@ -114,8 +124,8 @@ export async function runTailorV2(
     const violations = verification && verification.issues.length ? verification.issues.map((i) => `${i.type}: ${i.claim}`).slice(0, 12) : undefined;
     const retryNotes = [...(violations || []), ...(verbatimNote ? [verbatimNote] : [])];
     verbatimNote = undefined;
-    draft = await llmDraft(cv, profile, job, jd, fit, retryNotes.length ? retryNotes : undefined);
-    verification = await verifyDraft(toVerifierDraft(draft), cv, profile, terms);
+    draft = await llm(cv, profile, job, jd, fit, retryNotes.length ? retryNotes : undefined);
+    verification = await verifyDraft(toVerifierDraft(draft), cv, profile, terms, { mode, enhancementLedger: { entries: parseEnhancementAnnotations(draft) } });
     if (!verification.passed) continue;
     // If the draft passed fact verification but copied source bullets
     // verbatim, it was NOT tailored — demand a rewrite on the next attempt.
@@ -131,7 +141,7 @@ export async function runTailorV2(
   if (!verification.passed) {
     // Deterministic cleanup pass — drop unsupported additive claims.
     const cleaned = await deterministicRepair(draft, cv, profile);
-    const recheck = await verifyDraft(toVerifierDraft(cleaned), cv, profile, terms);
+    const recheck = await verifyDraft(toVerifierDraft(cleaned), cv, profile, terms, { mode, enhancementLedger: { entries: parseEnhancementAnnotations(cleaned) } });
     if (!recheck.passed) {
       // FAIL CLOSED: any remaining error-severity violation means the resume
       // is not grounded in the candidate's facts. It is never persisted or
@@ -142,6 +152,18 @@ export async function runTailorV2(
     verification = recheck;
     draft = cleaned;
   }
+
+  // Accepted draft: capture the enhancement ledger from the UNSTRIPPED draft
+  // (it carries the claims for the UI), then strip the annotation suffixes
+  // before anything is persisted or rendered.
+  const enhancementLedger: EnhancementLedger | undefined = mode === 'enhanced'
+    ? { entries: parseEnhancementAnnotations(draft) }
+    : undefined;
+  if (enhancementLedger) verification = { ...verification, enhancementLedger };
+  // I3: only enhanced mode carries annotation envelopes to strip. Strict mode
+  // drafts are persisted byte-identical — the unconditional strip was
+  // trimming (and byte-shifting) every highlight in strict mode.
+  if (mode === 'enhanced') draft = stripEnhancementAnnotations(draft);
 
   // Persist version (v1+; mark older versions stale when inputs change).
   const latest = getLatestTailorVersion(userId, job.id);
@@ -168,11 +190,11 @@ export async function runTailorV2(
     pdfOk = true;
   }
 
-  return { version: stored.version, draft, verification, jdTerms: terms, pdfOk, pdfCheck };
+  return { version: stored.version, draft, verification, jdTerms: terms, pdfOk, pdfCheck, enhancementLedger };
 }
 
-async function defaultLlmDraft(cv: MasterCv, profile: ApplicantProfile, job: Job, jd: string, fit: FitResult, violations?: string[]): Promise<TailorDraft> {
-  const raw = await (await import('./drafter.js')).askForDraft(cv, profile, job, jd, fit, violations);
+async function defaultLlmDraft(cv: MasterCv, profile: ApplicantProfile, job: Job, jd: string, fit: FitResult, violations?: string[], mode: 'strict' | 'enhanced' = 'strict'): Promise<TailorDraft> {
+  const raw = await (await import('./drafter.js')).askForDraft(cv, profile, job, jd, fit, violations, mode);
   return parseDraftJson(raw);
 }
 
