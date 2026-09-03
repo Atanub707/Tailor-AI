@@ -285,13 +285,20 @@ if ($LASTEXITCODE -ne 0) { Fail 'docker compose failed — see the output above.
 # image (no Node needed on this machine) or first-time installs hit the
 # "frontend not built" page.
 $distPath = Join-Path $AppDir 'dist'
+$distIsFresh = $false
 if (Test-Path (Join-Path $distPath 'index.html')) {
-  Ok 'Frontend already present on disk'
+  $pkg = Get-Item (Join-Path $AppDir 'package.json') -ErrorAction SilentlyContinue
+  $idx = Get-Item (Join-Path $distPath 'index.html') -ErrorAction SilentlyContinue
+  if ($pkg -and $idx -and $idx.LastWriteTime -ge $pkg.LastWriteTime) { $distIsFresh = $true }
+}
+if ($distIsFresh) {
+  Ok 'Frontend already up to date'
 } else {
   $img = & (Find-Docker) compose -f (Join-Path $AppDir 'docker-compose.yml') config --images 2>$null | Select-Object -First 1
   if ($img) {
     Say "Copying the built frontend from the image into $distPath …"
-    & (Find-Docker) run --rm -v "${AppDir}:/out" --entrypoint cp $img -r /app/dist /out/dist 2>$null
+    # Idempotent: remove any stale/partial dist first (avoid nested dist/dist).
+    & (Find-Docker) run --rm -v "${AppDir}:/out" --entrypoint sh $img -c 'rm -rf /out/dist && cp -r /app/dist /out/dist' 2>$null
     if ($LASTEXITCODE -ne 0) { Warn 'Could not copy the frontend — the app may show ''frontend not built''. Re-run the installer.' }
   }
 }

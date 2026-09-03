@@ -92,13 +92,19 @@ if ($LASTEXITCODE -ne 0) { Fail 'docker compose failed — see the output above.
 # built frontend — the server serves the HOST dist/ folder. Refresh it from
 # the freshly built image so updates never land on "frontend not built".
 $distPath = Join-Path $AppDir 'dist'
+$distIsFresh = $false
 if (Test-Path (Join-Path $distPath 'index.html')) {
-  Ok 'Frontend already present on disk'
+  $pkg = Get-Item (Join-Path $AppDir 'package.json') -ErrorAction SilentlyContinue
+  $idx = Get-Item (Join-Path $distPath 'index.html') -ErrorAction SilentlyContinue
+  if ($pkg -and $idx -and $idx.LastWriteTime -ge $pkg.LastWriteTime) { $distIsFresh = $true }
+}
+if ($distIsFresh) {
+  Ok 'Frontend already up to date'
 } else {
   $img = & $dockerExe compose -f (Join-Path $AppDir 'docker-compose.yml') config --images 2>$null | Select-Object -First 1
   if ($img) {
     Say "Copying the built frontend from the image into $distPath …"
-    & $dockerExe run --rm -v "${AppDir}:/out" --entrypoint cp $img -r /app/dist /out/dist 2>$null
+    & $dockerExe run --rm -v "${AppDir}:/out" --entrypoint sh $img -c 'rm -rf /out/dist && cp -r /app/dist /out/dist' 2>$null
     if ($LASTEXITCODE -ne 0) { Warn 'Could not copy the frontend — re-run the updater if you see ''frontend not built''.' }
   }
 }

@@ -40,7 +40,7 @@ else
   IMG=$(docker compose -f "$APP_DIR/docker-compose.yml" config --images 2>/dev/null | head -1)
   if [ -n "$IMG" ]; then
     echo "Refreshing the frontend in $APP_DIR/dist from the image …"
-    docker run --rm -v "$APP_DIR":/out --entrypoint cp "$IMG" -r /app/dist /out/dist 2>/dev/null \
+    docker run --rm -v "$APP_DIR":/out --entrypoint sh "$IMG" -c 'rm -rf /out/dist && cp -r /app/dist /out/dist' 2>/dev/null \
       || warn "Could not refresh the frontend — re-run the updater if you see 'frontend not built'."
   fi
 fi

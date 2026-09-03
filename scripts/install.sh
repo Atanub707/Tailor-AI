@@ -106,13 +106,15 @@ docker compose -f "$APP_DIR/docker-compose.yml" up -d --build --pull missing || 
 # image's built frontend. The server therefore serves the frontend from the
 # HOST dist/ folder — seed it from the image (no Node needed on this machine).
 # Without this, first-time installs hit the "frontend not built" page.
-if [ -f "$APP_DIR/dist/index.html" ]; then
-  ok "Frontend already present on disk"
+if [ -f "$APP_DIR/dist/index.html" ] && [ -n "$(find "$APP_DIR/dist" -newer "$APP_DIR/package.json" -name index.html 2>/dev/null)" ]; then
+  ok "Frontend already up to date"
 else
   IMG=$(docker compose -f "$APP_DIR/docker-compose.yml" config --images 2>/dev/null | head -1)
   if [ -n "$IMG" ]; then
     echo "Copying the built frontend from the image into $APP_DIR/dist …"
-    docker run --rm -v "$APP_DIR":/out --entrypoint cp "$IMG" -r /app/dist /out/dist 2>/dev/null \
+    # Idempotent: remove any stale/partial dist first — otherwise a nested
+    # dist/dist directory is created and the seed silently does nothing.
+    docker run --rm -v "$APP_DIR":/out --entrypoint sh "$IMG" -c 'rm -rf /out/dist && cp -r /app/dist /out/dist' 2>/dev/null \
       || warn "Could not copy the frontend — the app may show 'frontend not built'. Re-run the installer, or run 'npm run build' inside $APP_DIR."
   fi
 fi
