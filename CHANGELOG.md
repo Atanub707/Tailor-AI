@@ -1,5 +1,29 @@
 # Changelog
 
+## v2.8.0 (2026-09-03)
+
+### 🎯 Tailor is keyword-driven again (V1 engine restored)
+
+- The user-facing Tailor engine is V1: it integrates the JD's missing keywords into bullets/skills so the score actually MOVES (live: 76 → 99, +23, keywords like Java/C#/.NET/Angular/Vue/NoSQL added).
+- V2 remains in the codebase as a dormant engine behind a single env switch (`TAILOR_ENGINE=v2`); routes and features unchanged.
+- The informative audit still works: bullet-level before→after diffs and keyword placement are computed deterministically from V1 output.
+- Fail-closed guard for empty drafts; strength-verb downgrade instead of hard rejection; 422 reasons are logged.
+
+### 🧩 Informative Tailor audit
+
+- "What changed" card: per-bullet original→tailored pairs with inline green keyword highlights, collapsible per experience.
+- "Keyword placement": every JD keyword color-coded (added to bullets / skills / already in CV / not in your experience).
+
+### 🛠 Installer & update hardening (macOS + Windows)
+
+- Idempotent dist seeding (no nested dist/dist) + stale-frontend refresh in install.sh / update.sh / install.ps1 / update.ps1.
+- index.html served with Cache-Control: no-cache so updates show immediately.
+
+### 🐛 Fixes
+
+- Vite HMR inversion + production mode; SPA fallback for deep links; Dockerfile bakes dist; self-healing entrypoint; "Cannot GET /" eliminated.
+- CV extraction via askJson (any model); humanized short outreach emails; SMTP SSL/STARTTLS auto-correct; per-job tailored scores + grouped skills + verbatim projects/education/certs; Settings in hamburger.
+
 ## v2.8.0 (2026-09-01)
 
 ### ⚡ Enhanced Tailoring (new)
