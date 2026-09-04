@@ -24,5 +24,9 @@ RUN chmod +x /entrypoint.sh
 
 EXPOSE 3000
 
+# Boot tsx DIRECTLY — no `npm run <script>` indirection. npm script lookup
+# fails on Windows installs when the bind-mounted /app/package.json is
+# missing/stale/CRLF-corrupted ("Missing script: dev" crash loop); a direct
+# node --import tsx call depends only on node_modules + server.ts.
 ENTRYPOINT ["sh", "/entrypoint.sh"]
-CMD ["npm", "run", "dev"]
+CMD ["node", "--import", "tsx", "/app/server.ts"]
