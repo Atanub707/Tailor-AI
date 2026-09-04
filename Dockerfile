@@ -24,9 +24,11 @@ RUN chmod +x /entrypoint.sh
 
 EXPOSE 3000
 
-# Boot tsx DIRECTLY — no `npm run <script>` indirection. npm script lookup
+# Boot tsx DIRECTLY — no `npm run <script>` indirection (npm script lookup
 # fails on Windows installs when the bind-mounted /app/package.json is
-# missing/stale/CRLF-corrupted ("Missing script: dev" crash loop); a direct
-# node --import tsx call depends only on node_modules + server.ts.
+# missing/stale/CRLF-corrupted). SINGLE-STRING JSON CMD is CR-immune: on a
+# CRLF Dockerfile checkout the trailing \r lands after the whole command
+# instead of inside the last argument ('/app/server.ts\r' → %0D error).
+# entrypoint.sh runs single-string commands via /bin/sh -c.
 ENTRYPOINT ["sh", "/entrypoint.sh"]
-CMD ["node", "--import", "tsx", "/app/server.ts"]
+CMD ["node --import tsx /app/server.ts"]

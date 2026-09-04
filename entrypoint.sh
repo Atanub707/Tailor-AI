@@ -16,4 +16,11 @@ if [ ! -f /app/dist/index.html ] && [ -f /image-dist/index.html ]; then
   cp -r /image-dist/. /app/dist/
 fi
 
-exec "$@"
+# CR-immune exec: Docker's JSON-form CMD on a CRLF checkout can glue a
+# trailing \r into the single-string form. Handle both multi-arg and
+# single-string commands.
+if [ "$#" -eq 1 ]; then
+  exec /bin/sh -c "$1"
+else
+  exec "$@"
+fi
