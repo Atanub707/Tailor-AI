@@ -624,9 +624,17 @@ async function startServer() {
         // IMPORTANT: no max_tokens in the probe — the opencode.ai router
         // HANGS (never responds) when max_tokens is present, even for a
         // valid key. The probe mirrors the working completion shape.
+        // OpenCode Go also requires x-opencode-session + a real User-Agent
+        // (else 400 MissingSessionID) — send them for its endpoints.
+        const isOpencodeGo = base.includes('opencode.ai');
         const r = await fetch(`${base}/chat/completions`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+          headers: {
+            'Authorization': `Bearer ${key}`,
+            'Content-Type': 'application/json',
+            'User-Agent': 'TailorAI/1.0 (local job-search app)',
+            ...(isOpencodeGo ? { 'x-opencode-session': `tailor-ai-${crypto.createHash('sha1').update(key).digest('hex').slice(0, 16)}` } : {}),
+          },
           body: JSON.stringify({ model: mdl, messages: [{ role: 'user', content: 'ping' }] }),
           signal: AbortSignal.timeout(TIMEOUT_MS),
         });
