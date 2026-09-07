@@ -1,4 +1,5 @@
 import { loadConfig } from '../config.js';
+import { createHash } from 'crypto';
 import { askOpenAi } from './providers/openaiProvider.js';
 import { askGemini } from './providers/geminiProvider.js';
 import { askAnthropic } from './providers/anthropicProvider.js';
@@ -50,7 +51,17 @@ export async function ask(prompt: string, temperature?: number, responseFormat: 
       case 'openrouter':
       case 'openai': {
         const baseUrl = config.llm.baseUrl || PROVIDER_BASE_URLS[provider];
-        return await askOpenAi({ baseUrl, apiKey, model, prompt, temperature: temp, responseFormat, timeoutMs });
+        // OpenCode Go (zen gateway) requires a stable x-opencode-session
+        // header (per-conversation, for routing/prompt caching) and a custom
+        // User-Agent — missing them returns 400 MissingSessionID. Session is
+        // derived from the API key so it stays stable across restarts.
+        const extraHeaders = provider === 'opencode-go' && apiKey
+          ? {
+              'x-opencode-session': `tailor-ai-${createHash('sha1').update(apiKey).digest('hex').slice(0, 16)}`,
+              'User-Agent': 'TailorAI/1.0 (local job-search app)',
+            }
+          : undefined;
+        return await askOpenAi({ baseUrl, apiKey, model, prompt, temperature: temp, responseFormat, timeoutMs, extraHeaders });
       }
       case 'gemini':
         return await askGemini(apiKey, model, prompt, temp, timeoutMs);

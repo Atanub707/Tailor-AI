@@ -7,6 +7,8 @@ export interface OpenAiOptions {
   responseFormat?: 'json' | 'text';
   extraBody?: Record<string, any>;
   timeoutMs?: number;
+  /** Extra headers (e.g. x-opencode-session for OpenCode Go). */
+  extraHeaders?: Record<string, string>;
 }
 
 function providerError(code: string, message: string): Error {
@@ -40,6 +42,7 @@ export async function askOpenAi(options: OpenAiOptions): Promise<string> {
       headers: {
         'Authorization': `Bearer ${options.apiKey}`,
         'Content-Type': 'application/json',
+        ...(options.extraHeaders || {}),
       },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
