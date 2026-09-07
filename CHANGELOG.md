@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.9.0 (2026-09-07)
+
+### 🔌 LLM provider fixes (OpenCode Go)
+
+- Tailor and Settings → Test connection now send `x-opencode-session` + a custom User-Agent to the OpenCode Go gateway — fixes the `400 MissingSessionID` / "AI provider returned an error" failures (validated: minimax-m3, deepseek-v4-flash, qwen3.6-plus, kimi-k2.6 all 200).
+
+### 🎯 Tailor is keyword-driven again (V1 engine)
+
+- The user-facing Tailor engine is V1: integrates the JD's missing keywords into bullets/skills so the score moves (live: 76 → 99). V2 stays dormant behind `TAILOR_ENGINE=v2`.
+- Informative audit: bullet-level before→after diffs + keyword placement, computed deterministically from V1 output.
+
+### 🛠 Installer & update hardening (macOS + Windows)
+
+- CRLF-proof boot (.gitattributes + CR-immune CMD) — fixes the Windows `Missing script: dev` / `Cannot find module /app/server.ts%0D` crash loops.
+- Idempotent dist seeding + stale-frontend refresh in all 4 scripts; index.html served `Cache-Control: no-cache`; direct tsx boot (no npm script dependency).
+
 ## v2.8.0 (2026-09-03)
 
 ### 🎯 Tailor is keyword-driven again (V1 engine restored)
