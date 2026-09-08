@@ -1,6 +1,7 @@
 import type { MasterCv } from '../../src/types.js';
 import type { TailorDraft } from './drafter.js';
 import type { EnhancementLedger } from './enhancementLedger.js';
+import { containsKeyword } from './keywordMatch.js';
 
 export interface BulletDiff {
   expIndex: number;
@@ -21,8 +22,6 @@ export interface KeywordStatus {
   location?: string;
   basis?: string;
 }
-
-const norm = (s: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 export function computeBulletDiffs(masterCv: MasterCv, draft: TailorDraft, ledger?: EnhancementLedger): BulletDiff[] {
   const out: BulletDiff[] = [];
@@ -53,11 +52,11 @@ export function computeKeywordStatus(jdTerms: string[], draft: TailorDraft, mast
   const skillsText = (draft.skills || []).join(' ').toLowerCase();
   const masterText = JSON.stringify({ cv: masterCv }).toLowerCase();
   for (const term of [...new Set(jdTerms)]) {
-    const n = norm(term);
-    const inExp = n && norm(expText).includes(n);
-    const inSkills = n && norm(skillsText).includes(n);
-    const ledgerHit = ledger?.entries.find((e) => norm(e.claim).includes(n) || norm(e.basis).includes(n));
-    const inMaster = n && norm(masterText).includes(n);
+    if (!String(term || '').trim()) continue;
+    const inExp = containsKeyword(expText, term);
+    const inSkills = containsKeyword(skillsText, term);
+    const ledgerHit = ledger?.entries.find((e) => containsKeyword(e.claim, term) || containsKeyword(e.basis, term));
+    const inMaster = containsKeyword(masterText, term);
     if (inExp) out.push({ term, kind: 'added_experience', location: 'Experience bullets' });
     else if (inSkills) out.push({ term, kind: 'added_skills', location: 'Skills' });
     else if (ledgerHit) out.push({ term, kind: 'enhanced', basis: ledgerHit.basis });

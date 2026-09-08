@@ -29,6 +29,7 @@ import type { TailorDraft } from './drafter.js';
 import type { TailorVerification } from './verifier.js';
 import { jdSkillTerms } from './tailorV2Engine.js';
 import { computeBulletDiffs, computeKeywordStatus } from './bulletDiff.js';
+import { containsKeyword } from './keywordMatch.js';
 
 export interface TailorJobResult {
   version: number;
@@ -64,14 +65,13 @@ export function fitForJob(userId: string, job: Job, masterCv: MasterCv, jd: stri
  *  using the VERIFIER's grounded keyword coverage — never a separate score. */
 export function buildTailorAudit(job: Job, draft: TailorDraft, verification: TailorVerification, jdTerms: string[], masterCv: MasterCv): TailoringAudit {
   const beforeScore = job.matchScore ?? job.gapAnalysis?.matchScore ?? 50;
-  const norm = (s: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  const expText = (draft.experience || []).flatMap((w) => w.highlights || []).join(' ').toLowerCase();
-  const skillsText = (draft.skills || []).join(' ').toLowerCase();
-  const allText = `${expText} ${skillsText} ${draft.summary || ''}`.toLowerCase();
-  const verifiedInExperience = jdTerms.filter((t) => norm(expText).includes(norm(t)));
-  const verifiedInSkills = jdTerms.filter((t) => norm(skillsText).includes(norm(t)));
+  const expText = (draft.experience || []).flatMap((w) => w.highlights || []).join(' ');
+  const skillsText = (draft.skills || []).join(' ');
+  const allText = `${expText} ${skillsText} ${draft.summary || ''}`;
+  const verifiedInExperience = jdTerms.filter((t) => containsKeyword(expText, t));
+  const verifiedInSkills = jdTerms.filter((t) => containsKeyword(skillsText, t));
   const verifiedAll = [...new Set([...verifiedInExperience, ...verifiedInSkills])];
-  const notIntegrable = jdTerms.filter((t) => !norm(allText).includes(norm(t)));
+  const notIntegrable = jdTerms.filter((t) => !containsKeyword(allText, t));
 
   const totalMissing = Math.max(jdTerms.length, 1);
   const expWeight = verifiedInExperience.length;
@@ -87,8 +87,7 @@ export function buildTailorAudit(job: Job, draft: TailorDraft, verification: Tai
   // the JD terms present in each rewritten bullet) + per-JD-term reason.
   const bulletDiffs = computeBulletDiffs(masterCv, draft, verification.enhancementLedger);
   for (const d of bulletDiffs) {
-    const dn = norm(d.rewritten);
-    d.addedTerms = jdTerms.filter((t) => norm(t) && dn.includes(norm(t)));
+    d.addedTerms = jdTerms.filter((t) => containsKeyword(d.rewritten, t));
   }
   const keywordStatus = computeKeywordStatus(jdTerms, draft, masterCv, verification.enhancementLedger);
 
@@ -393,10 +392,8 @@ async function tailorJobWithV1(job: Job, opts: { userId?: string; mode?: 'strict
   ];
   const jdTerms = [...new Set([...parsedTerms, ...gapTerms])];
   const bulletDiffs = computeBulletDiffs(masterCv, draft);
-  const normT = (s: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   for (const d of bulletDiffs) {
-    const dn = normT(d.rewritten);
-    d.addedTerms = jdTerms.filter((t) => normT(t) && dn.includes(normT(t)));
+    d.addedTerms = jdTerms.filter((t) => containsKeyword(d.rewritten, t));
   }
   const keywordStatus = computeKeywordStatus(jdTerms, draft, masterCv);
   if (tailoredCv.audit) {
