@@ -53,6 +53,7 @@ STRICT RULES:
 - NEVER fabricate companies, dates, degrees, or work experience.
 - The candidate's actual job title ("${candidateTitle}") MUST remain exactly as stated.
 - You MUST REWRITE every experience bullet: no bullet may be returned word-for-word identical to the source. Rephrase it to sound natural AND weave in the missing keywords that fit it.
+- You MUST REWRITE the professionalSummary so it differs from the source summary and weaves in up to 3 of the most relevant missing keywords that genuinely match the candidate's experience — never invent claims the CV does not support.
 - ${selectedList.length > 0
       ? `INCORPORATE ONLY these selected missing keywords: ${selectedList.join(', ')} — DO NOT add or mention any other missing keyword.`
       : 'Integrate all missing keywords identified in the JD.'}
@@ -122,8 +123,11 @@ Return valid JSON only — NO markdown, NO code fences, pure JSON:
         ...(parsed.coreCompetencies || []),
         ...(parsed.technicalSkills || []).flatMap((t: any) => t.skills || []),
       ].join(' ');
-      return selectedList.some((kw) => containsKeyword(expText + ' ' + skillsText, kw));
+      const summaryText = String(parsed.professionalSummary || '');
+      return selectedList.some((kw) => containsKeyword(expText + ' ' + skillsText + ' ' + summaryText, kw));
     };
+    const summaryChanged = (parsed: any) =>
+      String(parsed.professionalSummary || '').trim() !== String(masterCv.summary || '').trim();
     const bulletsActuallyChanged = (parsed: any) => {
       const out = (parsed.workExperience || []).flatMap((w) => w.highlights || []);
       if (out.length === 0) return false;
@@ -144,10 +148,10 @@ ${attempt > 0 ? `- No genuinely-missing keyword (${selectedList.join(', ')}) app
 - Return the corrected JSON between the markers.` : ''}`;
       parsed = await askJson<any>(prompt, { temperature: 0.2 });
       if (selectedList.length === 0) break; // nothing to integrate
-      if (outputHasGain(parsed) && bulletsActuallyChanged(parsed)) break;
+      if (outputHasGain(parsed) && (bulletsActuallyChanged(parsed) || summaryChanged(parsed))) break;
       retried = attempt === 0;
     }
-    if (selectedList.length > 0 && (!outputHasGain(parsed) || !bulletsActuallyChanged(parsed))) {
+    if (selectedList.length > 0 && (!outputHasGain(parsed) || (!bulletsActuallyChanged(parsed) && !summaryChanged(parsed)))) {
       throw new TailorVerificationFailedError(
         'The tailoring pass did not change your resume — the AI returned the same bullet points without adding the missing keywords. Please try again.'
       );
@@ -165,16 +169,19 @@ ${attempt > 0 ? `- No genuinely-missing keyword (${selectedList.join(', ')}) app
 
     // Score moves ONLY from keywords that are genuinely missing from the
     // master CV AND genuinely present in the tailored output.
+    const summaryText = String(parsed.professionalSummary || '');
     const verifiedInExperience = selectedList.filter((kw: string) => containsKeyword(expText, kw));
+    const verifiedInSummary = selectedList.filter((kw: string) => containsKeyword(summaryText, kw));
     const verifiedInSkills = selectedList.filter((kw: string) => containsKeyword(skillsText, kw));
-    const verifiedAll = [...new Set([...verifiedInExperience, ...verifiedInSkills])];
+    const verifiedAll = [...new Set([...verifiedInExperience, ...verifiedInSummary, ...verifiedInSkills])];
 
     const notIntegrable = selectedList.filter((kw: string) => !verifiedAll.includes(kw));
 
     const totalMissing = selectedList.length || 1;
     const expWeight = verifiedInExperience.length;
+    const summaryWeight = verifiedInSummary.length * 0.5;
     const skillsWeight = verifiedInSkills.length * 0.5;
-    const weightedFill = totalMissing > 0 ? (expWeight + skillsWeight) / totalMissing : 0;
+    const weightedFill = totalMissing > 0 ? (expWeight + summaryWeight + skillsWeight) / totalMissing : 0;
     const weightedFillCapped = Math.min(weightedFill, 0.95);
     const afterScore = totalMissing === 0
       ? beforeScore
@@ -189,7 +196,7 @@ ${attempt > 0 ? `- No genuinely-missing keyword (${selectedList.join(', ')}) app
       `Maintained candidate's title as "${candidateTitle}" (not changed to "${job.title}").`,
       selectedList.length === 0
         ? 'Nothing was missing: every job-description keyword was already in the master CV, so the resume was returned unchanged (no score boost).'
-        : `Integrated ${verifiedAll.length} genuinely-missing keywords (${verifiedInExperience.length} in experience bullets, ${verifiedInSkills.length} in skills).`,
+        : `Integrated ${verifiedAll.length} genuinely-missing keywords (${verifiedInExperience.length} in experience bullets, ${verifiedInSummary.length} in the summary, ${verifiedInSkills.length} in skills).`,
       `Rewrote ${rephrasedCount} bullet points to naturally incorporate target keywords.`,
       ...(parsed.auditNotes || []).slice(0, 3),
     ];
@@ -232,6 +239,7 @@ ${attempt > 0 ? `- No genuinely-missing keyword (${selectedList.join(', ')}) app
         addedAfter: {
           keywordsIncorporated: verifiedAll,
           keywordsInExperience: verifiedInExperience,
+          keywordsInSummary: verifiedInSummary,
           keywordsInSkills: verifiedInSkills,
           rephrasedHighlightsCount: rephrasedCount,
           // Honest: only the genuinely-missing keywords that actually appear

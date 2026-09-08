@@ -123,6 +123,7 @@ export interface TailoringAudit {
     keywordsIncorporated: string[];
     keywordsInExperience: string[];
     keywordsInSkills: string[];
+    keywordsInSummary?: string[];
     rephrasedHighlightsCount: number;
     skillsAdded: string[];
   };

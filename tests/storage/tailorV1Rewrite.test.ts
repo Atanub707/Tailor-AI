@@ -125,6 +125,29 @@ describe('V1 engine — tailoring must actually tailor', () => {
     expect(added).toEqual(expect.arrayContaining(['Python', 'Prometheus']));
   });
 
+  it('keyword woven into the SUMMARY is credited and moves the score', async () => {
+    stubLlm({
+      ...verbatimDraft(),
+      professionalSummary: 'DevOps engineer with 7+ years experience building C++ tooling for CI/CD automation.',
+      workExperience: [{ title: 'Senior DevSecOps Engineer', company: 'Human Managed', location: 'Bengaluru', dates: 'Jan 2021 – Present', highlights: ['Reduced deployment time by 70% with Prometheus alerting', 'Managed GKE and EKS production clusters'] }],
+      inExperience: ['Prometheus'],
+      inSummary: ['C++'],
+      inSkills: [],
+      technicalSkills: [{ category: 'Languages', skills: [] }],
+    });
+    const r = await runWithUser(USER, () => tailorJobWithV2(getJobById('v1-rw1')!, { userId: USER }));
+    const audit = r.tailoredCv.audit!;
+    expect(audit.afterScore).toBeGreaterThan(audit.beforeScore);
+    expect(audit.addedAfter.keywordsInSummary).toContain('C++');
+    expect(audit.addedAfter.keywordsInExperience).toContain('Prometheus');
+    expect(audit.notIntegrable).toEqual(expect.arrayContaining(['Python']));
+    // summary was actually rewritten and carries the keyword
+    expect(r.tailoredCv.professionalSummary).toContain('C++');
+    expect(r.tailoredCv.professionalSummary).not.toBe('DevOps engineer with 7+ years experience.');
+    const summaryHit = audit.keywordStatus?.find((k: any) => k.term === 'C++');
+    expect(summaryHit?.kind).toBe('added_experience');
+  });
+
   it('keyword already present in the master CV is NOT counted as missing or newly integrated', async () => {
     const master = runWithUser(USER, () => getMasterCv()) as MasterCv;
     expect(JSON.stringify(master).toLowerCase()).toContain('kubernetes');
