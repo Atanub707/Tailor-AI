@@ -435,6 +435,16 @@ async function startServer() {
     }
   }
 
+  // Live model catalog — in-process background refresher: refreshes on boot
+  // and every MODEL_CATALOG_REFRESH_HOURS (default 12h), so users receive new
+  // provider models without clicking Refresh. Skips when no API key is set;
+  // a failed refresh keeps the last good catalog. Never blocks startup.
+  {
+    const { createModelCatalogScheduler, refreshIntervalMs } = await import('./server/llm/modelCatalogScheduler.js');
+    createModelCatalogScheduler().start();
+    console.log(`[ModelCatalog] background refresh enabled (every ${Math.round(refreshIntervalMs() / 3600e3)}h)`);
+  }
+
   const seedUser = (getDb().prepare('SELECT id FROM users ORDER BY is_guest ASC, created_at ASC LIMIT 1').get() as any)?.id as string | undefined;
   if (seedUser) {
     runWithUser(seedUser, () => {
@@ -559,7 +569,10 @@ async function startServer() {
       const userId = getCurrentUserId();
       if (!userId) return res.status(401).json({ error: 'Not signed in.' });
       const { fetchModelCatalog } = await import('./server/llm/modelCatalog.js');
-      res.json(await fetchModelCatalog());
+      // ?force=1 bypasses the TTL cache — the manual Refresh button and the
+      // background scheduler use it so a refresh is never a silent no-op.
+      const force = String(req.query.force ?? '') === '1';
+      res.json(await fetchModelCatalog(undefined, undefined, { force }));
     } catch (err: any) {
       res.status(500).json({ error: String(err?.message || 'Catalog fetch failed.').slice(0, 200) });
     }

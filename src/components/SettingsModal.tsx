@@ -31,6 +31,17 @@ interface SettingsModalProps {
   onOpenMasterCv?: () => void;
 }
 
+/** Human "updated X ago" for the model catalog — honest freshness, no jargon. */
+function formatCatalogAge(ageMs: number | null): string {
+  if (ageMs === null || !Number.isFinite(ageMs)) return 'unknown';
+  const m = Math.floor(ageMs / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
 const OPENCODE_REFERRAL_URL = 'https://opencode.ai/go?ref=TTETM6S7H5';
 
 const PROVIDER_LABELS: Record<LlmProvider, string> = {
@@ -195,22 +206,41 @@ const APIFY_REFERRAL_URL = 'https://console.apify.com/sign-up?fpr=xu9hcp';
   // ── Live model catalog — fetched from the provider (opencode-go,
   // openrouter, openai, nvidia expose GET /models); the dropdown never
   // needs a code edit when the provider adds models. ───────────────
-  const [catalog, setCatalog] = React.useState<{ models: { id: string; created: number; owned_by?: string }[]; fetchedAt: string | null; stale: boolean; reason?: string } | null>(null);
+  const [catalog, setCatalog] = React.useState<{ models: { id: string; created: number; owned_by?: string }[]; fetchedAt: string | null; ageMs?: number | null; stale: boolean; reason?: string } | null>(null);
   const [catalogLoading, setCatalogLoading] = React.useState(false);
-  const refreshCatalog = React.useCallback(async () => {
-    setCatalogLoading(true);
+  // Refresh in the background when the shown catalog is older than this —
+  // opening Settings is enough; users never need to click anything.
+  const CATALOG_SWR_MS = 60 * 60 * 1000; // 1h
+  const fetchCatalog = React.useCallback(async (force: boolean) => {
+    if (force) setCatalogLoading(true);
     try {
-      const r = await fetch('/api/models');
+      const r = await fetch('/api/models' + (force ? '?force=1' : ''));
       if (r.ok) {
         const d = await r.json();
-        setCatalog(d && Array.isArray(d.models) ? d : null);
+        const next = d && Array.isArray(d.models) ? d : null;
+        if (next) setCatalog(next);
+        return next;
       }
     } catch { /* keep last catalog */ }
-    finally { setCatalogLoading(false); }
+    finally { if (force) setCatalogLoading(false); }
+    return null;
   }, []);
-  React.useEffect(() => { void refreshCatalog(); }, [refreshCatalog]);
+  // Stale-while-revalidate: show the cached catalog instantly, then quietly
+  // force a provider refresh when it is missing, stale, or older than an hour.
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const shown = await fetchCatalog(false);
+      if (cancelled) return;
+      const age = shown && typeof shown.ageMs === 'number' ? shown.ageMs : null;
+      if (!shown || shown.stale || age === null || age > CATALOG_SWR_MS) void fetchCatalog(true);
+    })();
+    return () => { cancelled = true; };
+  }, [fetchCatalog]);
 
-  const catalogLive = catalog && !catalog.stale ? catalog.models : [];
+  // Last-good models stay selectable even when a refresh failed (stale) —
+  // a failed provider call must never blank the user's model list.
+  const catalogLive = catalog && Array.isArray(catalog.models) && catalog.models.length ? catalog.models : [];
   const mergedModels = React.useCallback((p: LlmProvider): string[] => {
     const live = catalogLive.length ? catalogLive.map((m) => m.id) : [];
     const base = live.length
@@ -431,8 +461,11 @@ const APIFY_REFERRAL_URL = 'https://console.apify.com/sign-up?fpr=xu9hcp';
                           <label htmlFor="st-llmmodel"><b>Model name</b><span>Live catalog from your provider — updates automatically when new models arrive.</span></label>
                           <span className="st-hint" data-qa="model-catalog-status">
                             {catalogLoading ? 'Loading catalog…'
-                              : catalogLive.length ? `Loaded ${catalogLive.length} models · ${catalog.stale ? '' : 'live'}`
-                              : 'Live catalog unavailable — showing saved list'}
+                              : catalogLive.length
+                                ? `Loaded ${catalogLive.length} models${catalog?.fetchedAt ? ` · updated ${formatCatalogAge(catalog.ageMs ?? null)}` : ''}${catalog?.stale ? ' · offline, last known list' : ''}`
+                                : catalog?.reason === 'NO_API_KEY'
+                                  ? 'Add your API key to load the live catalog — showing the built-in list'
+                                  : 'Live catalog unavailable — showing saved list'}
                           </span>
                         </div>
                         <select className={inputCls} id="st-llmmodel" value={models.includes(formData.llm.model) ? formData.llm.model : 'Custom (type below)'}
@@ -445,7 +478,7 @@ const APIFY_REFERRAL_URL = 'https://console.apify.com/sign-up?fpr=xu9hcp';
                             return <option key={m} value={m}>{m}{tier?.free ? ' — Free' : ''}{tier?.isNew ? ' · New' : ''}</option>;
                           })}
                         </select>
-                        <button type="button" className="st-refresh-btn" onClick={() => void refreshCatalog()} disabled={catalogLoading} aria-label="Refresh model list" title="Refresh the live model list">
+                        <button type="button" className="st-refresh-btn" onClick={() => void fetchCatalog(true)} disabled={catalogLoading} aria-label="Refresh model list" title="Refresh the live model list (fetches from your provider now)">
                           {catalogLoading ? 'Loading…' : 'Refresh'}
                         </button>
                       </div>
