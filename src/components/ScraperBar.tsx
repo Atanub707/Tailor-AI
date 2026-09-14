@@ -39,7 +39,12 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
   const [keywords, setKeywords] = useState('');
   const [location, setLocation] = useState('');
   const [locationOptions, setLocationOptions] = useState<string[]>([]);
-  const [datePostedFilter, setDatePostedFilter] = useState<'all' | '24h' | '7d' | '30d'>('24h');
+  // Default 7d, not 24h: the ATS index holds a large corpus, and a 24h window
+  // left only a handful of remote jobs (observed: 10-27 across all
+  // platforms), so repeat searches returned "no new jobs" while thousands of
+  // matching jobs existed. 7d keeps the fresh-first bias with a real list;
+  // the user can still narrow to 24h explicitly.
+  const [datePostedFilter, setDatePostedFilter] = useState<'all' | '24h' | '7d' | '30d'>('7d');
   const [jobType, setJobType] = useState<'all' | 'remote' | 'onsite' | 'hybrid'>(DEFAULT_JOB_TYPE);
   const [jobTypeInfoOpen, setJobTypeInfoOpen] = useState(false);
   const [experienceLevel, setExperienceLevel] = useState('');
@@ -95,7 +100,10 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
     });
 
     if (result && result.exhausted && result.scrapedTotal === 0) {
-      setScrapeSuccessMsg("No new matching jobs found. You've already added all currently matching jobs.");
+      const windowLabel = ({ '24h': 'last 24 hours', '7d': 'last 7 days', '30d': 'last 30 days' } as Record<string, string>)[datePostedFilter];
+      setScrapeSuccessMsg(windowLabel
+        ? `No new matching jobs in the ${windowLabel}. Jobs may exist outside this window — widen the date range (30 days or Anytime) to see them.`
+        : "No new matching jobs found. You've already added all currently matching jobs.");
     } else if (result && result.scrapedTotal > 0) {
       const filterNote = result.filteredOutCount && result.filteredOutCount > 0
         ? ` (${result.filteredOutCount} filtered out — over 10 applicants)`
