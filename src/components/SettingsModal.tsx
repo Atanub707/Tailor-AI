@@ -206,8 +206,16 @@ const APIFY_REFERRAL_URL = 'https://console.apify.com/sign-up?fpr=xu9hcp';
   // ── Live model catalog — fetched from the provider (opencode-go,
   // openrouter, openai, nvidia expose GET /models); the dropdown never
   // needs a code edit when the provider adds models. ───────────────
-  const [catalog, setCatalog] = React.useState<{ models: { id: string; created: number; owned_by?: string }[]; fetchedAt: string | null; ageMs?: number | null; stale: boolean; reason?: string } | null>(null);
+  const [catalog, setCatalog] = React.useState<{ models: { id: string; created: number; owned_by?: string }[]; fetchedAt: string | null; ageMs?: number | null; stale: boolean; reason?: string; newModelIds?: string[] } | null>(null);
   const [catalogLoading, setCatalogLoading] = React.useState(false);
+  // Honest "new since you last looked" list (server-side per-user diff;
+  // first run baselines silently). Cleared when the user views the options.
+  const newModelIds = React.useMemo(() => new Set(catalog?.newModelIds || []), [catalog]);
+  const ackCatalogSeen = React.useCallback(() => {
+    if (!newModelIds.size) return;
+    setCatalog((prev) => (prev ? { ...prev, newModelIds: [] } : prev));
+    void fetch('/api/models/seen', { method: 'POST' }).catch(() => { /* best-effort ack */ });
+  }, [newModelIds]);
   // Refresh in the background when the shown catalog is older than this —
   // opening Settings is enough; users never need to click anything.
   const CATALOG_SWR_MS = 60 * 60 * 1000; // 1h
@@ -254,14 +262,16 @@ const APIFY_REFERRAL_URL = 'https://console.apify.com/sign-up?fpr=xu9hcp';
   const modelTiers = React.useMemo(() => {
     const map = new Map<string, { free: boolean; isNew: boolean }>();
     for (const m of catalogLive) {
-      const createdMs = m.created > 10_000_000_000 ? m.created : m.created * 1000;
       map.set(m.id, {
         free: /(?:^|-)(?:free|contributor)(?:-|$)|big-pickle/i.test(m.id),
-        isNew: createdMs > 0 && createdMs > Date.now() - 45 * 24 * 3600 * 1000,
+        // "New" = appeared since this user last viewed the catalog — the
+        // provider's created timestamps mark nearly everything recent and
+        // made the badge noise (all 37 models qualified).
+        isNew: newModelIds.has(m.id),
       });
     }
     return map;
-  }, [catalogLive]);
+  }, [catalogLive, newModelIds]);
   const showCustomModel = !models.includes(formData.llm.model);
 
   const [emailTestState, setEmailTestState] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
@@ -462,13 +472,13 @@ const APIFY_REFERRAL_URL = 'https://console.apify.com/sign-up?fpr=xu9hcp';
                           <span className="st-hint" data-qa="model-catalog-status">
                             {catalogLoading ? 'Loading catalog…'
                               : catalogLive.length
-                                ? `Loaded ${catalogLive.length} models${catalog?.fetchedAt ? ` · updated ${formatCatalogAge(catalog.ageMs ?? null)}` : ''}${catalog?.stale ? ' · offline, last known list' : ''}`
+                                ? `Loaded ${catalogLive.length} models${catalog?.fetchedAt ? ` · updated ${formatCatalogAge(catalog.ageMs ?? null)}` : ''}${catalog?.stale ? ' · offline, last known list' : ''}${newModelIds.size ? ` · ${newModelIds.size} new` : ''}`
                                 : catalog?.reason === 'NO_API_KEY'
                                   ? 'Add your API key to load the live catalog — showing the built-in list'
                                   : 'Live catalog unavailable — showing saved list'}
                           </span>
                         </div>
-                        <select className={inputCls} id="st-llmmodel" value={models.includes(formData.llm.model) ? formData.llm.model : 'Custom (type below)'}
+                        <select className={inputCls} id="st-llmmodel" onFocus={ackCatalogSeen} onClick={ackCatalogSeen} value={models.includes(formData.llm.model) ? formData.llm.model : 'Custom (type below)'}
                           onChange={(e) => {
                             const val = e.target.value;
                             if (val !== 'Custom (type below)') setFormDataTouched({ ...formData, llm: { ...formData.llm, model: val } });

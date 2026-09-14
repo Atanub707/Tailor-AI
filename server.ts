@@ -572,9 +572,29 @@ async function startServer() {
       // ?force=1 bypasses the TTL cache — the manual Refresh button and the
       // background scheduler use it so a refresh is never a silent no-op.
       const force = String(req.query.force ?? '') === '1';
-      res.json(await fetchModelCatalog(undefined, undefined, { force }));
+      const catalog = await fetchModelCatalog(undefined, undefined, { force });
+      // Honest per-user "new since you last looked" diff (first run baselines
+      // silently — see modelCatalogSeen).
+      const { currentUserUnseenModelIds } = await import('./server/storage/modelCatalogSeen.js');
+      const newModelIds = currentUserUnseenModelIds(catalog.models.map((m) => m.id));
+      res.json({ ...catalog, newModelIds });
     } catch (err: any) {
       res.status(500).json({ error: String(err?.message || 'Catalog fetch failed.').slice(0, 200) });
+    }
+  });
+
+  // Acknowledge the model catalog — the badge clears on the next fetch.
+  app.post('/api/models/seen', async (req, res) => {
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
+      const { fetchModelCatalog } = await import('./server/llm/modelCatalog.js');
+      const { markCurrentUserModelsSeen } = await import('./server/storage/modelCatalogSeen.js');
+      const catalog = await fetchModelCatalog(); // cached read — no forced network
+      const added = markCurrentUserModelsSeen(catalog.models.map((m) => m.id));
+      res.json({ success: true, marked: added });
+    } catch (err: any) {
+      res.status(500).json({ error: String(err?.message || 'Seen update failed.').slice(0, 200) });
     }
   });
 
