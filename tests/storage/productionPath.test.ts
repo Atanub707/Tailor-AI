@@ -150,14 +150,18 @@ describe('Greenhouse production path', () => {
     expect(DEFAULT_JOB_TYPE).toBe('all');
   });
 
-  it('12. explicit Remote selection still filters (work-mode enforcement intact)', async () => {
+  it('12. explicit Remote selection returns ONLY remote/hybrid jobs (no unlabeled leak)', async () => {
     const r = await runV2Search(USER, { keywords: 'DevOps Engineer', location: 'India', postedWindow: '7d', jobType: 'remote', workMode: 'remote', level: 'any', limit: 10, source: 'Greenhouse' }, [greenhouseIndexProvider]);
-    // Remote-labeled job passes; explicitly On-site-labeled job is excluded;
-    // UNLABELED jobs pass (the orchestrator cannot prove they contradict —
-    // existing designed semantics).
+    // Fixed semantics (reported bug): an explicit Remote selection shows only
+    // jobs with a POSITIVE remote signal. A job whose text never mentions a
+    // work mode must not leak into a mode-filtered search — that leak was
+    // "Remote search returns all types of jobs".
     const titles = r.jobs.map((j: any) => j.title);
-    expect(titles).toContain('DevOps Engineer'); // the (Remote)-labeled one
-    expect(titles).not.toContain('Site Reliability Engineer'); // "On-site only"
-    expect(r.jobs.some((j: any) => j.fingerprint === 'gh-2')).toBe(true); // unlabeled passes
+    const fps = r.jobs.map((j: any) => j.fingerprint);
+    expect(fps).toContain('gh-1'); // description says "(Remote)"
+    expect(fps).not.toContain('gh-2'); // unlabeled — no longer leaks
+    expect(fps).not.toContain('gh-3'); // "On-site only"
+    expect(titles).toContain('DevOps Engineer');
+    expect(titles).not.toContain('Site Reliability Engineer');
   });
 });

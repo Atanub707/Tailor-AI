@@ -192,6 +192,34 @@ describe('local ATS index search', () => {
     expect(r2.returnedCount).toBe(5);
   });
 
+  it('explicit Remote search returns ONLY remote/hybrid jobs — no unlabeled leak', async () => {
+    // The reported bug: a Remote search returned on-site jobs because the
+    // "unlabeled passes" rule let every job whose text never says "on-site"
+    // through. An explicit Remote selection must show only jobs with a
+    // positive remote signal (work_mode column, provider remote flag, or a
+    // remote/hybrid marker in location/description). Hybrid counts as
+    // remote-compatible (same semantics as workMode.contradictsWanted).
+    upsertAtsJobs([
+      { fingerprint: 'gh-r1', ats_platform: 'greenhouse', external_id: 'r1', company: 'Acme', company_slug: 'acme', title: 'DevOps Engineer', location: 'Remote - India', employment_type: 'Full-time', work_mode: 'Remote', posted_date: iso(5), posted_date_semantics: 'published', apply_url: 'https://x/r1', job_url: 'https://x/r1', description: 'Role: DevOps Engineer', first_seen_at: iso(48), last_seen_at: iso(48), last_fetched_at: iso(48), is_active: 1 },
+      { fingerprint: 'gh-h1', ats_platform: 'greenhouse', external_id: 'h1', company: 'Acme', company_slug: 'acme', title: 'DevOps Engineer', location: 'Hybrid - India', employment_type: 'Full-time', work_mode: 'Hybrid', posted_date: iso(5), posted_date_semantics: 'published', apply_url: 'https://x/h1', job_url: 'https://x/h1', description: 'Role: DevOps Engineer hybrid model', first_seen_at: iso(48), last_seen_at: iso(48), last_fetched_at: iso(48), is_active: 1 },
+      { fingerprint: 'gh-u1', ats_platform: 'greenhouse', external_id: 'u1', company: 'Acme', company_slug: 'acme', title: 'DevOps Engineer', location: 'Bengaluru, India', employment_type: 'Full-time', work_mode: undefined, posted_date: iso(5), posted_date_semantics: 'published', apply_url: 'https://x/u1', job_url: 'https://x/u1', description: 'Role: DevOps Engineer (no work-mode stated)', first_seen_at: iso(48), last_seen_at: iso(48), last_fetched_at: iso(48), is_active: 1 },
+      { fingerprint: 'gh-o1', ats_platform: 'greenhouse', external_id: 'o1', company: 'Acme', company_slug: 'acme', title: 'DevOps Engineer', location: 'Bengaluru, India', employment_type: 'Full-time', work_mode: 'On-site', posted_date: iso(5), posted_date_semantics: 'published', apply_url: 'https://x/o1', job_url: 'https://x/o1', description: 'Role: DevOps Engineer on-site in Bengaluru', first_seen_at: iso(48), last_seen_at: iso(48), last_fetched_at: iso(48), is_active: 1 },
+      // Stale index row: work_mode column says On-site but the description
+      // says Remote — the text signal must still let it pass.
+      { fingerprint: 'gh-r2', ats_platform: 'greenhouse', external_id: 'r2', company: 'Acme', company_slug: 'acme', title: 'DevOps Engineer', location: 'Bengaluru, India', employment_type: 'Full-time', work_mode: 'On-site', posted_date: iso(5), posted_date_semantics: 'published', apply_url: 'https://x/r2', job_url: 'https://x/r2', description: 'Role: DevOps Engineer (Remote)', first_seen_at: iso(48), last_seen_at: iso(48), last_fetched_at: iso(48), is_active: 1 },
+    ]);
+    const r = await search({ workMode: 'remote' });
+    const fps2 = fps(r);
+    expect(fps2).toContain('gh-r1'); // remote (work_mode column)
+    expect(fps2).toContain('gh-r2'); // remote (description marker, stale column)
+    expect(fps2).toContain('gh-h1'); // hybrid is remote-compatible
+    expect(fps2).not.toContain('gh-u1'); // unlabeled must NOT leak
+    expect(fps2).not.toContain('gh-o1'); // explicit on-site excluded
+    // Every returned job must carry a remote signal: the seeded Remote-location
+    // fixtures (gh-2/gh-27/gh-28 say "Remote - India") also legitimately pass.
+    expect(r.jobs.every((j: any) => ['gh-r1', 'gh-r2', 'gh-h1', 'gh-2', 'gh-27', 'gh-28'].includes(j.fingerprint))).toBe(true);
+  });
+
   it('EMPTY index state: stats honest, search returns 0 with indexReady=false semantics', async () => {
     clearAtsIndex('greenhouse');
     const st = boardRefreshStats('greenhouse');

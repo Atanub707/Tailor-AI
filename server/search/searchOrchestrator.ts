@@ -11,6 +11,7 @@
 import { getDb, runWithUser, getCurrentUserId, getUserJobFingerprints } from '../storage/fileStorage.js';
 import { canonicalQueryFp, getOrCreateSearch, linkJobsToSearch } from '../storage/v2Tables.js';
 import { evaluateRelevance, type MatchTier } from './relevance.js';
+import { classifyFromText } from '../scraper/workMode.js';
 import { rankRelevant } from './rank.js';
 import { matchesLocation } from './location.js';
 import { getProviderBudget } from '../providers/providerBudget.js';
@@ -160,10 +161,21 @@ function acceptResults(jobs: NormalizedJob[], params: JobSearchParams, queryFp: 
     // described as Remote would otherwise be wrongly rejected). The user's
     // location choice 'Remote' is handled by the matcher's own want-tokens.
     if (!matchesLocation(j.location, params.location)) return false;
-    // Work-mode.
+    // Work-mode — STRICT for explicit selections: an explicit "Remote" search
+    // shows only jobs with a positive remote signal (remote or hybrid, which
+    // is remote-compatible), never jobs whose text simply never said
+    // "on-site". Unlabeled jobs must not leak into a mode-filtered search.
     if (params.workMode && params.workMode !== 'all') {
       const wm = detectWorkMode(j);
-      if (wm && params.workMode !== wm) return false;
+      if (params.workMode === 'remote') {
+        if (wm !== 'remote' && wm !== 'hybrid') return false;
+      } else if (params.workMode === 'hybrid') {
+        if (wm !== 'hybrid') return false;
+      } else if (params.workMode === 'onsite') {
+        if (wm !== 'onsite') return false;
+      } else if (wm && wm !== params.workMode) {
+        return false; // unknown mode value — keep the lenient guard
+      }
     }
     // Relevance — DROP score=0 unconditionally (never a conditional guard).
     const rel = jobRelevance(j, params.keywords);
@@ -181,10 +193,15 @@ function withinWindow(j: NormalizedJob, window?: string): boolean {
 }
 
 function detectWorkMode(j: NormalizedJob): 'remote' | 'hybrid' | 'onsite' | undefined {
-  const s = `${j.location || ''} ${j.description || ''}`.toLowerCase();
-  if (/\bhybrid\b/.test(s)) return 'hybrid';
-  if (/\bremote\b|work from home|wfh\b|anywhere/.test(s)) return 'remote';
-  if (/\bon-?site\b|in-?office\b/.test(s)) return 'onsite';
+  // Explicit provider/index signal wins — Ashby isRemote, Lever workplaceType,
+  // Greenhouse location marker, or the ats_jobs.work_mode column. Only when
+  // no explicit signal exists do we classify from location + description,
+  // through the ONE shared work-mode module (no regex copies).
+  if (j.remote === true) return 'remote';
+  const t = classifyFromText(`${j.location || ''} ${(j.description || '').slice(0, 2000)}`);
+  if (t === 'Remote') return 'remote';
+  if (t === 'Hybrid') return 'hybrid';
+  if (t === 'On-site') return 'onsite';
   return undefined;
 }
 

@@ -69,7 +69,13 @@ export function failureBackoffMs(cfg: AtsIndexConfig, failures: number): number 
 }
 
 function toAtsRow(j: Job, platform: string, slug: string): AtsJobRow {
-  const workMode = classifyFromText(`${j.location || ''} ${j.description || ''}`.slice(0, 2000));
+  // Explicit provider signal (Ashby isRemote, Lever workplaceType, Greenhouse
+  // remote-location marker) is authoritative; text classification is the
+  // fallback. Storing the strongest available signal is what lets an explicit
+  // Remote search return only genuinely-remote jobs.
+  const workMode = j.remote === true
+    ? 'Remote'
+    : classifyFromText(`${j.location || ''} ${j.description || ''}`.slice(0, 2000));
   return {
     fingerprint: j.fingerprint || `${platform}-${j.externalId || j.id}`,
     ats_platform: platform,
