@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { HamburgerTrigger } from '../navigation';
-import { X, Search, CheckCircle2, Copy, Trash2, Mail, ExternalLink, Linkedin, Camera, Phone, AlertTriangle, Loader2, Sparkles, Send, FileText, Upload, PencilLine, Clock, BadgeCheck, Plus, Users, Building2, MessageCircle } from 'lucide-react';
+import { X, Search, CheckCircle2, Copy, Trash2, Mail, ExternalLink, Linkedin, Loader2, Sparkles, Send, FileText, Upload, PencilLine, Clock, BadgeCheck, Plus, AlertTriangle, MessageCircle, UserPlus } from 'lucide-react';
 import { filterByType, sortContacts, typeCounts, TYPE_LABELS } from '../lib/recruiters/filterUtils';
 import { followupDue, followupDaysLeft } from '../lib/recruiters/followupUtils';
 
@@ -51,6 +51,23 @@ const waLink = (phone: string): string => {
   return `https://wa.me/${digits}`;
 };
 
+const fmtDay = (iso?: string | null): string => {
+  if (!iso) return '';
+  try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); } catch { return ''; }
+};
+
+const fmtFull = (iso?: string | null): string => {
+  if (!iso) return '';
+  try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); } catch { return ''; }
+};
+
+const isPersonish = (n: string): boolean => /^\p{Lu}[\p{L}'’-]*\s+\p{Lu}/u.test(n);
+
+// Scraped context is sometimes raw HTML fragments or bare URLs — strip both
+// before showing it as a quote, and hide the row when nothing meaningful remains.
+const cleanContext = (s: string): string =>
+  s.replace(/<[^>]*>/g, ' ').replace(/https?:\/\/\S+/g, ' ').replace(/\s+/g, ' ').trim();
+
 export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onClose, focusRecruiter }) => {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [companies, setCompanies] = useState<string[]>([]);
@@ -64,6 +81,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [composeContact, setComposeContact] = useState<Contact | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
@@ -80,9 +98,9 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [emailHistory, setEmailHistory] = useState<Record<string, SentEmail[]>>({});
-  const [historyFor, setHistoryFor] = useState<Contact | null>(null);
   const [verifyMap, setVerifyMap] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   // Load the saved Master CV's filename so the attachment chip shows the
   // real CV name (validated on the Master CV screen), not a generic label.
@@ -123,7 +141,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
     loadMasterCvName();
   };
 
-  // Manual email — same slide-in panel, blank fields, no contact needed.
+  // Manual email — same drawer, blank fields, no contact needed.
   const openManualCompose = () => {
     setComposeContact(null);
     setComposeTo('');
@@ -136,16 +154,13 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
     loadMasterCvName();
   };
 
-  const openHistory = async (c: Contact) => {
-    setHistoryFor(c);
-    if (!emailHistory[c.id]) {
-      try {
-        const res = await fetch(`/api/contacts/${c.id}/emails`);
-        const d = await res.json();
-        setEmailHistory((h) => ({ ...h, [c.id]: d.emails || [] }));
-      } catch { /* ignore */ }
-    }
-  };
+  const loadHistory = useCallback(async (c: Contact) => {
+    try {
+      const res = await fetch(`/api/contacts/${c.id}/emails`);
+      const d = await res.json();
+      setEmailHistory((h) => ({ ...h, [c.id]: d.emails || [] }));
+    } catch { /* ignore */ }
+  }, []);
 
   const draftEmail = async () => {
     if (!composeTo.trim()) { setComposeMsg({ ok: false, text: 'Add a recipient email first.' }); return; }
@@ -190,7 +205,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
       const data = await res.json();
       if (!res.ok) { setComposeMsg({ ok: false, text: data.error || 'Send failed.' }); return; }
       setComposeMsg({ ok: true, text: 'Sent ✓' });
-      // Update the card status immediately.
+      // Update the row status immediately.
       if (composeContact) {
         setContacts((prev) => prev.map((x) => x.id === composeContact.id
           ? { ...x, emailStatus: 'sent', lastEmailSent: new Date().toISOString() }
@@ -242,6 +257,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
         (qu && c.recruiterUrl === qu)
     );
     setFocusedId(hit ? hit.id : null);
+    if (hit) setSelectedId(hit.id);
   }, [contacts, focusRecruiter]);
 
   const showToast = (text: string) => {
@@ -258,6 +274,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
 
   const copyEmail = async (c: Contact) => {
     const value = c.email || c.phone || c.recruiterUrl || '';
+    if (!value) return;
     try {
       await navigator.clipboard.writeText(value);
       setCopiedId(c.id);
@@ -292,6 +309,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
   const hideContact = async (id: string) => {
     const prev = contacts;
     setContacts((c) => c.filter((x) => x.id !== id));
+    if (selectedId === id) setSelectedId(null);
     try {
       await fetch(`/api/contacts/${id}/hide`, { method: 'POST' });
       showToast('Contact dismissed');
@@ -336,14 +354,95 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
   const shown = visible.slice(0, shownCount);
   const canLoadMore = shownCount < visible.length;
 
+  const selected = useMemo(() => contacts.find((c) => c.id === selectedId) || null, [contacts, selectedId]);
+
   useEffect(() => setShownCount(24), [typeFilter, company, q, pipelineFilter]);
+
+  // Auto-load email history for the selected record (feeds the Activity feed).
+  useEffect(() => {
+    if (selected && !emailHistory[selected.id]) loadHistory(selected);
+  }, [selected, emailHistory, loadHistory]);
+
+  // ⌘K focuses search, Esc closes the compose drawer.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+      if (e.key === 'Escape') {
+        setComposeOpen((open) => { if (open) setComposeContact(null); return false; });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     if (focusedId) {
-      const el = document.getElementById(`rc-card-${focusedId}`);
+      const el = document.getElementById(`rc-row-${focusedId}`);
       el?.scrollIntoView({ block: 'center' });
     }
   }, [focusedId, visible.length]);
+
+  const displayName = (c: Contact): string => c.name || c.recruiterName || TYPE_LABELS[c.type] || c.typeLabel || 'Contact';
+
+  const initialsOf = (c: Contact): string => {
+    const n = displayName(c);
+    if (isPersonish(n)) return n.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+    if (c.company.includes(' ')) return c.company.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+    return c.company.replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase();
+  };
+
+  const outreachBadge = (c: Contact) => {
+    if (c.emailStatus === 'failed') {
+      return (
+        <span className="rc-status rc-st-bounce">
+          <span className="rc-dot" />Failed{c.lastEmailSent ? <span className="rc-when">· {fmtDay(c.lastEmailSent)}</span> : null}
+        </span>
+      );
+    }
+    if (c.emailStatus === 'sent' && c.lastEmailSent) {
+      return (
+        <span className="rc-status rc-st-sent">
+          <span className="rc-dot" />Sent <span className="rc-when">· {fmtDay(c.lastEmailSent)}</span>
+        </span>
+      );
+    }
+    return (
+      <span className="rc-status rc-st-none">
+        <span className="rc-dot" />Not contacted
+      </span>
+    );
+  };
+
+  const verifyPill = (v: string) => {
+    if (v === 'valid') return <span className="rc-vpill ok">Valid</span>;
+    if (v === 'invalid-format') return <span className="rc-vpill bad">Invalid</span>;
+    if (v === 'no-mx') return <span className="rc-vpill warn">No MX</span>;
+    return <span className="rc-vpill warn">Unknown</span>;
+  };
+
+  const activityFor = (c: Contact) => {
+    const items: Array<{ kind: 'mail' | 'fail' | 'found'; title: string; sub: string; date: string }> = [];
+    const hist = emailHistory[c.id] || [];
+    hist.forEach((e) => items.push({
+      kind: e.status === 'sent' ? 'mail' : 'fail',
+      title: `You emailed ${e.recipient}`,
+      sub: e.subject,
+      date: fmtDay(e.sentAt),
+    }));
+    if (c.emailStatus === 'failed' && hist.length === 0) {
+      items.push({ kind: 'fail', title: 'Delivery failed', sub: c.email ? `Mailbox rejected ${c.email}` : 'The address bounced', date: fmtDay(c.lastEmailSent) });
+    }
+    items.push({
+      kind: 'found',
+      title: 'Contact found',
+      sub: c.jobCount > 1 ? `Seen in ${c.jobCount} job descriptions` : 'Extracted from the job description',
+      date: fmtFull(c.firstSeen),
+    });
+    return items;
+  };
 
   if (!isOpen) return null;
 
@@ -354,380 +453,383 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
         <HamburgerTrigger />
         <div className="rc-ttl">
           <b>Recruiters</b>
-          <span>Identity cards — emails, phones & LinkedIn from job descriptions.</span>
+          <span>Contact records pulled from the job descriptions you scrape</span>
         </div>
         <div className="rc-spacer" />
-        <button className="rc-btn2 manual" onClick={openManualCompose} title="Compose a fresh email to any address — no contact needed">
-          <Mail size={13} /> Create Email
+        {stats && (
+          <div className="rc-summary">
+            <span><b>{stats.total}</b> contacts</span>
+            <span><b>{stats.withEmail}</b> with email</span>
+            <span><b>{stats.withPhone}</b> with phone</span>
+            <span><b>{stats.sent}</b> contacted</span>
+          </div>
+        )}
+        <button className="rc-btn" onClick={openManualCompose} title="Compose a fresh email to any address — no contact needed">
+          <Mail size={13} /> New email
         </button>
       </header>
 
-      {/* Content */}
-      <div className="rc-wrap">
-        {stats && (
-          <div className="rc-stats">
-            <span className="rc-stat brand"><Users size={13} /><b>{stats.total}</b> contacts</span>
-            <span className="rc-stat brand"><Mail size={13} /><b>{stats.withEmail}</b> with email</span>
-            <span className="rc-stat violet"><Phone size={13} /><b>{stats.withPhone}</b> with phone</span>
-            <span className="rc-stat cta"><Send size={13} /><b>{stats.sent}</b> sent</span>
-            <span className="rc-stat amber"><Building2 size={13} /><b>{stats.companies}</b> companies</span>
-          </div>
-        )}
-        <div className="rc-toolbar">
-          <div className="rc-search">
-            <Search size={14} />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, email, or company…" />
-          </div>
-          <select className="rc-select" value={company} onChange={(e) => setCompany(e.target.value)}>
-            <option value="">All companies</option>
-            {companies.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <select className="rc-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-            <option value="last_seen">Sort: newest</option>
-            <option value="name">Sort: name</option>
-            <option value="company">Sort: company</option>
-            <option value="job_count">Sort: most jobs</option>
-            <option value="last_email_sent">Sort: recently emailed</option>
-          </select>
-        </div>
-        <div className="rc-toolbar2">
-          <div className="rc-typeseg">
-            {['all', 'recruit', 'hr', 'careers', 'company'].map((t) => (
-              <button key={t} className={`rc-tseg ${typeFilter === t ? 'on' : ''}`} onClick={() => setTypeFilter(t)}>
-                {t === 'all' ? 'All' : TYPE_LABELS[t]}
-                <span className="rc-tseg-n">{t === 'all' ? contacts.length : typeCountsMap[t] || 0}</span>
-              </button>
-            ))}
-          </div>
-          <select className="rc-select rc-pipefilter" value={pipelineFilter} onChange={(e) => setPipelineFilter(e.target.value)}>
-            <option value="">Pipeline: Any</option>
-            {PIPELINE.filter((p) => p.value).map((p) => (
-              <option key={p.value} value={p.value}>{p.label}</option>
-            ))}
-          </select>
-        </div>
+      <div className="rc-main">
+        <div className="rc-workspace">
+          {/* ═══ Directory list ═══ */}
+          <section className="rc-list">
+            <div className="rc-toolbar">
+              <div className="rc-search">
+                <Search size={14} />
+                <input ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, email, or company" />
+                <kbd>⌘K</kbd>
+              </div>
+              <div className="rc-seg">
+                {['all', 'recruit', 'hr', 'careers', 'company'].map((t) => (
+                  <button key={t} className={`rc-segbtn ${typeFilter === t ? 'on' : ''}`} onClick={() => setTypeFilter(t)}>
+                    {t === 'all' ? 'All' : TYPE_LABELS[t]}
+                    <span>{t === 'all' ? contacts.length : typeCountsMap[t] || 0}</span>
+                  </button>
+                ))}
+              </div>
+              <select className="rc-select" value={company} onChange={(e) => setCompany(e.target.value)}>
+                <option value="">All companies</option>
+                {companies.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select className="rc-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                <option value="last_seen">Sort: newest</option>
+                <option value="name">Sort: name</option>
+                <option value="company">Sort: company</option>
+                <option value="job_count">Sort: most jobs</option>
+                <option value="last_email_sent">Sort: recently emailed</option>
+              </select>
+              <select className="rc-select" value={pipelineFilter} onChange={(e) => setPipelineFilter(e.target.value)}>
+                <option value="">Pipeline: Any</option>
+                {PIPELINE.filter((p) => p.value).map((p) => (
+                  <option key={p.value} value={p.value!}>{p.label}</option>
+                ))}
+              </select>
+            </div>
 
-        <div className="rc-note">
-          <Mail size={13} />
-          Cards fill the screen — no long scrolling. Click any chip to copy.
-        </div>
+            <div className="rc-listhead">
+              <span>Name</span><span>Company</span><span>Email</span><span>Phone</span><span>Outreach</span>
+            </div>
 
-        {loading ? (
-          <p className="rc-empty-text">Loading contacts…</p>
-        ) : visible.length === 0 ? (
-          <div className="rc-empty">
-            <div className="rc-empty-ico"><Mail size={24} /></div>
-            <b>{contacts.length === 0 ? 'No emails found yet' : 'No contacts match'}</b>
-            <p>{contacts.length === 0
-              ? 'Emails and phone numbers appear here automatically as jobs are scraped — HR, recruiting and company contacts found in descriptions.'
-              : 'Try a different search or clear the filters.'}</p>
-          </div>
-        ) : (
-          <>
-          <div className="rc-grid">
-            {shown.map((c, i) => {
-              const displayName = c.name || c.recruiterName || '';
-              const hasPhoto = !!displayName;
-              return (
-                <div key={c.id} id={`rc-card-${c.id}`} className={`rc-idcard ${focusedId === c.id ? 'rc-focus' : ''}`}>
-                  <div className="rc-row1">
-                    <div className={`rc-photo ${hasPhoto ? `has ${i % 3 === 1 ? 'alt1' : i % 3 === 2 ? 'alt2' : ''}` : ''}`}>
-                      {hasPhoto ? displayName.charAt(0).toUpperCase() : <Camera size={18} />}
-                    </div>
-                    <div className="rc-idn">
-                      <div className="rc-nm">
-                        {displayName ? <b>{displayName}</b> : <span className="rc-notscraped">Not found</span>}
-                        <span className={`rc-tag rc-tag-${c.type}`}>{c.typeLabel}</span>
+            <div className="rc-rows">
+              {loading ? (
+                <p className="rc-loading">Loading contacts…</p>
+              ) : visible.length === 0 ? (
+                <div className="rc-empty">
+                  <div className="rc-empty-ico"><Mail size={22} /></div>
+                  <b>{contacts.length === 0 ? 'No emails found yet' : 'No contacts match'}</b>
+                  <p>{contacts.length === 0
+                    ? 'Emails and phone numbers appear here automatically as jobs are scraped — HR, recruiting and company contacts found in descriptions.'
+                    : 'Try a different search or clear the filters.'}</p>
+                </div>
+              ) : (
+                <>
+                  {shown.map((c) => (
+                    <div
+                      key={c.id}
+                      id={`rc-row-${c.id}`}
+                      className={`rc-row ${selectedId === c.id ? 'sel' : ''} ${focusedId === c.id ? 'focus' : ''}`}
+                      onClick={() => setSelectedId(c.id)}
+                    >
+                      <div className="rc-who">
+                        <div className={`rc-ava ${isPersonish(displayName(c)) ? '' : 'gray'}`}>{initialsOf(c)}</div>
+                        <div className="rc-whotxt">
+                          <div className="rc-nm">
+                            {displayName(c)}
+                            {c.jobCount > 1 && <span className="rc-jobcount">{c.jobCount} jobs</span>}
+                          </div>
+                          <div className="rc-rl">
+                            {TYPE_LABELS[c.type] || c.typeLabel}
+                            {c.jobRole ? ` · ${c.jobRole}` : ''}
+                          </div>
+                        </div>
                       </div>
-                      <div className="rc-co-line">
-                        <span className="rc-co-txt">
-                          {c.company}
-                          {c.jobRole && <><span className="rc-sep">·</span>{c.jobRole}</>}
-                        </span>
-                        {c.sourceJobUrl && (
-                          <a className="rc-srcjob" href={c.sourceJobUrl} target="_blank" rel="noreferrer">
-                            <ExternalLink size={10} /> Job
-                          </a>
-                        )}
+                      <div className="rc-co">{c.company}</div>
+                      <div
+                        className="rc-mail"
+                        title={c.email ? 'Copy email' : undefined}
+                        onClick={(e) => { e.stopPropagation(); if (c.email) copyValue(c.email); }}
+                      >
+                        {c.email || <span className="rc-dash">—</span>}
                       </div>
+                      <div
+                        className="rc-phone"
+                        title={c.phone ? 'Copy phone' : undefined}
+                        onClick={(e) => { e.stopPropagation(); if (c.phone) copyValue(c.phone); }}
+                      >
+                        {c.phone || <span className="rc-dash">—</span>}
+                      </div>
+                      <div>{outreachBadge(c)}</div>
                     </div>
-                    <div className="rc-right">
-                      <button className="rc-ghost" title="Dismiss" onClick={() => hideContact(c.id)}>
-                        <Trash2 size={13} />
+                  ))}
+                  {canLoadMore && (
+                    <div className="rc-morewrap">
+                      <button className="rc-more" onClick={() => setShownCount((s) => s + 24)}>
+                        Show {Math.min(24, visible.length - shownCount)} more ({visible.length - shownCount} left)
                       </button>
-                    </div>
-                  </div>
-
-                  <div className="rc-chips">
-                    {c.email ? (
-                      <span className="rc-chip email" title="Copy email" onClick={() => copyValue(c.email!)}>
-                        <Mail size={11} /> <span className="rc-chip-txt">{c.email}</span>
-                      </span>
-                    ) : (
-                      <span className="rc-chip none">Email not found</span>
-                    )}
-                    {c.phone ? (
-                      <>
-                        <span className="rc-chip phone" title="Copy phone" onClick={() => copyValue(c.phone!)}>
-                          <Phone size={11} /> <span className="rc-chip-txt">{c.phone}</span>
-                        </span>
-                        {c.whatsapp && (
-                          <a className="rc-chip wa" href={waLink(c.phone)} target="_blank" rel="noreferrer" title="Chat on WhatsApp">
-                            <MessageCircle size={11} /> WhatsApp
-                          </a>
-                        )}
-                      </>
-                    ) : (
-                      <span className="rc-chip none">Phone not found</span>
-                    )}
-                    {c.recruiterUrl ? (
-                      <a className="rc-chip li" href={c.recruiterUrl} target="_blank" rel="noreferrer">
-                        <Linkedin size={11} /> LinkedIn
-                      </a>
-                    ) : (
-                      <span className="rc-chip none">LinkedIn not found</span>
-                    )}
-                  </div>
-
-                  {c.context && <div className="rc-ctx">"{c.context}"</div>}
-
-                  {(c.followUpAt || c.emailStatus === 'sent' || c.emailStatus === 'failed') && (
-                    <div className="rc-furow">
-                      {c.followUpAt && !c.followedUp && followupDue(c.followUpAt, false) && (
-                        <span className="rc-fuchip overdue"><AlertTriangle size={10} /> Follow up <span className="rc-fu-mini">due</span></span>
-                      )}
-                      {c.followUpAt && !c.followedUp && !followupDue(c.followUpAt, false) && (
-                        <span className="rc-fuchip"><Clock size={10} /> Follow up <span className="rc-fu-mini">{followupDaysLeft(c.followUpAt)}d</span></span>
-                      )}
-                      {c.followedUp && <span className="rc-fuchip done"><CheckCircle2 size={10} /> Followed up</span>}
-                      {c.followUpAt && !c.followedUp && (
-                        <button className="rc-fubtn" onClick={() => markFollowedUp(c)}>Mark done</button>
-                      )}
-                      {c.followUpAt && (
-                        <button className="rc-fubtn" onClick={() => setFollowUp(c, 0)}>Clear</button>
-                      )}
-                      <span className="rc-fu-spacer" />
-                      {c.emailStatus === 'sent' && c.lastEmailSent && (
-                        <button className="rc-emailchip sent clickable" onClick={() => openHistory(c)}>
-                          <CheckCircle2 size={11} /> Sent {new Date(c.lastEmailSent).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                        </button>
-                      )}
-                      {c.emailStatus === 'failed' && (
-                        <button className="rc-emailchip failed clickable" onClick={() => openHistory(c)}>
-                          <AlertTriangle size={11} /> Failed — resend
-                        </button>
-                      )}
                     </div>
                   )}
+                </>
+              )}
+            </div>
+          </section>
 
-                  {editingNoteId === c.id ? (
-                    <div className="rc-note-edit">
-                      <textarea
-                        className="rc-note-ta"
-                        rows={2}
-                        placeholder="Add a note…"
-                        value={noteDrafts[c.id] ?? c.notes ?? ''}
-                        onChange={(e) => setNoteDrafts((d) => ({ ...d, [c.id]: e.target.value }))}
-                      />
-                      <div className="rc-note-acts">
-                        <button className="rc-note-btn primary" onClick={() => saveNote(c)}>Save</button>
-                        <button className="rc-note-btn" onClick={() => setEditingNoteId(null)}>Cancel</button>
+          {/* ═══ Record pane ═══ */}
+          <aside className="rc-record">
+            {selected ? (
+              <div className="rc-recbody">
+                <div className="rc-rechead">
+                  <div className="rc-bigava">{initialsOf(selected)}</div>
+                  <div className="rc-rechtxt">
+                    <div className="rc-recname">{displayName(selected)}</div>
+                    <div className="rc-recmeta">{(TYPE_LABELS[selected.type] || selected.typeLabel)} · {selected.company}</div>
+                  </div>
+                </div>
+
+                <div className="rc-actions">
+                  <button className="rc-btn primary" onClick={() => openCompose(selected)}>
+                    <PencilLine size={13} /> Write email
+                  </button>
+                  <button className="rc-btn icon" title="Copy email or phone" onClick={() => copyEmail(selected)}>
+                    {copiedId === selected.id ? <CheckCircle2 size={14} /> : <Copy size={14} />}
+                  </button>
+                  {selected.email && (verifyMap[selected.id]
+                    ? verifyPill(verifyMap[selected.id])
+                    : (
+                      <button className="rc-btn icon" title="Verify email (format + domain MX)" onClick={() => verifyEmail(selected)}>
+                        <BadgeCheck size={15} />
+                      </button>
+                    ))}
+                  {selected.sourceJobUrl && (
+                    <a className="rc-btn icon" href={selected.sourceJobUrl} target="_blank" rel="noreferrer" title="Open job post">
+                      <ExternalLink size={14} />
+                    </a>
+                  )}
+                  {selected.phone && selected.whatsapp && (
+                    <a className="rc-btn icon rc-wa" href={waLink(selected.phone)} target="_blank" rel="noreferrer" title="Chat on WhatsApp">
+                      <MessageCircle size={14} />
+                    </a>
+                  )}
+                  <span className="rc-spacer" />
+                  <button className="rc-btn icon rc-danger" title="Dismiss contact" onClick={() => hideContact(selected.id)}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+
+                <div className="rc-sect">Details</div>
+                <div className="rc-props">
+                  <div className="rc-prop">
+                    <div className="rc-k">Email</div>
+                    <div className="rc-v">
+                      {selected.email ? (
+                        <>
+                          <span className="rc-mono">{selected.email}</span>
+                          <button className="rc-copy" title="Copy" onClick={() => copyValue(selected.email!)}><Copy size={12} /></button>
+                        </>
+                      ) : <span className="rc-none">—</span>}
+                    </div>
+                  </div>
+                  <div className="rc-prop">
+                    <div className="rc-k">Phone</div>
+                    <div className="rc-v">
+                      {selected.phone ? (
+                        <>
+                          <span className="rc-mono">{selected.phone}</span>
+                          <button className="rc-copy" title="Copy" onClick={() => copyValue(selected.phone!)}><Copy size={12} /></button>
+                        </>
+                      ) : <span className="rc-none">—</span>}
+                    </div>
+                  </div>
+                  <div className="rc-prop">
+                    <div className="rc-k">LinkedIn</div>
+                    <div className="rc-v">
+                      {selected.recruiterUrl ? (
+                        <a href={selected.recruiterUrl} target="_blank" rel="noreferrer">
+                          <Linkedin size={12} /> {selected.recruiterUrl.replace(/^https?:\/\/(www\.)?/, '')}
+                        </a>
+                      ) : <span className="rc-none">—</span>}
+                    </div>
+                  </div>
+                  <div className="rc-prop"><div className="rc-k">Company</div><div className="rc-v">{selected.company}</div></div>
+                  <div className="rc-prop"><div className="rc-k">Role</div><div className="rc-v">{TYPE_LABELS[selected.type] || selected.typeLabel}</div></div>
+                  <div className="rc-prop">
+                    <div className="rc-k">Source</div>
+                    <div className="rc-v">
+                      {selected.jobRole || <span className="rc-none">—</span>}
+                      {selected.sourceJobUrl && (
+                        <a className="rc-src" href={selected.sourceJobUrl} target="_blank" rel="noreferrer">Open <ExternalLink size={11} /></a>
+                      )}
+                    </div>
+                  </div>
+                  <div className="rc-prop"><div className="rc-k">Added</div><div className="rc-v">{fmtFull(selected.firstSeen) || <span className="rc-none">—</span>}</div></div>
+                  <div className="rc-prop"><div className="rc-k">Outreach</div><div className="rc-v">{outreachBadge(selected)}</div></div>
+                  {(selected.followUpAt || selected.followedUp) && (
+                    <div className="rc-prop">
+                      <div className="rc-k">Follow-up</div>
+                      <div className="rc-v rc-fu">
+                        {selected.followUpAt && !selected.followedUp && (followupDue(selected.followUpAt, false)
+                          ? <span className="rc-fuchip overdue"><AlertTriangle size={10} /> Due</span>
+                          : <span className="rc-fuchip"><Clock size={10} /> in {followupDaysLeft(selected.followUpAt)}d</span>)}
+                        {selected.followedUp && <span className="rc-fuchip done"><CheckCircle2 size={10} /> Followed up</span>}
+                        {selected.followUpAt && !selected.followedUp && (
+                          <button className="rc-fubtn" onClick={() => markFollowedUp(selected)}>Mark done</button>
+                        )}
+                        <button className="rc-fubtn" onClick={() => setFollowUp(selected, 0)}>Clear</button>
                       </div>
                     </div>
-                  ) : (
-                    <div className="rc-noterow">
-                      {c.notes ? (
-                        <span className="rc-note-pill">
-                          <span className="rc-note-txt">{c.notes}</span>
-                          <button className="rc-note-editbtn" onClick={() => setEditingNoteId(c.id)} title="Edit note"><PencilLine size={11} /></button>
+                  )}
+                  <div className="rc-prop">
+                    <div className="rc-k">Notes</div>
+                    <div className="rc-v">
+                      {editingNoteId === selected.id ? (
+                        <div className="rc-noteedit">
+                          <textarea
+                            rows={3}
+                            value={noteDrafts[selected.id] ?? selected.notes ?? ''}
+                            onChange={(e) => setNoteDrafts((d) => ({ ...d, [selected.id]: e.target.value }))}
+                            placeholder="Add a note…"
+                          />
+                          <div className="rc-noteacts">
+                            <button className="rc-btn rc-small primary" onClick={() => saveNote(selected)}>Save</button>
+                            <button className="rc-btn rc-small" onClick={() => setEditingNoteId(null)}>Cancel</button>
+                          </div>
+                        </div>
+                      ) : selected.notes ? (
+                        <span className="rc-notetxt">
+                          {selected.notes}
+                          <button className="rc-copy" title="Edit note" onClick={() => setEditingNoteId(selected.id)}><PencilLine size={12} /></button>
                         </span>
-                      ) : null}
-                      <button className="rc-note-add" onClick={() => setEditingNoteId(c.id)}><Plus size={11} /> Note</button>
+                      ) : (
+                        <button className="rc-noteadd" onClick={() => setEditingNoteId(selected.id)}><Plus size={11} /> Add note</button>
+                      )}
+                    </div>
+                  </div>
+                  {cleanContext(selected.context).length > 16 && (
+                    <div className="rc-prop">
+                      <div className="rc-k">Context</div>
+                      <div className="rc-v rc-ctx">“{cleanContext(selected.context)}”</div>
                     </div>
                   )}
+                </div>
 
-                  <div className="rc-cact">
-                    <button className={`rc-btn ${copiedId === c.id ? 'copied' : ''}`} onClick={() => copyEmail(c)}>
-                      {copiedId === c.id ? <><CheckCircle2 size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+                <div className="rc-sect">Activity</div>
+                <div className="rc-timeline">
+                  {activityFor(selected).map((a, i) => (
+                    <div className="rc-tl-item" key={i}>
+                      <div className={`rc-tl-ico ${i === 0 ? 'on' : ''}`}>
+                        {a.kind === 'mail' ? <Mail size={12} /> : a.kind === 'fail' ? <AlertTriangle size={12} /> : <UserPlus size={12} />}
+                      </div>
+                      <div className="rc-tl-body">
+                        <div className="rc-tl-title">{a.title}</div>
+                        <div className="rc-tl-sub">{a.sub}</div>
+                      </div>
+                      <div className="rc-tl-date">{a.date}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="rc-recempty">
+                <div className="rc-recempty-ico"><UserPlus size={20} /></div>
+                <b>No contact selected</b>
+                <p>Pick a contact from the directory to see their details, outreach status and activity.</p>
+              </div>
+            )}
+
+            {/* ═══ Compose drawer (fills the record pane, as designed) ═══ */}
+            <div className={`rc-drawer ${composeOpen ? 'open' : ''}`} aria-hidden={!composeOpen}>
+              <div className="rc-drawer-head">
+                <h3>{composeContact ? `Email — ${displayName(composeContact)}` : 'New email'}</h3>
+                <button className="rc-drawer-x" onClick={closeCompose} disabled={draftBusy || sendBusy} aria-label="Close">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="rc-drawer-body">
+                {composeContact && (
+                  <div className="rc-recipient">
+                    <div className="rc-recipient-av">{initialsOf(composeContact)}</div>
+                    <div>
+                      <b>{displayName(composeContact)}</b>
+                      <span>{composeContact.email}{composeContact.company ? ` · ${composeContact.company}` : ''}</span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="rc-field">
+                  <label>To</label>
+                  <input type="text" value={composeTo} onChange={(e) => setComposeTo(e.target.value)} />
+                </div>
+                <div className="rc-field">
+                  <label>Subject</label>
+                  <input type="text" value={composeSubject} onChange={(e) => setComposeSubject(e.target.value)} />
+                </div>
+                <div className="rc-field">
+                  <label>Message</label>
+                  <textarea
+                    rows={9}
+                    value={composeBody}
+                    onChange={(e) => setComposeBody(e.target.value)}
+                    placeholder="Type your message… or click Draft with AI"
+                  />
+                </div>
+                <div className="rc-field">
+                  <label>Attach CV</label>
+                  <div className="rc-attach">
+                    <button
+                      type="button"
+                      onClick={() => { setAttachMode(attachMode === 'master' ? 'none' : 'master'); setAttachFile(null); setComposeMsg(null); }}
+                      className={`rc-btn rc-small ${attachMode === 'master' ? 'on' : ''}`}
+                    >
+                      <FileText size={13} /> Master CV
                     </button>
-                    {c.email && (
-                      <button className="rc-ghost" title="Compose cold email" onClick={() => openCompose(c)}>
-                        <Mail size={14} />
-                      </button>
-                    )}
-                    <button className="rc-ghost" title="Email history" onClick={() => openHistory(c)}>
-                      <Clock size={14} />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className={`rc-btn rc-small ${attachMode === 'file' ? 'on' : ''}`}
+                    >
+                      <Upload size={13} /> From file manager
                     </button>
-                    <span className="rc-fu-spacer" />
-                    {verifyMap[c.id] && (
-                      <span className={`rc-verifystate ${verifyMap[c.id] === 'valid' ? 'ok' : verifyMap[c.id] === 'invalid-format' ? 'bad' : 'warn'}`}>
-                        {verifyMap[c.id] === 'valid' ? 'Valid' : verifyMap[c.id] === 'invalid-format' ? 'Invalid' : verifyMap[c.id] === 'no-mx' ? 'No MX' : 'Unknown'}
+                    <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.txt,.png,.jpg" style={{ display: 'none' }} onChange={pickAttachmentFile} />
+                    {attachMode === 'master' && (
+                      <span className="rc-attachchip">
+                        <FileText size={12} /> <span className="rc-truncate">{masterCvName || 'Master CV'}</span>
+                        <button type="button" onClick={() => setAttachMode('none')} aria-label="Remove attachment"><X size={12} /></button>
                       </span>
                     )}
-                    {!verifyMap[c.id] && c.email && (
-                      <button className="rc-verify" title="Check email validity (format + domain MX)" onClick={() => verifyEmail(c)}>
-                        <BadgeCheck size={13} /> Verify
-                      </button>
+                    {attachMode === 'file' && attachFile && (
+                      <span className="rc-attachchip">
+                        <FileText size={12} /> <span className="rc-truncate">{attachFile.name}</span>
+                        <button type="button" onClick={() => { setAttachFile(null); setAttachMode('none'); }} aria-label="Remove attachment"><X size={12} /></button>
+                      </span>
                     )}
                   </div>
                 </div>
-              );
-            })}
-          </div>
-          {canLoadMore && (
-            <div className="rc-morewrap">
-              <button className="rc-more" onClick={() => setShownCount((s) => s + 24)}>
-                Show {Math.min(24, visible.length - shownCount)} more ({visible.length - shownCount} left)
-              </button>
+
+                {composeMsg && <p className={`rc-msg ${composeMsg.ok ? 'ok' : 'bad'}`}>{composeMsg.text}</p>}
+              </div>
+              <div className="rc-drawer-foot">
+                <button className="rc-btn rc-draft" onClick={draftEmail} disabled={draftBusy || sendBusy}>
+                  {draftBusy ? <Loader2 className="rc-spin" size={13} /> : <Sparkles size={13} />} Draft with AI
+                </button>
+                <span className="rc-spacer" />
+                <button className="rc-btn" onClick={closeCompose} disabled={draftBusy || sendBusy}>Cancel</button>
+                <button
+                  className="rc-btn primary"
+                  onClick={sendEmail}
+                  disabled={sendBusy || draftBusy || !composeTo.trim() || !composeSubject.trim() || !composeBody.trim()}
+                >
+                  {sendBusy ? <Loader2 className="rc-spin" size={13} /> : <Send size={13} />} Send
+                </button>
+              </div>
             </div>
-          )}
-          </>
-        )}
+          </aside>
+        </div>
       </div>
-
-      {/* ═══ Compose email — slide-in panel (right) ═══ */}
-      <div className={`rc-overlay ${composeOpen ? 'open' : ''}`} onClick={() => !draftBusy && !sendBusy && closeCompose()}></div>
-      <aside
-        className={`rc-emailpanel ${composeOpen ? 'open' : ''}`}
-        aria-label="Email workflow"
-        aria-hidden={!composeOpen}
-      >
-        <div className="rc-email-head">
-          <span className="rc-email-ico">
-            <Mail size={17} />
-          </span>
-          <b>Email workflow</b>
-          <button onClick={closeCompose} className="rc-email-x" aria-label="Close">
-            <X size={17} />
-          </button>
-        </div>
-
-        <div className="rc-email-body">
-          {composeContact && (
-            <div className="rc-recipient">
-              <div className="rc-recipient-av">
-                {(composeContact.name || composeContact.company || '?').charAt(0).toUpperCase()}
-              </div>
-              <div>
-                <b>{composeContact.name || composeContact.company || 'Contact'}</b>
-                <span>{composeContact.email}{composeContact.company ? ` · ${composeContact.company}` : ''}</span>
-              </div>
-            </div>
-          )}
-
-          <div>
-            <label className="rc-email-flabel">To</label>
-            <input type="text" value={composeTo} onChange={(e) => setComposeTo(e.target.value)} className="rc-email-input" />
-          </div>
-
-          <div>
-            <label className="rc-email-flabel">Subject</label>
-            <input type="text" value={composeSubject} onChange={(e) => setComposeSubject(e.target.value)} className="rc-email-input" />
-          </div>
-
-          <div>
-            <label className="rc-email-flabel">Body</label>
-            <textarea value={composeBody} onChange={(e) => setComposeBody(e.target.value)} rows={9}
-              className="rc-email-input rc-email-body-input" placeholder="Type your message… or click Draft with AI" />
-          </div>
-
-          <div>
-            <label className="rc-email-flabel">Attach CV</label>
-            <div className="flex items-center gap-2 flex-wrap">
-              <button
-                type="button"
-                onClick={() => { setAttachMode(attachMode === 'master' ? 'none' : 'master'); setAttachFile(null); setComposeMsg(null); }}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-bold border transition-colors cursor-pointer ${
-                  attachMode === 'master' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300'
-                }`}
-              >
-                <FileText size={13} /> Master CV
-              </button>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-bold border transition-colors cursor-pointer ${
-                  attachMode === 'file' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300'
-                }`}
-              >
-                <Upload size={13} /> From file manager
-              </button>
-              <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.txt,.png,.jpg" className="hidden" onChange={pickAttachmentFile} />
-              {attachMode === 'master' && (
-                <span className="inline-flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg px-2.5 py-1 text-[11.5px] font-semibold max-w-full">
-                  <FileText size={12} /> <span className="truncate max-w-[180px]">{masterCvName || 'Master CV'}</span>
-                  <button type="button" onClick={() => setAttachMode('none')} className="text-blue-400 hover:text-red-600 cursor-pointer shrink-0" aria-label="Remove attachment">
-                    <X size={12} />
-                  </button>
-                </span>
-              )}
-              {attachMode === 'file' && attachFile && (
-                <span className="inline-flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg px-2.5 py-1 text-[11.5px] font-semibold max-w-full">
-                  <FileText size={12} /> <span className="truncate max-w-[180px]">{attachFile.name}</span>
-                  <button type="button" onClick={() => { setAttachFile(null); setAttachMode('none'); }} className="text-blue-400 hover:text-red-600 cursor-pointer shrink-0" aria-label="Remove attachment">
-                    <X size={12} />
-                  </button>
-                </span>
-              )}
-            </div>
-          </div>
-
-          {composeMsg && (
-            <p className={`text-[12px] font-semibold ${composeMsg.ok ? 'text-emerald-600' : 'text-red-600'}`}>{composeMsg.text}</p>
-          )}
-        </div>
-
-        <div className="rc-email-foot">
-          <button onClick={draftEmail} disabled={draftBusy || sendBusy}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12.5px] font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 cursor-pointer transition-colors">
-            {draftBusy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} Draft with AI
-          </button>
-          <div className="flex-1" />
-          <button onClick={closeCompose} disabled={draftBusy || sendBusy}
-            className="px-3.5 py-2 rounded-lg text-[12.5px] font-semibold text-slate-500 hover:bg-slate-100 disabled:opacity-50 cursor-pointer">
-            Cancel
-          </button>
-          <button onClick={sendEmail} disabled={sendBusy || draftBusy || !composeTo.trim() || !composeSubject.trim() || !composeBody.trim()}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12.5px] font-bold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-40 cursor-pointer transition-colors">
-            {sendBusy ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Send
-          </button>
-        </div>
-      </aside>
-
-      {/* Email history modal */}
-      {historyFor && (
-        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4" onClick={() => setHistoryFor(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200">
-              <h3 className="text-sm font-extrabold text-slate-900">Email history — {historyFor.name || historyFor.email}</h3>
-              <button onClick={() => setHistoryFor(null)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer"><X size={16} /></button>
-            </div>
-            <div className="p-4 space-y-3 overflow-y-auto">
-              {(emailHistory[historyFor.id] || []).length === 0 ? (
-                <p className="text-[12px] text-slate-500">No emails sent to this contact yet.</p>
-              ) : (
-                (emailHistory[historyFor.id] || []).map((e) => (
-                  <div key={e.id} className="border border-slate-200 rounded-xl p-3">
-                    <div className="flex items-center gap-2 text-[11px] font-bold text-slate-700">
-                      <span className={`px-2 py-0.5 rounded-full ${e.status === 'sent' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>{e.status}</span>
-                      <span className="truncate">{new Date(e.sentAt).toLocaleString()}</span>
-                    </div>
-                    <p className="text-[12.5px] font-bold text-slate-800 mt-1.5">{e.subject}</p>
-                    <p className="text-[11.5px] text-slate-500 whitespace-pre-wrap leading-relaxed mt-1 line-clamp-4">{e.body}</p>
-                    {e.attachmentName && <p className="text-[10.5px] text-blue-600 mt-1">📎 {e.attachmentName}</p>}
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Sticky action bar */}
       <div className="rc-actbar">
-        <span className="rc-note-text">Emails are pulled from job descriptions you already scrape.</span>
+        <span className="rc-actnote">Emails are pulled from job descriptions you already scrape.</span>
         <div className="rc-spacer" />
-        <button className={`rc-btn2 primary ${copiedAll ? 'copied' : ''}`} onClick={copyAll} disabled={!contacts.some((c) => c.email)}>
+        <button className={`rc-btn ${copiedAll ? 'copied' : ''}`} onClick={copyAll} disabled={!contacts.some((c) => c.email)}>
           {copiedAll ? <><CheckCircle2 size={14} /> Emails copied ✓</> : <><Copy size={14} /> Copy all emails</>}
         </button>
       </div>
@@ -740,186 +842,174 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
 
       <style>{`
         .rc-screen {
-          --bg: #FAFAF9; --card: #FFFFFF; --border: var(--color-hairline); --text: var(--color-ink);
-          --muted: var(--color-muted); --faint: var(--color-faint); --blue: var(--color-brand); --blue-soft: var(--color-brand-soft);
-          --blue-border: var(--color-brand-line); --linkedin: #0A66C2; --green: #059669; --green-soft: var(--color-cta-soft); --green-border: var(--color-cta-line);
-          --amber: #D97706; --amber-soft: #FFFBEB; --amber-border: #FDE68A; --red: var(--color-danger);
-          --shadow: 0 1px 3px rgba(15,23,42,.06);
-          position: relative; height: 100vh; background: var(--bg); color: var(--text);
-          display: flex; flex-direction: column; font-family: 'Inter', system-ui, -apple-system, sans-serif;
+          position: relative; height: 100vh; background: var(--color-canvas); color: var(--color-ink);
+          display: flex; flex-direction: column;
+          font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
           -webkit-font-smoothing: antialiased;
+          --rc-brand: var(--color-brand); --rc-brand-strong: var(--color-brand-strong); --rc-brand-soft: var(--color-brand-soft);
+          --rc-line: var(--color-hairline); --rc-line2: var(--color-hairline2);
+          --rc-muted: var(--color-muted); --rc-faint: var(--color-faint);
+          --rc-surface: #fff; --rc-canvas: var(--color-canvas);
         }
-        .rc-hdr { display: flex; align-items: center; gap: 12px; padding: 0 28px; height: 60px; border-bottom: 1px solid var(--border); background: var(--card); flex-shrink: 0; }
-        .rc-back { display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--muted); font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all .15s ease; }
-        .rc-back:hover { color: var(--text); border-color: var(--blue-border); background: var(--blue-soft); }
-        .rc-ttl b { font-size: 15px; font-weight: 700; display: block; line-height: 1.2; }
-        .rc-ttl span { font-size: 11px; color: var(--faint); font-weight: 500; }
         .rc-spacer { flex: 1; }
-        .rc-count { display: inline-flex; align-items: center; font-size: 12px; font-weight: 700; color: var(--blue); background: var(--blue-soft); border: 1px solid var(--blue-border); padding: 6px 13px; border-radius: 20px; flex-shrink: 0; }
-        .rc-wrap { max-width: 920px; width: 100%; margin: 0 auto; padding: 26px 28px 40px; flex: 1; overflow-y: auto; }
-        .rc-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 9px; }
-        .rc-stats { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-        .rc-stat { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: var(--muted); background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 6px 12px; }
-        .rc-stat svg { width: 13px; height: 13px; opacity: .85; }
-        .rc-stat b { color: var(--ink); font-size: 13px; }
-        .rc-stat.brand svg { color: var(--blue); }
-        .rc-stat.cta svg { color: var(--green); }
-        .rc-stat.amber svg { color: var(--amber); }
-        .rc-stat.violet svg { color: #7C3AED; }
-        .rc-toolbar2 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
-        .rc-typeseg { display: inline-flex; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 3px; gap: 2px; }
-        .rc-tseg { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700; color: var(--muted); border: 0; background: none; border-radius: 7px; padding: 5px 11px; cursor: pointer; font-family: inherit; transition: all .15s ease; }
-        .rc-tseg:hover { color: var(--blue); }
-        .rc-tseg.on { background: var(--blue); color: #fff; }
-        .rc-tseg-n { font-size: 10px; font-weight: 800; background: rgba(15,23,42,.08); color: inherit; border-radius: 20px; padding: 1px 6px; }
-        .rc-tseg.on .rc-tseg-n { background: rgba(255,255,255,.22); color: #fff; }
-        .rc-pipefilter { height: 34px; }
-        .rc-search { flex: 1; display: flex; align-items: center; gap: 9px; height: 40px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0 13px; color: var(--faint); }
-        .rc-search:focus-within { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(37,99,235,.09); }
-        .rc-search input { flex: 1; border: 0; outline: none; background: none; font-size: 13px; font-family: inherit; color: var(--text); }
-        .rc-search input::placeholder { color: var(--faint); }
-        .rc-select { height: 40px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--muted); font-size: 12.5px; font-weight: 600; font-family: inherit; padding: 0 10px; outline: none; cursor: pointer; }
-        .rc-select:focus { border-color: var(--blue); }
-        .rc-note { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--faint); margin-bottom: 14px; }
-        .rc-note b { color: var(--muted); font-weight: 600; }
-        .rc-empty-text { color: var(--faint); font-size: 13px; padding: 30px 0; }
+        .rc-hdr { display: flex; align-items: center; gap: 14px; padding: 0 24px; height: 60px; border-bottom: 1px solid var(--rc-line); background: var(--rc-surface); flex-shrink: 0; }
+        .rc-ttl b { font-size: 15px; font-weight: 700; display: block; line-height: 1.2; }
+        .rc-ttl span { font-size: 11px; color: var(--rc-faint); font-weight: 500; }
+        .rc-summary { display: flex; gap: 14px; align-items: center; font-size: 12.5px; color: var(--rc-faint); }
+        .rc-summary b { color: var(--color-ink); font-weight: 700; }
+        .rc-main { flex: 1; min-height: 0; width: 100%; max-width: 1440px; margin: 0 auto; padding: 20px 24px 16px; display: flex; flex-direction: column; }
+        .rc-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 408px; grid-template-rows: minmax(0, 1fr); background: var(--rc-surface); border: 1px solid var(--rc-line); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
+        /* toolbar */
+        .rc-toolbar { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--rc-line); flex-wrap: wrap; }
+        .rc-search { flex: 1; min-width: 170px; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; background: var(--rc-canvas); border: 1px solid var(--rc-line); border-radius: 8px; color: var(--rc-faint); }
+        .rc-search:focus-within { border-color: var(--rc-brand); box-shadow: 0 0 0 3px rgba(37, 99, 235, .09); }
+        .rc-search input { flex: 1; border: 0; outline: 0; background: transparent; color: var(--color-ink); font-size: 13px; font-family: inherit; }
+        .rc-search input::placeholder { color: var(--rc-faint); }
+        .rc-search kbd { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10.5px; color: var(--rc-faint); border: 1px solid var(--rc-line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 5px; background: var(--rc-surface); }
+        .rc-seg { display: inline-flex; border: 1px solid var(--rc-line); border-radius: 8px; overflow: hidden; flex-shrink: 0; }
+        .rc-segbtn { display: inline-flex; align-items: center; border: 0; background: var(--rc-surface); padding: 0 12px; height: 34px; font-size: 12.5px; font-weight: 600; color: var(--rc-muted); border-right: 1px solid var(--rc-line); cursor: pointer; font-family: inherit; }
+        .rc-segbtn:last-child { border-right: 0; }
+        .rc-segbtn.on { background: var(--rc-brand-soft); color: var(--rc-brand-strong); }
+        .rc-segbtn span { color: var(--rc-faint); font-weight: 500; margin-left: 5px; font-size: 11.5px; }
+        .rc-segbtn.on span { color: var(--rc-brand); }
+        .rc-select { height: 34px; border: 1px solid var(--rc-line); border-radius: 8px; background: var(--rc-surface); color: var(--rc-muted); font-size: 12.5px; font-weight: 600; font-family: inherit; padding: 0 8px; outline: none; cursor: pointer; max-width: 150px; }
+        .rc-select:focus { border-color: var(--rc-brand); }
+        /* list */
+        .rc-list { min-width: 0; display: flex; flex-direction: column; }
+        .rc-listhead { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, .9fr) 108px; gap: 12px; padding: 9px 16px 9px 18px; border-bottom: 1px solid var(--rc-line); font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--rc-faint); }
+        .rc-rows { flex: 1; min-height: 0; overflow-y: auto; }
+        .rc-loading { padding: 26px 18px; color: var(--rc-faint); font-size: 13px; }
+        .rc-row { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, .9fr) 108px; gap: 12px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--rc-line); cursor: pointer; position: relative; }
+        .rc-row:hover { background: #F8FAFC; }
+        .rc-row.sel { background: var(--rc-brand-soft); }
+        .rc-row.sel::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--rc-brand); }
+        .rc-row.focus { box-shadow: inset 0 0 0 1px var(--rc-brand); }
+        .rc-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+        .rc-ava { width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; letter-spacing: .02em; background: var(--rc-brand-soft); color: var(--rc-brand-strong); }
+        .rc-ava.gray { background: #F1F5F9; color: var(--rc-muted); }
+        .rc-whotxt { min-width: 0; }
+        .rc-nm { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
+        .rc-jobcount { font-size: 10px; font-weight: 700; color: var(--rc-faint); background: var(--rc-canvas); border: 1px solid var(--rc-line); border-radius: 20px; padding: 1px 6px; flex-shrink: 0; }
+        .rc-rl { font-size: 12px; color: var(--rc-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .rc-co { font-size: 12.5px; color: var(--rc-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .rc-mail, .rc-phone { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--color-ink); }
+        .rc-phone { color: var(--rc-muted); }
+        .rc-mail:hover, .rc-phone:hover { color: var(--rc-brand-strong); }
+        .rc-dash { color: var(--rc-line2); }
+        .rc-status { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+        .rc-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+        .rc-st-sent { color: #047857; } .rc-st-sent .rc-dot { background: #10B981; }
+        .rc-st-none { color: var(--rc-faint); font-weight: 500; } .rc-st-none .rc-dot { background: var(--rc-line2); }
+        .rc-st-bounce { color: var(--color-danger); } .rc-st-bounce .rc-dot { background: var(--color-danger); }
+        .rc-when { color: var(--rc-faint); font-weight: 500; margin-left: 2px; }
+        .rc-morewrap { text-align: center; padding: 14px 0; }
+        .rc-more { padding: 7px 16px; border-radius: 8px; border: 1px solid var(--rc-line); background: var(--rc-surface); color: var(--rc-muted); font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+        .rc-more:hover { border-color: var(--rc-brand); color: var(--rc-brand-strong); }
         .rc-empty { text-align: center; padding: 60px 20px; }
-        .rc-empty-ico { width: 56px; height: 56px; border-radius: 16px; background: var(--blue-soft); border: 1px solid var(--blue-border); color: var(--blue); display: flex; align-items: center; justify-content: center; margin: 0 auto 14px; }
+        .rc-empty-ico { width: 52px; height: 52px; border-radius: 14px; background: var(--rc-brand-soft); border: 1px solid var(--color-brand-line); color: var(--rc-brand); display: flex; align-items: center; justify-content: center; margin: 0 auto 14px; }
         .rc-empty b { font-size: 14px; }
-        .rc-empty p { font-size: 12.5px; color: var(--muted); margin-top: 5px; line-height: 1.6; max-width: 380px; margin-left: auto; margin-right: auto; }
-        .rc-list { display: flex; flex-direction: column; gap: 10px; }
-        .rc-contact { display: flex; align-items: center; gap: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 13px; padding: 14px 16px; box-shadow: var(--shadow); }
-        .rc-avatar { width: 40px; height: 40px; border-radius: 11px; color: #fff; font-weight: 700; font-size: 15px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-        .rc-cinfo { flex: 1; min-width: 0; }
-        .rc-name { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 700; flex-wrap: wrap; }
-        .rc-tag { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding: 2px 7px; border-radius: 20px; }
-        .rc-tag-recruit { background: var(--blue-soft); color: var(--blue); border: 1px solid var(--blue-border); }
-        .rc-tag-hr { background: var(--amber-soft); color: var(--amber); border: 1px solid var(--amber-border); }
-        .rc-tag-careers { background: #F0FDF4; color: var(--green); border: 1px solid var(--green-border); }
-        .rc-tag-company { background: var(--color-hairline); color: var(--muted); border: 1px solid var(--border); }
-        .rc-email { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); margin-top: 4px; }
-        .rc-phone code { color: #7C3AED; background: #FAF5FF; border-color: #E9D5FF; }
-        .rc-email code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 7px; font-size: 12px; }
-        .rc-meta { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--faint); margin-top: 6px; flex-wrap: wrap; }
-        .rc-sep { color: var(--color-faint); }
-        .rc-context { font-size: 11px; color: var(--faint); font-style: italic; margin-top: 5px; max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .rc-acts { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-        .rc-btn { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--border); background: #fff; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all .15s ease; }
-        .rc-btn:hover { border-color: var(--blue-border); color: var(--blue); }
-        .rc-btn.copied { border-color: var(--green-border); color: var(--green); background: var(--green-soft); }
-        .rc-linkedin { border-color: #B3C7F0; color: #0A66C2; background: #F5F8FE; }
-        .rc-linkedin:hover { background: #E9F0FC; border-color: #0A66C2; }
-        .rc-open { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; color: var(--blue); text-decoration: none; padding: 4px 6px; border-radius: 7px; }
-        .rc-open:hover { background: var(--blue-soft); }
-        .rc-ghost { width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent; color: var(--faint); cursor: pointer; display: flex; align-items: center; justify-content: center; }
-        .rc-ghost:hover { color: var(--red); background: var(--color-danger-soft); }
-        .rc-actbar { position: sticky; bottom: 0; background: rgba(255,255,255,.92); backdrop-filter: blur(10px); border-top: 1px solid var(--border); padding: 12px 28px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-        .rc-note-text { font-size: 11.5px; color: var(--faint); }
-        .rc-btn2 { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 18px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all .15s ease; }
-        .rc-btn2:hover { border-color: var(--blue-border); }
-        .rc-btn2.primary { background: linear-gradient(135deg, var(--color-brand), var(--color-brand-strong)); border-color: transparent; color: #fff; box-shadow: 0 2px 6px rgba(37,99,235,.3); }
-        .rc-btn2.primary:hover { filter: brightness(1.07); }
-        .rc-btn2.copied { background: var(--green-soft); border-color: var(--green-border); color: var(--green); }
-        .rc-btn2.manual { background: var(--blue-soft); border-color: var(--blue-border); color: var(--blue); font-weight: 700; }
-        .rc-hdr .rc-btn2.manual { padding: 8px 14px; font-size: 12px; }
-        .rc-btn2.manual:hover { background: #DBEAFE; }
-        .rc-btn2:disabled { opacity: .55; cursor: not-allowed; }
-        .rc-toast { position: fixed; bottom: 82px; left: 50%; transform: translateX(-50%); background: var(--text); color: #FAFAF9; font-size: 12.5px; font-weight: 600; padding: 11px 18px; border-radius: 12px; display: flex; align-items: center; gap: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.3); z-index: 70; }
-        .rc-wrap { max-width: 1360px; }
-        .rc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 12px; align-content: start; }
-        .rc-idcard { background: var(--card); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 1px 2px rgba(11,18,32,.05); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; transition: box-shadow .15s ease, transform .15s ease; position: relative; }
-        .rc-idcard:hover { box-shadow: 0 6px 18px -6px rgba(11,18,32,.14); transform: translateY(-1px); }
-        .rc-idcard.rc-focus { box-shadow: 0 0 0 2px var(--blue), 0 6px 18px -6px rgba(37,99,235,.25); }
-        .rc-row1 { display: flex; align-items: center; gap: 10px; min-width: 0; }
-        .rc-idn { flex: 1; min-width: 0; }
-        .rc-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
-        .rc-nm { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
-        .rc-nm b { font-size: 14px; font-weight: 700; letter-spacing: -.01em; }
-        .rc-co-line { display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 2px; }
-        .rc-co-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; color: var(--faint); }
-        .rc-co-txt .rc-sep { margin: 0 5px; color: var(--color-faint); }
-        .rc-co-line .rc-srcjob { flex-shrink: 0; }
-        .rc-notscraped { font-size: 11px; font-weight: 500; font-style: italic; color: var(--faint); }
-        .rc-chips { display: flex; gap: 5px; flex-wrap: wrap; min-width: 0; }
-        .rc-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 700; border-radius: 7px; padding: 3px 8px; border: 1px solid var(--border); color: var(--muted); background: #fff; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; text-decoration: none; transition: all .15s ease; }
-        .rc-chip svg { width: 11px; height: 11px; flex-shrink: 0; opacity: .8; }
-        .rc-chip:hover { filter: brightness(.97); }
-        .rc-chip-txt { overflow: hidden; text-overflow: ellipsis; }
-        .rc-chip.email { border-color: #CBD5E1; background: #F8FAFC; }
-        .rc-chip.phone { border-color: #E9D5FF; color: #7C3AED; background: #FAF5FF; }
-        .rc-chip.li { border-color: var(--linkedin-line); color: var(--linkedin); background: var(--linkedin-soft); }
-        .rc-chip.wa { border-color: var(--wa-line); color: var(--wa); background: var(--wa-soft); }
-        .rc-chip.none { font-style: italic; color: var(--faint); font-weight: 500; border-style: dashed; background: none; cursor: default; }
-        .rc-verify { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; border: 1px solid var(--border); background: var(--card); color: var(--faint); cursor: pointer; padding: 3px 8px; border-radius: 7px; }
-        .rc-verify:hover { color: var(--green); border-color: var(--green-border); }
-        .rc-verifystate { font-size: 9px; font-weight: 800; border-radius: 20px; padding: 2px 8px; }
-        .rc-verifystate.ok { color: #15803D; background: #F0FDF4; border: 1px solid #BBF7D0; }
-        .rc-verifystate.bad { color: var(--color-danger); background: var(--color-danger-soft); border: 1px solid #FECACA; }
-        .rc-verifystate.warn { color: var(--amber); background: var(--amber-soft); border: 1px solid var(--amber-border); }
-        .rc-photo { width: 38px; height: 38px; border-radius: 11px; background: linear-gradient(135deg, var(--color-hairline), var(--color-faint)); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; color: var(--color-muted); flex-shrink: 0; overflow: hidden; }
-        .rc-photo svg { width: 16px; height: 16px; opacity: .55; }
-        .rc-photo.has { background: linear-gradient(135deg, var(--color-brand), #7C3AED); color: #fff; font-weight: 800; font-size: 15px; border: 0; }
-        .rc-photo.has.alt1 { background: linear-gradient(135deg, #F59E0B, #EF4444); }
-        .rc-photo.has.alt2 { background: linear-gradient(135deg, var(--color-cta), #0EA5E9); }
-        .rc-srcjob { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 700; color: var(--blue); text-decoration: none; padding: 2px 7px; border-radius: 6px; background: var(--blue-soft); border: 1px solid var(--blue-border); }
-        .rc-srcjob:hover { filter: brightness(.96); }
-        .rc-ctx { font-size: 10.5px; color: var(--faint); font-style: italic; line-height: 1.45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .rc-noterow { display: flex; align-items: center; gap: 6px; min-width: 0; }
-        .rc-note-pill { display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 600; color: var(--amber); background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 7px; padding: 3px 8px; max-width: 100%; }
-        .rc-note-txt { flex: 1; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .rc-note-editbtn { border: 0; background: none; color: var(--amber); cursor: pointer; padding: 1px; display: inline-flex; flex-shrink: 0; }
-        .rc-note-editbtn:hover { color: var(--rose); }
-        .rc-note-add { display: inline-flex; align-items: center; gap: 4px; border: 1px dashed var(--border); background: none; color: var(--faint); font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: 7px; cursor: pointer; font-family: inherit; flex-shrink: 0; }
-        .rc-note-add svg { width: 10px; height: 10px; }
-        .rc-note-add:hover { color: var(--blue); border-color: var(--blue-border); }
-        .rc-note-edit { display: flex; flex-direction: column; gap: 6px; }
-        .rc-note-ta { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; font-size: 11.5px; font-family: inherit; color: var(--text); outline: none; resize: vertical; }
-        .rc-note-ta:focus { border-color: var(--blue); }
-        .rc-note-acts { display: flex; gap: 6px; }
-        .rc-note-btn { font-size: 10.5px; font-weight: 700; border: 1px solid var(--border); background: var(--card); color: var(--muted); border-radius: 7px; padding: 4px 10px; cursor: pointer; font-family: inherit; }
-        .rc-note-btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
-        .rc-cact { display: flex; align-items: center; gap: 7px; margin-top: auto; padding-top: 8px; border-top: 1px dashed var(--border); }
-        .rc-cact .rc-btn { height: 28px; padding: 0 10px; font-size: 11px; }
-        .rc-emailchip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 800; }
-        .rc-emailchip.sent { background: var(--color-cta-soft); color: #059669; border: 1px solid var(--color-cta-line); }
-        .rc-emailchip.failed { background: var(--color-danger-soft); color: var(--color-danger); border: 1px solid #FECACA; }
-        .rc-emailchip.clickable { cursor: pointer; }
-        .rc-emailchip.clickable:hover { filter: brightness(.97); }
-        .rc-morewrap { text-align: center; padding: 18px 0 4px; }
-        .rc-more { padding: 9px 20px; border-radius: 10px; border: 1px solid var(--blue-border); background: var(--blue-soft); color: var(--blue); font-size: 12.5px; font-weight: 700; cursor: pointer; font-family: inherit; transition: all .15s ease; }
-        .rc-more:hover { filter: brightness(.97); }
-        .rc-furow { display: flex; align-items: center; gap: 6px; }
-        .rc-fuchip { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 999px; background: var(--amber-soft); color: var(--amber); border: 1px solid var(--amber-border); }
-        .rc-fuchip.overdue { background: var(--color-danger-soft); color: var(--color-danger); border: 1px solid #FECACA; }
-        .rc-fuchip.done { background: var(--color-cta-soft); color: var(--green); border: 1px solid var(--color-cta-line); }
-        .rc-fu-mini { background: rgba(15,23,42,.06); border-radius: 20px; padding: 0 5px; font-weight: 800; }
-        .rc-fu-spacer { flex: 1; }
-        .rc-fubtn { font-size: 10px; font-weight: 700; border: 1px solid var(--border); background: var(--card); color: var(--muted); border-radius: 6px; padding: 3px 8px; cursor: pointer; font-family: inherit; }
-        .rc-fubtn:hover { border-color: var(--blue-border); color: var(--blue); }
-        .rc-fubtn.ghost { border: 0; background: none; color: var(--faint); }
-
-        /* ── Email workflow — slide-in panel ── */
-        .rc-overlay{position:fixed; inset:0; background:rgba(15,23,42,.32); opacity:0; pointer-events:none; transition:opacity .25s ease; z-index:70;}
-        .rc-overlay.open{opacity:1; pointer-events:auto;}
-        .rc-emailpanel{position:fixed; top:0; right:0; bottom:0; width:480px; max-width:94vw; background:#fff; z-index:71; display:flex; flex-direction:column;
-          transform:translateX(102%); transition:transform .3s cubic-bezier(.22,.68,0,1); box-shadow:-18px 0 50px -18px rgba(15,23,42,.3);}
-        .rc-emailpanel.open{transform:translateX(0);}
-        .rc-email-head{display:flex; align-items:center; gap:11px; padding:17px 20px; border-bottom:1px solid var(--border);}
-        .rc-email-ico{width:36px; height:36px; border-radius:11px; background:var(--blue-soft); color:var(--blue); border:1px solid var(--blue-border); display:inline-flex; align-items:center; justify-content:center;}
-        .rc-email-head b{font-size:14.5px; font-weight:800; flex:1; color:var(--text);}
-        .rc-email-x{width:34px; height:34px; border-radius:10px; border:0; background:none; color:var(--faint); display:inline-flex; align-items:center; justify-content:center; cursor:pointer; transition:all .2s ease;}
-        .rc-email-x:hover{background:#F1F5F9; color:var(--text);}
-        .rc-email-body{flex:1; overflow-y:auto; padding:18px 20px; display:flex; flex-direction:column; gap:14px;}
-        .rc-recipient{display:flex; align-items:center; gap:10px; background:#FAFAF9; border:1px solid var(--border); border-radius:12px; padding:10px 12px;}
-        .rc-recipient-av{width:34px; height:34px; border-radius:10px; background:linear-gradient(135deg,var(--blue),#7C3AED); color:#fff; font-weight:800; font-size:12.5px; display:flex; align-items:center; justify-content:center; flex-shrink:0;}
-        .rc-recipient b{display:block; font-size:12.5px; font-weight:800; color:var(--text);}
-        .rc-recipient span{font-size:11px; color:var(--faint);}
-        .rc-email-flabel{display:block; font-size:10.5px; font-weight:800; color:var(--faint); text-transform:uppercase; letter-spacing:.07em; margin-bottom:6px;}
-        .rc-email-input{width:100%; border:1.5px solid var(--border); border-radius:11px; padding:11px 13px; font-size:13px; color:var(--text); outline:none;
-          transition:border-color .18s ease, box-shadow .18s ease; background:#fff; font-family:inherit;}
-        .rc-email-input:focus{border-color:var(--blue); box-shadow:0 0 0 4px rgba(37,99,235,.1);}
-        .rc-email-body-input{resize:vertical; line-height:1.65; min-height:150px;}
-        .rc-email-foot{display:flex; align-items:center; gap:10px; padding:15px 20px; border-top:1px solid var(--border); background:#FBFCFE;}
+        .rc-empty p { font-size: 12.5px; color: var(--rc-muted); margin-top: 5px; line-height: 1.6; max-width: 380px; margin-left: auto; margin-right: auto; }
+        /* record */
+        .rc-record { border-left: 1px solid var(--rc-line); display: flex; flex-direction: column; min-width: 0; position: relative; background: var(--rc-surface); }
+        .rc-recbody { padding: 22px 22px 26px; overflow-y: auto; flex: 1; }
+        .rc-rechead { display: flex; gap: 14px; align-items: center; }
+        .rc-bigava { width: 46px; height: 46px; border-radius: 12px; flex-shrink: 0; background: var(--rc-brand-soft); color: var(--rc-brand-strong); display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; }
+        .rc-rechtxt { min-width: 0; }
+        .rc-recname { font-size: 16.5px; font-weight: 700; letter-spacing: -.01em; }
+        .rc-recmeta { font-size: 12.5px; color: var(--rc-faint); margin-top: 2px; }
+        .rc-actions { display: flex; gap: 8px; margin: 16px 0 4px; align-items: center; flex-wrap: wrap; }
+        .rc-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--rc-line); background: var(--rc-surface); color: var(--color-ink); font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: inherit; text-decoration: none; transition: background .15s ease, border-color .15s ease; }
+        .rc-btn:hover { background: var(--rc-canvas); }
+        .rc-btn:disabled { opacity: .5; cursor: not-allowed; }
+        .rc-btn.primary { background: var(--rc-brand); border-color: var(--rc-brand); color: #fff; }
+        .rc-btn.primary:hover { background: var(--rc-brand-strong); }
+        .rc-btn.icon { width: 34px; padding: 0; color: var(--rc-muted); }
+        .rc-btn.icon:hover { color: var(--color-ink); }
+        .rc-btn.rc-wa:hover { color: #25D366; border-color: #25D366; }
+        .rc-btn.rc-danger:hover { color: var(--color-danger); border-color: var(--color-danger); }
+        .rc-btn.copied { border-color: var(--color-cta-line); background: var(--color-cta-soft); color: var(--color-cta); }
+        .rc-btn.rc-small { height: 30px; padding: 0 12px; font-size: 12px; }
+        .rc-btn.on { background: var(--rc-brand); border-color: var(--rc-brand); color: #fff; }
+        .rc-vpill { display: inline-flex; align-items: center; font-size: 11.5px; font-weight: 700; padding: 4px 10px; border-radius: 8px; }
+        .rc-vpill.ok { background: #ECFDF5; color: #047857; border: 1px solid #A7F3D0; }
+        .rc-vpill.bad { background: var(--color-danger-soft); color: var(--color-danger); border: 1px solid #FECACA; }
+        .rc-vpill.warn { background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; }
+        .rc-sect { margin-top: 22px; font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--rc-faint); padding-bottom: 8px; border-bottom: 1px solid var(--rc-line); }
+        .rc-props { display: flex; flex-direction: column; }
+        .rc-prop { display: flex; align-items: flex-start; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--rc-line); font-size: 13px; }
+        .rc-k { width: 88px; flex-shrink: 0; font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--rc-faint); padding-top: 2px; }
+        .rc-v { flex: 1; min-width: 0; color: var(--color-ink); }
+        .rc-v a { color: var(--rc-brand-strong); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; word-break: break-all; }
+        .rc-v a:hover { text-decoration: underline; }
+        .rc-mono { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12.5px; }
+        .rc-none { color: var(--rc-line2); }
+        .rc-copy { border: 0; background: none; color: var(--rc-faint); padding: 0 2px; cursor: pointer; vertical-align: middle; }
+        .rc-copy:hover { color: var(--rc-brand); }
+        .rc-src { margin-left: 8px; font-size: 12px; font-weight: 600; }
+        .rc-ctx { font-style: italic; color: var(--rc-muted); font-size: 12.5px; line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+        .rc-fu { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .rc-fuchip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; }
+        .rc-fuchip.overdue { background: var(--color-danger-soft); color: var(--color-danger); border-color: #FECACA; }
+        .rc-fuchip.done { background: var(--color-cta-soft); color: #047857; border-color: var(--color-cta-line); }
+        .rc-fubtn { font-size: 11px; font-weight: 700; border: 1px solid var(--rc-line); background: var(--rc-surface); color: var(--rc-muted); border-radius: 6px; padding: 3px 8px; cursor: pointer; font-family: inherit; }
+        .rc-fubtn:hover { border-color: var(--rc-brand); color: var(--rc-brand-strong); }
+        .rc-notetxt { display: flex; align-items: flex-start; gap: 6px; line-height: 1.55; }
+        .rc-noteadd { display: inline-flex; align-items: center; gap: 5px; border: 1px dashed var(--rc-line2); background: none; color: var(--rc-faint); font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 8px; cursor: pointer; font-family: inherit; }
+        .rc-noteadd:hover { color: var(--rc-brand); border-color: var(--rc-brand); }
+        .rc-noteedit { display: flex; flex-direction: column; gap: 8px; }
+        .rc-noteedit textarea { width: 100%; border: 1px solid var(--rc-line); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; font-family: inherit; color: var(--color-ink); outline: none; resize: vertical; }
+        .rc-noteedit textarea:focus { border-color: var(--rc-brand); box-shadow: 0 0 0 3px rgba(37, 99, 235, .09); }
+        .rc-noteacts { display: flex; gap: 8px; }
+        /* timeline */
+        .rc-timeline { padding-top: 4px; }
+        .rc-tl-item { display: flex; gap: 12px; padding: 10px 0; }
+        .rc-tl-ico { width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0; border: 1px solid var(--rc-line); background: var(--rc-surface); display: flex; align-items: center; justify-content: center; color: var(--rc-faint); }
+        .rc-tl-ico.on { background: var(--rc-brand-soft); border-color: var(--color-brand-line); color: var(--rc-brand-strong); }
+        .rc-tl-body { flex: 1; min-width: 0; }
+        .rc-tl-title { font-size: 13px; font-weight: 600; }
+        .rc-tl-sub { font-size: 12px; color: var(--rc-faint); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+        .rc-tl-date { font-size: 11.5px; color: var(--rc-faint); white-space: nowrap; font-family: ui-monospace, 'SF Mono', Menlo, monospace; }
+        /* record empty */
+        .rc-recempty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--rc-faint); gap: 8px; text-align: center; padding: 40px; }
+        .rc-recempty-ico { width: 44px; height: 44px; border-radius: 12px; border: 1px dashed var(--rc-line2); display: flex; align-items: center; justify-content: center; color: var(--rc-faint); margin-bottom: 4px; }
+        .rc-recempty b { font-size: 13.5px; color: var(--rc-muted); }
+        .rc-recempty p { font-size: 12.5px; line-height: 1.6; max-width: 260px; }
+        /* drawer */
+        .rc-drawer { position: absolute; inset: 0; background: var(--rc-surface); z-index: 5; display: none; flex-direction: column; }
+        .rc-drawer.open { display: flex; }
+        .rc-drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--rc-line); }
+        .rc-drawer-head h3 { font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .rc-drawer-x { border: 0; background: none; color: var(--rc-faint); cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+        .rc-drawer-x:hover { color: var(--color-ink); background: var(--rc-canvas); }
+        .rc-drawer-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; flex: 1; }
+        .rc-field label { display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--rc-faint); margin-bottom: 6px; }
+        .rc-field input[type=text], .rc-field textarea { width: 100%; border: 1px solid var(--rc-line); border-radius: 8px; padding: 9px 11px; font-size: 13px; color: var(--color-ink); background: var(--rc-surface); outline: none; font-family: inherit; }
+        .rc-field input:focus, .rc-field textarea:focus { border-color: var(--rc-brand); box-shadow: 0 0 0 3px rgba(37, 99, 235, .09); }
+        .rc-field textarea { min-height: 170px; resize: vertical; line-height: 1.6; }
+        .rc-recipient { display: flex; align-items: center; gap: 10px; background: var(--rc-canvas); border: 1px solid var(--rc-line); border-radius: 10px; padding: 10px 12px; }
+        .rc-recipient-av { width: 34px; height: 34px; border-radius: 10px; background: var(--rc-brand-soft); color: var(--rc-brand-strong); font-weight: 700; font-size: 12.5px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .rc-recipient b { display: block; font-size: 12.5px; font-weight: 700; color: var(--color-ink); }
+        .rc-recipient span { font-size: 11px; color: var(--rc-faint); font-family: ui-monospace, 'SF Mono', Menlo, monospace; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px; }
+        .rc-attach { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .rc-attachchip { display: inline-flex; align-items: center; gap: 6px; background: var(--rc-brand-soft); border: 1px solid var(--color-brand-line); color: var(--rc-brand-strong); border-radius: 8px; padding: 5px 9px; font-size: 11.5px; font-weight: 600; max-width: 100%; }
+        .rc-attachchip button { border: 0; background: none; color: var(--rc-brand); cursor: pointer; display: inline-flex; padding: 0; }
+        .rc-attachchip button:hover { color: var(--color-danger); }
+        .rc-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 170px; }
+        .rc-msg { font-size: 12px; font-weight: 600; }
+        .rc-msg.ok { color: #047857; } .rc-msg.bad { color: var(--color-danger); }
+        .rc-drawer-foot { border-top: 1px solid var(--rc-line); padding: 12px 18px; display: flex; align-items: center; gap: 8px; }
+        .rc-draft { color: var(--rc-brand-strong); background: var(--rc-brand-soft); border-color: var(--color-brand-line); }
+        .rc-draft:hover { background: #DBEAFE; }
+        .rc-spin { animation: rc-spin 1s linear infinite; }
+        @keyframes rc-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+        /* actbar + toast */
+        .rc-actbar { flex-shrink: 0; background: rgba(255, 255, 255, .92); backdrop-filter: blur(10px); border-top: 1px solid var(--rc-line); padding: 11px 24px; display: flex; align-items: center; gap: 12px; }
+        .rc-actnote { font-size: 11.5px; color: var(--rc-faint); }
+        .rc-toast { position: fixed; bottom: 74px; left: 50%; transform: translateX(-50%); background: var(--color-ink); color: #fff; font-size: 12.5px; font-weight: 600; padding: 9px 16px; border-radius: 8px; display: flex; align-items: center; gap: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, .25); z-index: 70; }
+        @media (max-width: 1080px) {
+          .rc-workspace { grid-template-columns: 1fr; }
+          .rc-record { border-left: 0; border-top: 1px solid var(--rc-line); }
+        }
       `}</style>
     </div>
   );
