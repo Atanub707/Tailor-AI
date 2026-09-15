@@ -38,6 +38,8 @@ interface RecruitersScreenProps {
   focusRecruiter?: { name?: string | null; url?: string | null } | null;
 }
 
+const PAGE_SIZE = 24;
+
 const PIPELINE: Array<{ value: string | null; label: string }> = [
   { value: null, label: 'No status' },
   { value: 'replied', label: 'Replied' },
@@ -99,13 +101,14 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
   const [attachMode, setAttachMode] = useState<'none' | 'master' | 'file'>('none');
   const [attachFile, setAttachFile] = useState<{ name: string; data: string } | null>(null);
   const [masterCvName, setMasterCvName] = useState<string | null>(null);
-  const [shownCount, setShownCount] = useState(24);
+  const [page, setPage] = useState(1);
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [emailHistory, setEmailHistory] = useState<Record<string, SentEmail[]>>({});
   const [verifyMap, setVerifyMap] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const rowsRef = useRef<HTMLDivElement>(null);
 
   // Load the saved Master CV's filename so the attachment chip shows the
   // real CV name (validated on the Master CV screen), not a generic label.
@@ -345,12 +348,25 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
   );
   const typeCountsMap = typeCounts(contacts);
   const visible = sortContacts<Contact>(visibleRaw.filter((c: Contact) => filterByType(c, typeFilter)), sortBy);
-  const shown = visible.slice(0, shownCount);
-  const canLoadMore = shownCount < visible.length;
+  const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const shown = visible.slice(pageStart, pageStart + PAGE_SIZE);
+  const pageNums: Array<number | '…'> = (() => {
+    const out: Array<number | '…'> = [];
+    for (let i = 1; i <= totalPages; i++) {
+      if (i === 1 || i === totalPages || Math.abs(i - currentPage) <= 1) out.push(i);
+      else if (out[out.length - 1] !== '…') out.push('…');
+    }
+    return out;
+  })();
 
   const selected = useMemo(() => contacts.find((c) => c.id === selectedId) || null, [contacts, selectedId]);
+  const paneOpen = !!selected || composeOpen;
 
-  useEffect(() => setShownCount(24), [typeFilter, company, q, pipelineFilter]);
+  useEffect(() => setPage(1), [typeFilter, company, q, pipelineFilter, sortBy]);
+
+  useEffect(() => { rowsRef.current?.scrollTo({ top: 0 }); }, [currentPage]);
 
   // Auto-load email history for the selected record (feeds the Activity feed).
   useEffect(() => {
@@ -379,7 +395,21 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
     }
   }, [focusedId, visible.length]);
 
-  const displayName = (c: Contact): string => c.name || c.recruiterName || TYPE_LABELS[c.type] || c.typeLabel || 'Contact';
+  // Proper designation for every contact — a real work function, never the
+  // generic 'Company'/'Recruiter' placeholder. Derived from the person name
+  // when present, otherwise from the email mailbox (careers@, jobs@, hr@…).
+  const designationOf = (c: Contact): string => {
+    if (c.name || c.recruiterName) return TYPE_LABELS[c.type] || c.typeLabel || 'Recruiter';
+    const local = (c.email || '').split('@')[0].toLowerCase();
+    if (/career/.test(local)) return 'Careers team';
+    if (/(^|[._-])jobs?($|[._-])|hiring|apply|recruit(?!er)/.test(local)) return 'Hiring team';
+    if (/recruit|talent|staffing|sourc/.test(local)) return 'Recruiting team';
+    if (/(^|[._-])hr($|[._-])|people|humanresources/.test(local)) return 'HR / People team';
+    if (/info|hello|contact|enquir|inquir|general|office/.test(local)) return 'General inquiries';
+    return TYPE_LABELS[c.type] === 'Company' || !TYPE_LABELS[c.type] ? 'Hiring team' : (TYPE_LABELS[c.type] || c.typeLabel);
+  };
+
+  const displayName = (c: Contact): string => c.name || c.recruiterName || designationOf(c);
 
   const initialsOf = (c: Contact): string => {
     const n = displayName(c);
@@ -464,7 +494,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
       </header>
 
       <div className="rc-main">
-        <div className="rc-workspace">
+        <div className={`rc-workspace ${paneOpen ? "has-record" : ""}`}>
           {/* ═══ Directory list ═══ */}
           <section className="rc-list">
             <div className="rc-toolbar">
@@ -476,7 +506,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
               <div className="rc-seg">
                 {['all', 'recruit', 'hr', 'careers', 'company'].map((t) => (
                   <button key={t} className={`rc-segbtn ${typeFilter === t ? 'on' : ''}`} onClick={() => setTypeFilter(t)}>
-                    {t === 'all' ? 'All' : TYPE_LABELS[t]}
+                    {t === 'all' ? 'All contacts' : TYPE_LABELS[t]}
                     <span>{t === 'all' ? contacts.length : typeCountsMap[t] || 0}</span>
                   </button>
                 ))}
@@ -504,7 +534,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
               <span>Name</span><span>Company</span><span>Email</span><span>Phone</span><span>Outreach</span>
             </div>
 
-            <div className="rc-rows">
+            <div className="rc-rows" ref={rowsRef}>
               {loading ? (
                 <p className="rc-loading">Loading contacts…</p>
               ) : visible.length === 0 ? (
@@ -532,8 +562,9 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
                             {c.jobCount > 1 && <span className="rc-jobcount">{c.jobCount} jobs</span>}
                           </div>
                           <div className="rc-rl">
-                            {TYPE_LABELS[c.type] || c.typeLabel}
-                            {c.jobRole ? ` · ${c.jobRole}` : ''}
+                            {(c.name || c.recruiterName)
+                              ? [designationOf(c), c.jobRole].filter(Boolean).join(' · ')
+                              : (c.jobRole || '')}
                           </div>
                         </div>
                       </div>
@@ -555,19 +586,24 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
                       <div>{outreachBadge(c)}</div>
                     </div>
                   ))}
-                  {canLoadMore && (
-                    <div className="rc-morewrap">
-                      <button className="rc-more" onClick={() => setShownCount((s) => s + 24)}>
-                        Show {Math.min(24, visible.length - shownCount)} more ({visible.length - shownCount} left)
-                      </button>
-                    </div>
-                  )}
                 </>
               )}
             </div>
+            {!loading && visible.length > 0 && (
+              <div className="rc-pager">
+                <span className="rc-pager-info">{pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, visible.length)} of {visible.length}</span>
+                <span className="rc-spacer" />
+                <button className="rc-pagebtn" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)} aria-label="Previous page">‹</button>
+                {pageNums.map((n, i) => n === '…'
+                  ? <span key={`gap-${i}`} className="rc-pagedots">…</span>
+                  : <button key={n} className={`rc-pagebtn ${n === currentPage ? 'on' : ''}`} onClick={() => setPage(n)}>{n}</button>)}
+                <button className="rc-pagebtn" disabled={currentPage >= totalPages} onClick={() => setPage(currentPage + 1)} aria-label="Next page">›</button>
+              </div>
+            )}
           </section>
 
-          {/* ═══ Record pane ═══ */}
+          {/* ═══ Record pane — hidden until a contact is picked ═══ */}
+          {paneOpen && (
           <aside className="rc-record">
             {selected ? (
               <div className="rc-recbody">
@@ -575,8 +611,12 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
                   <div className="rc-bigava">{initialsOf(selected)}</div>
                   <div className="rc-rechtxt">
                     <div className="rc-recname">{displayName(selected)}</div>
-                    <div className="rc-recmeta">{(TYPE_LABELS[selected.type] || selected.typeLabel)} · {selected.company}</div>
+                    <div className="rc-recmeta">{(selected.name || selected.recruiterName) ? `${designationOf(selected)} · ${selected.company}` : selected.company}</div>
                   </div>
+                  <span className="rc-spacer" />
+                  <button className="rc-pane-x" onClick={() => setSelectedId(null)} title="Close" aria-label="Close contact details">
+                    <X size={15} />
+                  </button>
                 </div>
 
                 <div className="rc-actions">
@@ -644,7 +684,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
                     </div>
                   </div>
                   <div className="rc-prop"><div className="rc-k">Company</div><div className="rc-v">{selected.company}</div></div>
-                  <div className="rc-prop"><div className="rc-k">Role</div><div className="rc-v">{TYPE_LABELS[selected.type] || selected.typeLabel}</div></div>
+                  <div className="rc-prop"><div className="rc-k">Designation</div><div className="rc-v">{designationOf(selected)}</div></div>
                   <div className="rc-prop">
                     <div className="rc-k">Source</div>
                     <div className="rc-v">
@@ -721,13 +761,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
                   ))}
                 </div>
               </div>
-            ) : (
-              <div className="rc-recempty">
-                <div className="rc-recempty-ico"><UserPlus size={20} /></div>
-                <b>No contact selected</b>
-                <p>Pick a contact from the directory to see their details, outreach status and activity.</p>
-              </div>
-            )}
+            ) : null}
 
             {/* ═══ Compose drawer (fills the record pane, as designed) ═══ */}
             <div className={`rc-drawer ${composeOpen ? 'open' : ''}`} aria-hidden={!composeOpen}>
@@ -816,6 +850,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
               </div>
             </div>
           </aside>
+          )}
         </div>
       </div>
 
@@ -843,7 +878,8 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
         .rc-summary { display: flex; gap: 14px; align-items: center; font-size: 12.5px; color: var(--rc-faint); }
         .rc-summary b { color: var(--color-ink); font-weight: 700; }
         .rc-main { flex: 1; min-height: 0; width: 100%; max-width: 1440px; margin: 0 auto; padding: 20px 24px 22px; display: flex; flex-direction: column; }
-        .rc-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 408px; grid-template-rows: minmax(0, 1fr); background: var(--rc-surface); border: 1px solid var(--rc-line); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
+        .rc-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); background: var(--rc-surface); border: 1px solid var(--rc-line); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
+.rc-workspace.has-record { grid-template-columns: minmax(0, 1fr) 408px; }
         /* toolbar */
         .rc-toolbar { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--rc-line); flex-wrap: wrap; }
         .rc-search { flex: 1; min-width: 170px; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; background: var(--rc-canvas); border: 1px solid var(--rc-line); border-radius: 8px; color: var(--rc-faint); }
@@ -887,9 +923,15 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
         .rc-st-none { color: var(--rc-faint); font-weight: 500; } .rc-st-none .rc-dot { background: var(--rc-line2); }
         .rc-st-bounce { color: var(--color-danger); } .rc-st-bounce .rc-dot { background: var(--color-danger); }
         .rc-when { color: var(--rc-faint); font-weight: 500; margin-left: 2px; }
-        .rc-morewrap { text-align: center; padding: 14px 0; }
-        .rc-more { padding: 7px 16px; border-radius: 8px; border: 1px solid var(--rc-line); background: var(--rc-surface); color: var(--rc-muted); font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
-        .rc-more:hover { border-color: var(--rc-brand); color: var(--rc-brand-strong); }
+        .rc-pager { display: flex; align-items: center; gap: 6px; padding: 10px 16px; border-top: 1px solid var(--rc-line); flex-shrink: 0; }
+        .rc-pager-info { font-size: 12px; color: var(--rc-faint); }
+        .rc-pagebtn { min-width: 30px; height: 30px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--rc-line); background: var(--rc-surface); color: var(--rc-muted); font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: inherit; }
+        .rc-pagebtn:hover:not(:disabled) { border-color: var(--rc-brand); color: var(--rc-brand-strong); }
+        .rc-pagebtn:disabled { opacity: .45; cursor: not-allowed; }
+        .rc-pagebtn.on { background: var(--rc-brand); border-color: var(--rc-brand); color: #fff; }
+        .rc-pagedots { color: var(--rc-faint); font-size: 12.5px; padding: 0 2px; }
+        .rc-pane-x { border: 0; background: none; color: var(--rc-faint); cursor: pointer; padding: 5px; border-radius: 8px; display: inline-flex; flex-shrink: 0; }
+        .rc-pane-x:hover { color: var(--color-ink); background: var(--rc-canvas); }
         .rc-empty { text-align: center; padding: 60px 20px; }
         .rc-empty-ico { width: 52px; height: 52px; border-radius: 14px; background: var(--rc-brand-soft); border: 1px solid var(--color-brand-line); color: var(--rc-brand); display: flex; align-items: center; justify-content: center; margin: 0 auto 14px; }
         .rc-empty b { font-size: 14px; }
@@ -954,10 +996,6 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
         .rc-tl-sub { font-size: 12px; color: var(--rc-faint); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
         .rc-tl-date { font-size: 11.5px; color: var(--rc-faint); white-space: nowrap; font-family: ui-monospace, 'SF Mono', Menlo, monospace; }
         /* record empty */
-        .rc-recempty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--rc-faint); gap: 8px; text-align: center; padding: 40px; }
-        .rc-recempty-ico { width: 44px; height: 44px; border-radius: 12px; border: 1px dashed var(--rc-line2); display: flex; align-items: center; justify-content: center; color: var(--rc-faint); margin-bottom: 4px; }
-        .rc-recempty b { font-size: 13.5px; color: var(--rc-muted); }
-        .rc-recempty p { font-size: 12.5px; line-height: 1.6; max-width: 260px; }
         /* drawer */
         .rc-drawer { position: absolute; inset: 0; background: var(--rc-surface); z-index: 5; display: none; flex-direction: column; }
         .rc-drawer.open { display: flex; }
@@ -989,7 +1027,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
         /* toast */
         .rc-toast { position: fixed; bottom: 74px; left: 50%; transform: translateX(-50%); background: var(--color-ink); color: #fff; font-size: 12.5px; font-weight: 600; padding: 9px 16px; border-radius: 8px; display: flex; align-items: center; gap: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, .25); z-index: 70; }
         @media (max-width: 1080px) {
-          .rc-workspace { grid-template-columns: 1fr; }
+          .rc-workspace, .rc-workspace.has-record { grid-template-columns: 1fr; }
           .rc-record { border-left: 0; border-top: 1px solid var(--rc-line); }
         }
       `}</style>
