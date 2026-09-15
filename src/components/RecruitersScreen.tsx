@@ -66,7 +66,13 @@ const isPersonish = (n: string): boolean => /^\p{Lu}[\p{L}'’-]*\s+\p{Lu}/u.tes
 // Scraped context is sometimes raw HTML fragments or bare URLs — strip both
 // before showing it as a quote, and hide the row when nothing meaningful remains.
 const cleanContext = (s: string): string =>
-  s.replace(/<[^>]*>/g, ' ').replace(/https?:\/\/\S+/g, ' ').replace(/\s+/g, ' ').trim();
+  s
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/<[^>]*$/g, ' ')
+    .replace(/\b[\w-]+=["'][^"']*["']/g, ' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
 export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onClose, focusRecruiter }) => {
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -79,7 +85,6 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
   const [sortBy, setSortBy] = useState('last_seen');
   const [loading, setLoading] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [copiedAll, setCopiedAll] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -293,17 +298,6 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
       if (!res.ok) { setVerifyMap((m) => ({ ...m, [c.id]: 'unknown' })); return; }
       setVerifyMap((m) => ({ ...m, [c.id]: d.detail }));
     } catch { setVerifyMap((m) => ({ ...m, [c.id]: 'unknown' })); }
-  };
-
-  const copyAll = async () => {
-    const emails = contacts.map((c) => c.email).filter((e): e is string => !!e);
-    if (emails.length === 0) return;
-    try {
-      await navigator.clipboard.writeText(emails.join('\n'));
-      setCopiedAll(true);
-      setTimeout(() => setCopiedAll(false), 1800);
-      showToast(`${emails.length} emails copied to clipboard`);
-    } catch { showToast('Could not copy'); }
   };
 
   const hideContact = async (id: string) => {
@@ -825,15 +819,6 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
         </div>
       </div>
 
-      {/* Sticky action bar */}
-      <div className="rc-actbar">
-        <span className="rc-actnote">Emails are pulled from job descriptions you already scrape.</span>
-        <div className="rc-spacer" />
-        <button className={`rc-btn ${copiedAll ? 'copied' : ''}`} onClick={copyAll} disabled={!contacts.some((c) => c.email)}>
-          {copiedAll ? <><CheckCircle2 size={14} /> Emails copied ✓</> : <><Copy size={14} /> Copy all emails</>}
-        </button>
-      </div>
-
       {toast && (
         <div className="rc-toast">
           <CheckCircle2 size={14} /> {toast}
@@ -857,7 +842,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
         .rc-ttl span { font-size: 11px; color: var(--rc-faint); font-weight: 500; }
         .rc-summary { display: flex; gap: 14px; align-items: center; font-size: 12.5px; color: var(--rc-faint); }
         .rc-summary b { color: var(--color-ink); font-weight: 700; }
-        .rc-main { flex: 1; min-height: 0; width: 100%; max-width: 1440px; margin: 0 auto; padding: 20px 24px 16px; display: flex; flex-direction: column; }
+        .rc-main { flex: 1; min-height: 0; width: 100%; max-width: 1440px; margin: 0 auto; padding: 20px 24px 22px; display: flex; flex-direction: column; }
         .rc-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 408px; grid-template-rows: minmax(0, 1fr); background: var(--rc-surface); border: 1px solid var(--rc-line); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
         /* toolbar */
         .rc-toolbar { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--rc-line); flex-wrap: wrap; }
@@ -877,7 +862,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
         /* list */
         .rc-list { min-width: 0; display: flex; flex-direction: column; }
         .rc-listhead { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, .9fr) 108px; gap: 12px; padding: 9px 16px 9px 18px; border-bottom: 1px solid var(--rc-line); font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--rc-faint); }
-        .rc-rows { flex: 1; min-height: 0; overflow-y: auto; }
+        .rc-rows { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 8px; }
         .rc-loading { padding: 26px 18px; color: var(--rc-faint); font-size: 13px; }
         .rc-row { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, .9fr) 108px; gap: 12px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--rc-line); cursor: pointer; position: relative; }
         .rc-row:hover { background: #F8FAFC; }
@@ -927,7 +912,6 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
         .rc-btn.icon:hover { color: var(--color-ink); }
         .rc-btn.rc-wa:hover { color: #25D366; border-color: #25D366; }
         .rc-btn.rc-danger:hover { color: var(--color-danger); border-color: var(--color-danger); }
-        .rc-btn.copied { border-color: var(--color-cta-line); background: var(--color-cta-soft); color: var(--color-cta); }
         .rc-btn.rc-small { height: 30px; padding: 0 12px; font-size: 12px; }
         .rc-btn.on { background: var(--rc-brand); border-color: var(--rc-brand); color: #fff; }
         .rc-vpill { display: inline-flex; align-items: center; font-size: 11.5px; font-weight: 700; padding: 4px 10px; border-radius: 8px; }
@@ -1002,9 +986,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
         .rc-draft:hover { background: #DBEAFE; }
         .rc-spin { animation: rc-spin 1s linear infinite; }
         @keyframes rc-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
-        /* actbar + toast */
-        .rc-actbar { flex-shrink: 0; background: rgba(255, 255, 255, .92); backdrop-filter: blur(10px); border-top: 1px solid var(--rc-line); padding: 11px 24px; display: flex; align-items: center; gap: 12px; }
-        .rc-actnote { font-size: 11.5px; color: var(--rc-faint); }
+        /* toast */
         .rc-toast { position: fixed; bottom: 74px; left: 50%; transform: translateX(-50%); background: var(--color-ink); color: #fff; font-size: 12.5px; font-weight: 600; padding: 9px 16px; border-radius: 8px; display: flex; align-items: center; gap: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, .25); z-index: 70; }
         @media (max-width: 1080px) {
           .rc-workspace { grid-template-columns: 1fr; }
