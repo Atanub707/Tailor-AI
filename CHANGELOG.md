@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.10.0 (2026-09-15)
+
+### 🎯 Tailor correctness (rewrite enforcement + honest scoring)
+
+- Enforced real rewrites: bullet echoes are rejected and retried once; a double echo now fails closed with `TailorVerificationFailedError` instead of shipping an identical CV.
+- Scoring counts only genuine keyword gains — placements are verified against the experience text (C++ no longer matches "c"), and gap analysis is filtered against the master CV before any keyword is called missing.
+- The summary is tailored too: rewritten with the same rules, verified, and credited in the score (weight 0.5 like the other sections).
+
+### 🔍 Search fixes
+
+- Remote filter is now strict when work mode is explicit: Remote requests return only remote/hybrid postings on Ashby, Greenhouse and Lever (uses each provider's own signal — `isRemote`, `workplaceType`, indexed work mode).
+- Search window defaults to 7 days (was 24h) so a quiet day doesn't read as "no jobs"; the empty state now says what to do instead of implying failure.
+
+### ⚙️ Settings — model catalog
+
+- Auto-refreshing model catalog: refresh on demand (`/api/models?force=1`), stale-while-revalidate when Settings opens, plus a 12h background scheduler (`MODEL_CATALOG_REFRESH_HOURS`); a failed refresh keeps the last good catalog.
+- Honest "N new models" badge: new models are diffed per user against what they've seen (`model_catalog_seen`), so the badge clears once viewed.
+
 ## v2.9.0 (2026-09-07)
 
 ### 🔌 LLM provider fixes (OpenCode Go)
