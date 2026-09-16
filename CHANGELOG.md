@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.11.0 (2026-09-16)
+
+### ✍️ CV name keeps your capitalisation
+
+- The candidate name now renders exactly as typed — "atanu biswas" stays lowercase, "ATANU BISWAS" stays uppercase — in the live preview (all four templates) and in the PDF/txt downloads. Previously the name was force-uppercased in rendering.
+- Removed the forced uppercase from five preview elements and five generator paths (harvard · jake · atanu · atanu-pro + plain-text export). The atanu template's 3px letter-spacing (tuned for all-caps) is reduced to 0.5px so mixed-case names read cleanly.
+- Job titles and section headings still render uppercase by template design; only the name follows your typing.
+
 ## v2.10.0 (2026-09-15)
 
 ### 🎯 Tailor correctness (rewrite enforcement + honest scoring)

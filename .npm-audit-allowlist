@@ -9,3 +9,4 @@
 # Find advisory IDs from: npm audit --json
 # Examples:
 # GHSA-xxxx-xxxx-xxxx  # no patch available, dev-only dep
+GHSA-82fw-gwwq-j7x9  # @vitest/mocker + vitest — dev-only test runner; fix requires vitest 5 major bump, tracked for the next tooling upgrade
