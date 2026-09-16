@@ -334,7 +334,6 @@ function buildBlocks(cv: PdfCvShape, s: CvTemplateStyle, template: TemplateId = 
             fontSize: `${pt(s.nameSize, zoom)}px`,
             fontWeight: s.nameWeight,
             color: '#111827',
-            textTransform: 'uppercase',
             letterSpacing: s.nameSize >= 20 ? '0.05em' : '0.02em',
           }}
         >
@@ -539,7 +538,7 @@ function buildHarvardBlocks(cv: PdfCvShape): CvBlock[] {
     key: 'header',
     render: (zoom) => (
       <div style={{ marginBottom: pt(8, zoom) }}>
-        <div style={{ textAlign: 'center', fontSize: `${pt(15, zoom)}px`, fontWeight: 700, textTransform: 'uppercase', color: '#111111' }}>
+        <div style={{ textAlign: 'center', fontSize: `${pt(15, zoom)}px`, fontWeight: 700, color: '#111111' }}>
           {cv.candidateName || 'CANDIDATE NAME'}
         </div>
         {contacts.length > 0 && (
@@ -749,8 +748,7 @@ function buildAtanuBlocks(cv: PdfCvShape, s: CvTemplateStyle): CvBlock[] {
             fontSize: `${pt(24, zoom)}px`,
             fontWeight: 700,
             color: '#0F172A',
-            textTransform: 'uppercase',
-            letterSpacing: '3px',
+            letterSpacing: '0.5px',
             marginBottom: pt(3, zoom),
           }}
         >
@@ -1002,7 +1000,7 @@ function buildAtanuProBlocks(cv: PdfCvShape, s: CvTemplateStyle): CvBlock[] {
     key: 'header',
     render: (zoom) => (
       <div style={{ marginBottom: pt(8, zoom) }}>
-        <div style={{ fontSize: `${pt(s.nameSize, zoom)}px`, fontWeight: 800, color: NAVY, letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+        <div style={{ fontSize: `${pt(s.nameSize, zoom)}px`, fontWeight: 800, color: NAVY, letterSpacing: '0.5px' }}>
           {cv.candidateName || 'CANDIDATE NAME'}
         </div>
         {cv.targetRole && (
@@ -1198,7 +1196,7 @@ function buildJakeBlocks(cv: PdfCvShape, s: CvTemplateStyle): CvBlock[] {
     key: 'header',
     render: (zoom) => (
       <div style={{ marginBottom: pt(8, zoom) }}>
-        <div style={{ fontSize: `${pt(24, zoom)}px`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: '#111111' }}>
+        <div style={{ fontSize: `${pt(24, zoom)}px`, fontWeight: 700, letterSpacing: '1px', color: '#111111' }}>
           {cv.candidateName || 'CANDIDATE NAME'}
         </div>
         {cv.targetRole && (

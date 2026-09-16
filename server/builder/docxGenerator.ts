@@ -248,10 +248,10 @@ function generateAtanuPdf(cv: TailoredCv): Promise<Buffer> {
     };
 
     // ── Header: name + contact ──
-    const name = sanitizeText(cv.candidateName).toUpperCase() || 'CANDIDATE NAME';
+    const name = sanitizeText(cv.candidateName) || 'CANDIDATE NAME';
     ensurePageSpace(60);
     const NAME_SIZE = 24;
-    const NAME_SPACING = 3;
+    const NAME_SPACING = 0.5;
     doc.font('HelveticaEmbed-Bold').fontSize(NAME_SIZE);
     let nameWidth = 0;
     for (const ch of Array.from(name)) nameWidth += doc.widthOfString(ch) + NAME_SPACING;
@@ -684,7 +684,7 @@ function generateAtanuProPdf(cv: TailoredCv): Promise<Buffer> {
     };
 
     // ── Header: name + title + contact + accent rule ──
-    const name = sanitizeText(cv.candidateName).toUpperCase() || 'CANDIDATE NAME';
+    const name = sanitizeText(cv.candidateName) || 'CANDIDATE NAME';
     ensurePageSpace(60);
     doc.font('HelveticaEmbed-Bold').fontSize(geo.nameSize).fillColor(NAVY).text(name, leftMargin, doc.y, { width: contentWidth });
     if (cv.targetRole) {
@@ -914,7 +914,7 @@ function generateHarvardPdf(cv: TailoredCv): Promise<Buffer> {
     };
 
     // Centered name (bold, 15pt, uppercase)
-    const name = sanitizeText(cv.candidateName).toUpperCase() || 'CANDIDATE NAME';
+    const name = sanitizeText(cv.candidateName) || 'CANDIDATE NAME';
     ensurePageSpace(40);
     doc.font('HelveticaEmbed-Bold').fontSize(15).fillColor(INK).text(name, leftMargin, doc.y, { align: 'center', width: contentWidth });
     doc.moveDown(0.2);
@@ -1132,7 +1132,7 @@ function generateJakePdf(cv: TailoredCv): Promise<Buffer> {
     };
 
     // Header: uppercase name left, role, contact
-    const name = sanitizeText(cv.candidateName).toUpperCase() || 'CANDIDATE NAME';
+    const name = sanitizeText(cv.candidateName) || 'CANDIDATE NAME';
     ensurePageSpace(60);
     doc.font('HelveticaEmbed-Bold').fontSize(24).fillColor('#111111').text(name, leftMargin, doc.y, { width: contentWidth });
     doc.moveDown(0.15);
@@ -1364,7 +1364,7 @@ function generateJakePdf(cv: TailoredCv): Promise<Buffer> {
 export function generatePlainTextCv(cv: TailoredCv): string {
   const lines: string[] = [];
 
-  lines.push(`${cv.candidateName.toUpperCase()}`);
+  lines.push(cv.candidateName);
   if (cv.targetRole) lines.push(`Target Role: ${cv.targetRole}`);
 
   const contactLinks = getContactLinks(cv);
