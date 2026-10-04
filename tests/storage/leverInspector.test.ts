@@ -140,7 +140,7 @@ describe('Lever inspector — parser (golden fixture, no network)', () => {
       <input name="cards[c1][field1]" type="radio" value="Yes"><input name="cards[c1][field1]" type="radio" value="No">
       <input name="cards[c1][field4]" type="radio" value="Yes"><input name="cards[c1][field4]" type="radio" value="No">
       <input type="hidden" name="accountId" value="x"><input type="hidden" name="origin" value="y">
-      <div data-qa="consent-section">consent</div></form>`;
+      <div data-qa="consent-section"><input type="checkbox" role="checkbox" name="agree">consent</div></form>`;
     const { fields, providerMetadata } = parseLeverForm(html);
     const eeo = fields.filter((f) => f.category === 'EEO');
     expect(eeo.some((f) => f.label.includes('Gender'))).toBe(true);

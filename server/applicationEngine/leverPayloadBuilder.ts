@@ -77,6 +77,17 @@ function optionValid(selected: string, options: string[] | undefined): boolean {
   return options.includes(selected);
 }
 
+/** Resolve a typed value to the provider's EXACT option text (case/whitespace
+ *  insensitive). Free-text fields (no options) pass through unchanged.
+ *  Returns null when the value genuinely matches no option. */
+function canonicalOption(value: string, options: string[] | undefined): string | null {
+  if (!options || options.length === 0) return value;
+  const norm = (v: string) => v.trim().replace(/\s+/g, ' ').toLowerCase();
+  const target = norm(value);
+  const hit = options.find((o) => norm(String(o)) === target);
+  return hit !== undefined ? String(hit) : null;
+}
+
 /** Builds the LOCAL normalized payload. Throws PayloadBuildError on any
  *  invalid state — never returns an executable payload for invalid input. */
 export function buildLeverPayload(input: PayloadInput): MultipartPayload {
@@ -132,20 +143,23 @@ export function buildLeverPayload(input: PayloadInput): MultipartPayload {
         const text = String(item);
         if (seen.has(text)) throw new PayloadBuildError('VALIDATION_FAILED', `Duplicate multi-select value "${text}" for ${f.label}.`);
         seen.add(text);
-        if (!optionValid(text, f.options)) throw new PayloadBuildError('VALIDATION_FAILED', `Option "${text}" not valid for ${f.label}.`);
-        parts.push({ kind: 'TEXT', name: f.providerFieldId, value: text, classification: 'REQUIRED', semantic: true });
+        const optM = canonicalOption(text, f.options);
+        if (optM === null) throw new PayloadBuildError('VALIDATION_FAILED', `Option "${text}" not valid for ${f.label}. Allowed: ${(f.options || []).join(' | ').slice(0, 180)}`);
+        parts.push({ kind: 'TEXT', name: f.providerFieldId, value: optM, classification: 'REQUIRED', semantic: true });
       }
       continue;
     }
     if (typeof v === 'boolean') {
       const text = v ? 'Yes' : 'No';
-      if (!optionValid(text, f.options)) throw new PayloadBuildError('VALIDATION_FAILED', `Boolean value "${text}" not valid for ${f.label}.`);
-      parts.push({ kind: 'TEXT', name: f.providerFieldId, value: text, classification: 'REQUIRED', semantic: true });
+      const optB = canonicalOption(text, f.options);
+      if (optB === null) throw new PayloadBuildError('VALIDATION_FAILED', `Boolean value "${text}" not valid for ${f.label}. Allowed: ${(f.options || []).join(' | ').slice(0, 180)}`);
+      parts.push({ kind: 'TEXT', name: f.providerFieldId, value: optB, classification: 'REQUIRED', semantic: true });
       continue;
     }
     const text = String(v);
-    if (!optionValid(text, f.options)) throw new PayloadBuildError('VALIDATION_FAILED', `Value "${text}" not valid for ${f.label}.`);
-    parts.push({ kind: 'TEXT', name: f.providerFieldId, value: text, classification: 'REQUIRED', semantic: true });
+    const optS = canonicalOption(text, f.options);
+    if (optS === null) throw new PayloadBuildError('VALIDATION_FAILED', `Value "${text}" not valid for ${f.label}. Allowed: ${(f.options || []).join(' | ').slice(0, 180)} — update it in Application Answers.`);
+    parts.push({ kind: 'TEXT', name: f.providerFieldId, value: optS, classification: 'REQUIRED', semantic: true });
   }
 
   // Consent: marketing opt-in only with an EXPLICIT user choice; legal/unknown

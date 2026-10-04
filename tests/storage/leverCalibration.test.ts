@@ -206,7 +206,7 @@ describe('Optional vs required unresolved semantics', () => {
   it('NEEDS_REVIEW + missing required inputs surfaces BOTH counts', async () => {
     const job = makeJob('https://jobs.lever.co/veo/e1/apply', 'lever');
     const pkg = await makePackage(job);
-    const html = FORM_HTML('<input name="cards[c1][field1]" type="text" required><div data-qa="consent-section">consent</div>');
+    const html = FORM_HTML('<input name="cards[c1][field1]" type="text" required><div data-qa="consent-section"><input type="checkbox" role="checkbox" name="agree">consent</div>');
     const adapter = {
       provider: 'lever', detect: () => ({}), inspect: async () => ({ provider: 'lever', target: {} as any, fields: parseLeverForm(html).fields, discoveredAt: new Date().toISOString(), fingerprint: 'fp' }),
     };

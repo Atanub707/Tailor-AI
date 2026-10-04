@@ -1,0 +1,13 @@
+# Tailor AI — Local Laya decision runtime
+#
+# The official Laya package. Requires Python >= 3.10 (its own dependency
+# floor: huggingface_hub 1.x, transformers 5.x, torch 2.14).
+#
+# Install (inside a Python 3.10+ virtualenv):
+#   python3.12 -m venv .venv && source .venv/bin/activate
+#   pip install -r requirements.txt
+#   python service.py
+#
+# Laya is Apache-2.0; weights download from the Hugging Face Hub on first use
+# and are cached locally (~1-2 GB depending on checkpoint).
+laya>=0.3.6

@@ -25,12 +25,16 @@ export function isAtsCycleRunning(): boolean {
 export class AtsScheduler {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  private runningSince = 0;
+  private runToken = 0;
 
   constructor(
     private readonly platform: string,
     private readonly cfg: AtsIndexConfig,
     private readonly tickMs: number,
-    private readonly batchSize: number
+    private readonly batchSize: number,
+    /** Watchdog cap — generous by design: it breaks permanent freezes only. */
+    private readonly hardCapMs: number = batchSize * (cfg.timeoutMs * 2) + 60e3
   ) {}
 
   start(): void {
@@ -54,8 +58,21 @@ export class AtsScheduler {
   }
 
   private async tick(): Promise<void> {
-    if (this.running) return;
+    if (this.running) {
+      // A previous cycle's promise never settled. The inProgress guard must
+      // never be a one-way latch: one hung await would otherwise freeze this
+      // platform's ingestion permanently (observed: 4 days of no Greenhouse
+      // syncs while every board sat due).
+      const stuckFor = Date.now() - this.runningSince;
+      if (stuckFor < this.hardCapMs) return;
+      console.warn(
+        `[ATS Index][${this.platform}] watchdog: previous cycle still running after ${Math.round(stuckFor / 1000)}s — resetting`
+      );
+      this.running = false;
+    }
     this.running = true;
+    this.runningSince = Date.now();
+    const token = ++this.runToken;
     anyCycleRunning = true;
     try {
       const boards = pickDueBoards(this.platform, this.batchSize);
@@ -73,8 +90,12 @@ export class AtsScheduler {
     } catch (err: any) {
       console.error(`[ATS Index][${this.platform}] cycle error: ${String(err?.message || err).slice(0, 200)}`);
     } finally {
-      this.running = false;
-      anyCycleRunning = false;
+      // Only the CURRENT run may clear the flag — a watchdog-replaced run
+      // finishing late must not open the door to overlapping cycles.
+      if (this.runToken === token) {
+        this.running = false;
+        anyCycleRunning = false;
+      }
     }
   }
 }

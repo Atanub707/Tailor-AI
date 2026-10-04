@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Job Portals — v1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{--brand:#2563EB;--brand-strong:#1D4ED8;--brand-soft:#EFF6FF;--brand-line:#BFDBFE;--ink:#0F172A;--muted:#475569;--faint:#64748B;--canvas:#F9FAFB;--surface:#FFF;--hairline:#E2E8F0;--ring:rgba(37,99,235,.18);--cta:#059669}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--canvas);color:var(--ink);font-size:14px;-webkit-font-smoothing:antialiased}
+  button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+  input{font:inherit}
+
+  /* shell */
+  .appbar{display:flex;align-items:center;gap:14px;height:56px;padding:0 20px;background:var(--surface);border-bottom:1px solid var(--hairline)}
+  .logo{width:30px;height:30px;border-radius:8px;background:var(--brand);color:#fff;font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center}
+  .appname{font-weight:700;font-size:14.5px}
+  .appname small{display:block;font-size:9.5px;letter-spacing:.14em;color:var(--faint);font-weight:600;text-transform:uppercase}
+  .spacer{flex:1}
+  .navlinks{display:flex;gap:18px;font-size:13px;color:var(--muted);font-weight:500}
+  .navlinks a{color:inherit;text-decoration:none;padding:6px 2px;border-bottom:2px solid transparent}
+  .navlinks a.active{color:var(--ink);border-bottom-color:var(--brand)}
+  .userchip{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--hairline);border-radius:8px;padding:5px 10px 5px 6px;font-size:12.5px;font-weight:600}
+
+  /* page */
+  .page{max-width:1040px;margin:0 auto;padding:28px 24px 72px}
+  .eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--brand);font-weight:700;margin-bottom:8px}
+  h1{font-size:26px;letter-spacing:-.02em;line-height:1.15;font-weight:700;max-width:780px}
+  h1 .accent{color:var(--brand)}
+  .lede{margin-top:10px;color:var(--muted);font-size:14.5px;line-height:1.55;max-width:720px}
+
+  .toolbar{display:flex;gap:10px;align-items:center;margin-top:22px;flex-wrap:wrap}
+  .search{flex:1;min-width:240px;display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:10px 14px;box-shadow:0 1px 0 rgba(15,23,42,.02)}
+  .search:focus-within{border-color:var(--brand);box-shadow:0 0 0 4px var(--ring)}
+  .search input{flex:1;background:transparent;border:0;outline:none;font-size:13.5px}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:999px;background:var(--surface);border:1px solid var(--hairline);font-size:12px;font-weight:600;color:var(--muted);cursor:pointer}
+  .pill .count{color:var(--faint);font-weight:600}
+  .pill.active{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .pill.favpill.active{background:var(--brand);color:#fff;border-color:var(--brand);box-shadow:0 4px 12px rgba(37,99,235,.25)}
+
+  /* stats band (between header/toolbar and content) */
+  .stats{display:flex;gap:1px;background:var(--hairline);border:1px solid var(--hairline);border-radius:14px;overflow:hidden;margin:18px 0 28px}
+  .stat{flex:1;background:var(--surface);padding:14px 18px}
+  .stat b{display:block;font-size:22px;letter-spacing:-.02em;font-weight:700;color:var(--ink)}
+  .stat span{display:block;margin-top:2px;font-size:11.5px;color:var(--faint);font-weight:500}
+
+  /* sections */
+  .section{margin-top:32px}
+  .sec-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .sec-head h2{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--ink)}
+  .sec-head .rule{flex:1;height:1px;background:var(--hairline)}
+  .sec-head .meta{font-size:11px;color:var(--faint);font-weight:600}
+
+  /* integrated (synced) grid */
+  .synced{background:linear-gradient(180deg,#F8FAFF 0,#FFFFFF 100%);border:1px solid var(--brand-line);border-radius:16px;padding:18px}
+  .synced-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:12px;flex-wrap:wrap}
+  .synced-head h3{margin:0;font-size:15px;font-weight:700}
+  .synced-head p{margin:4px 0 0;color:var(--muted);font-size:12.5px}
+  .grid-sources{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  @media (max-width:760px){.grid-sources{grid-template-columns:repeat(2,1fr)}.stats{flex-wrap:wrap}}
+  .src{display:flex;align-items:center;gap:9px;background:#fff;border:1px solid var(--hairline);border-radius:10px;padding:8px 12px}
+  .src .dot{width:7px;height:7px;border-radius:999px;background:var(--cta);box-shadow:0 0 0 3px rgba(5,150,105,.15);flex-shrink:0}
+  .src b{font-size:12.5px;font-weight:600;color:var(--ink)}
+  .src small{font-size:10.5px;color:var(--faint);font-weight:500;display:block;line-height:1.2}
+</style>
+</head>
+<body>
+<header class="appbar">
+  <div class="logo">T</div>
+  <div class="appname">Tailor AI<small>Job portals</small></div>
+  <div class="spacer"></div>
+  <nav class="navlinks">
+    <a href="#">Dashboard</a>
+    <a href="#">My CV</a>
+    <a href="#" class="active">Portals</a>
+    <a href="#">Recruiters</a>
+  </nav>
+  <div class="spacer"></div>
+  <span class="userchip">A · Atanu</span>
+</header>
+
+<main class="page">
+  <div class="eyebrow">Job portals</div>
+  <h1>Find your next role on <span class="accent">190+ portals</span> — 18 feed your job list in real time.</h1>
+  <p class="lede">The 18 sources marked <b>Synced</b> are scraped continuously and scored against your master CV (Tailor matches, location + remote + recency). Browse all 190+ for direct apply.</p>
+
+  <div class="toolbar">
+    <label class="search">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input placeholder="Search portals — Japan, DevOps, Singapore…">
+    </label>
+    <button class="pill active">All regions <span class="count">190</span></button>
+    <button class="pill">Global <span class="count">31</span></button>
+    <button class="pill">India <span class="count">14</span></button>
+    <button class="pill">🇺🇸 USA <span class="count">22</span></button>
+    <button class="pill">🇪🇺 EU <span class="count">25</span></button>
+    <button class="pill favpill">★ Favorites <span class="count">2</span></button>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b>18</b><span>Synced sources<br>(feed your job list)</span></div>
+    <div class="stat"><b>190+</b><span>Direct-apply portals<br>(browse + bookmark)</span></div>
+    <div class="stat"><b>14</b><span>Regions & niches<br>covered</span></div>
+    <div class="stat"><b>6k+</b><span>Company boards<br>(Greenhouse/Lever/Ashby)</span></div>
+  </div>
+
+  <section class="section">
+    <div class="sec-head">
+      <h2>Synced sources</h2>
+      <span class="meta">18 total · scraped continuously</span>
+      <span class="rule"></span>
+      <button class="pill">Manage sources</button>
+    </div>
+    <div class="synced">
+      <div class="synced-head">
+        <div>
+          <h3>Live scraping — feeds your job feed</h3>
+          <p>Each source is scraped, deduplicated, scored against your master CV (Tailor matches), and respects remote/location + recency filters.</p>
+        </div>
+        <span class="meta">last sync · just now</span>
+      </div>
+      <div class="grid-sources" id="synced-grid">
+        <!-- populated below -->
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+  // 18 synced sources (from the app's source list — the ones actually scraped).
+  // Real product source list; used here for the mockup only.
+  const SOURCES = [
+    ["LinkedIn", "Jobs"],
+    ["Indeed", ""],
+    ["Naukri", ""],
+    ["Glassdoor", ""],
+    ["Upwork", ""],
+    ["Arbeitnow", ""],
+    ["SimplyHired", ""],
+    ["Dice", ""],
+    ["Reed", ""],
+    ["MyCareersFuture", "SG Gov"],
+    ["Cutshort", ""],
+    ["Gupy", ""],
+    ["JobsCh", ""],
+    ["Daijob", ""],
+    ["MyJobMag", ""],
+    ["Greenhouse", "Network"],
+    ["Lever", "Network"],
+    ["Ashby", "Network"]
+  ];
+  const grid = document.getElementById('synced-grid');
+  SOURCES.forEach(([name, sub]) => {
+    const el = document.createElement('div');
+    el.className = 'src';
+    el.innerHTML = `<span class="dot"></span><div><b>${name}</b>${sub ? `<small>${sub}</small>` : ''}</div>`;
+    grid.appendChild(el);
+  });
+</script>
+</body>
+</html>

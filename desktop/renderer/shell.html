@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tailor Browser</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #0f1115;
+        color: #e6e8ee;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 14px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      header strong { font-size: 13px; letter-spacing: 0.2px; }
+      #status { flex: 1; font-size: 12px; color: #9aa3b2; }
+      header button {
+        font-size: 12px;
+        padding: 5px 10px;
+        border-radius: 7px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: transparent;
+        color: #cfd6e2;
+        cursor: pointer;
+      }
+      header button:hover { background: rgba(255, 255, 255, 0.06); }
+      main { flex: 1; display: grid; place-items: center; padding: 24px; text-align: center; }
+      h1 { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+      p { font-size: 12.5px; color: #9aa3b2; max-width: 420px; line-height: 1.5; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Tailor Browser</strong>
+      <span id="status">Waiting for Auto Apply job…</span>
+      <button id="hide" type="button">Hide</button>
+      <button id="close" type="button">Close</button>
+    </header>
+    <main>
+      <div style="width: min(560px, 90vw)">
+        <h1 id="headline">Waiting for Auto Apply job…</h1>
+        <p>
+          Start an application from Tailor AI in your browser — the selected job opens
+          here automatically in a controlled Chromium window.
+        </p>
+        <div id="switcher" style="margin-top:18px; display:none; text-align:left"></div>
+      </div>
+    </main>
+    <script>
+      (() => {
+        const api = window.tailorBrowser;
+        const status = document.getElementById('status');
+        const switcher = document.getElementById('switcher');
+        const headline = document.getElementById('headline');
+        const STATE_LABEL = {
+          STARTING: 'Starting…', NAVIGATING: 'Opening…', INSPECTING: 'Inspecting…',
+          FILLING: 'Filling…', VERIFYING: 'Verifying…', READY_FOR_SUBMISSION: 'Ready',
+          WAITING_FOR_USER: 'Action required', SUBMITTING: 'Submitting…',
+          SUBMITTED: 'Submitted', FAILED: 'Failed', CLOSED: 'Closed',
+        };
+        async function tick() {
+          if (!api || !api.getState) return;
+          try {
+            const st = await api.getState();
+            const list = (st && st.sessions) || [];
+            if (list.length === 0) {
+              switcher.style.display = 'none';
+              headline.textContent = 'Waiting for Auto Apply job…';
+              return;
+            }
+            headline.textContent = list.length + ' active application' + (list.length > 1 ? 's' : '');
+            switcher.style.display = 'block';
+            switcher.innerHTML = '';
+            for (const s of list) {
+              const btn = document.createElement('button');
+              const isVisible = s.executionId === st.visibleSessionId;
+              btn.textContent = (s.company || 'Job') + ' — ' + (STATE_LABEL[s.state] || s.state) + (s.state === 'WAITING_FOR_USER' ? ' ⚠' : '');
+              btn.style.cssText = 'display:block;width:100%;margin:4px 0;padding:8px 10px;border-radius:8px;border:1px solid ' + (isVisible ? '#5b8def' : 'rgba(255,255,255,0.14)') + ';background:' + (isVisible ? 'rgba(91,141,239,0.18)' : 'transparent') + ';color:#e6e8ee;text-align:left;cursor:pointer;font-size:12.5px';
+              btn.addEventListener('click', () => { if (api.focusSession) api.focusSession(s.executionId); });
+              switcher.appendChild(btn);
+            }
+          } catch { /* ignore */ }
+        }
+        setInterval(tick, 2000);
+        tick();
+        if (api && typeof api.onEvent === 'function') {
+          api.onEvent((ev) => {
+            if (ev && ev.state) status.textContent = ev.state + (ev.detail ? ' · ' + ev.detail : '');
+          });
+        }
+        document.getElementById('hide').addEventListener('click', () => {
+          if (api && api.windowAction) api.windowAction('hide');
+        });
+        document.getElementById('close').addEventListener('click', () => {
+          if (api && api.windowAction) api.windowAction('close');
+        });
+      })();
+    </script>
+  </body>
+</html>

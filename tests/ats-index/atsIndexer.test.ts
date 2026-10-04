@@ -229,4 +229,37 @@ describe('atsIndexer', () => {
     expect(typeof isAtsCycleRunning()).toBe('boolean');
     scheduler.stop();
   });
+
+  it('hung board fetch: hard deadline settles the board, batch never freezes', async () => {
+    // A promise that never settles is exactly how Greenhouse ingestion froze
+    // for days: AbortSignal.timeout fired on some fetches but one hung socket
+    // left the batch (and the scheduler guard) pending forever.
+    setDirectAtsFetcher(async (url: string) => {
+      if (url.includes('board-b')) return new Promise(() => {});
+      const m = url.match(/boards\/([^/]+)\/jobs/);
+      const slug = m ? m[1] : '';
+      return { jobs: slug === 'board-a' ? BOARD_A : BOARD_C };
+    });
+    const hangCfg = { ...CFG, timeoutMs: 100 };
+    const r = await syncBoards(pickBoardsForTest(), hangCfg);
+    expect(r.boards).toBe(3);
+    expect(r.ok).toBe(2);
+    expect(r.failed).toBe(1);
+    const st = getBoardState('greenhouse', 'board-b')!;
+    expect(st.failureCount).toBe(1);
+    expect(new Date(st.nextRefreshAt!).getTime()).toBeGreaterThan(Date.now());
+    // Healthy boards in the same batch still ingested.
+    expect(queryAtsCandidates({ platform: 'greenhouse', activeOnly: true }).length).toBe(3);
+  });
+
+  it('scheduler watchdog: a stuck cycle is reset and ingestion resumes', async () => {
+    const scheduler = new AtsScheduler('greenhouse', CFG, 30e3, 10, 200);
+    // Simulate a previous tick whose promise never settled.
+    (scheduler as any).running = true;
+    (scheduler as any).runningSince = Date.now() - 60e3;
+    scheduler.start();
+    await new Promise((r) => setTimeout(r, DELAY_MS * 8));
+    expect(boardRefreshStats('greenhouse').activeJobs).toBe(4);
+    scheduler.stop();
+  });
 });

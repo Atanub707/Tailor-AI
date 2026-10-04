@@ -103,6 +103,20 @@ export interface BoardSyncResult {
   jobs: number;
 }
 
+/**
+ * Hard deadline around an awaited promise. AbortSignal.timeout inside fetch
+ * is the normal path; this race is the guarantee — a network stack that
+ * swallows an abort must NEVER leave the board fetch (and therefore the
+ * whole batch, and therefore the platform's scheduler) pending forever.
+ */
+function withDeadline<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} exceeded hard deadline (${ms}ms)`)), ms);
+  });
+  return Promise.race([p, deadline]).finally(() => clearTimeout(timer));
+}
+
 /** Sync ONE board: fetch → normalize → upsert → record refresh state. */
 export async function syncBoard(board: BoardRefreshRow, cfg: AtsIndexConfig): Promise<BoardSyncResult> {
   const slug = boardSlug(board.careerUrl, board.atsPlatform);
@@ -114,7 +128,14 @@ export async function syncBoard(board: BoardRefreshRow, cfg: AtsIndexConfig): Pr
   }
   const t0 = Date.now();
   try {
-    const jobs = await fetchAtsBoard('ATS-Index', board.atsPlatform, slug, board.companyName, cfg.timeoutMs);
+    // The fetch is the only await here — everything after is synchronous and
+    // cannot hang. Give the abort a full timeout to fire first; the deadline
+    // at 2x is the backstop when it does not.
+    const jobs = await withDeadline(
+      fetchAtsBoard('ATS-Index', board.atsPlatform, slug, board.companyName, cfg.timeoutMs),
+      cfg.timeoutMs * 2,
+      `[ATS Index][${board.atsPlatform}] ${slug}`
+    );
     const rows = jobs.map((j) => toAtsRow(j, board.atsPlatform, slug));
     const { inserted, updated } = upsertAtsJobs(rows);
     const next = new Date(Date.now() + refreshIntervalMs(cfg, rows.length)).toISOString();

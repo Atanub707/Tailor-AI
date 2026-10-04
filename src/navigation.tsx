@@ -7,7 +7,7 @@ import { List } from '@phosphor-icons/react';
 // Single source of truth for global navigation.
 // Drives: hamburger items, active states, and navigation tests.
 import type { Icon } from '@phosphor-icons/react';
-import { House, UserCircle, IdentificationBadge, Tray, GlobeSimple, PaperPlaneTilt, ChatCircleDots, FileText, GearSix } from '@phosphor-icons/react';
+import { House, UserCircle, IdentificationBadge, Tray, GlobeSimple, PaperPlaneTilt, ChatCircleDots, FileText, GearSix, BookmarkSimple } from '@phosphor-icons/react';
 
 export type NavGroupId = 'library' | 'profile' | 'tools';
 
@@ -30,6 +30,7 @@ export const NAV_GROUPS: Array<{ id: NavGroupId; label: string }> = [
 export const NAV_ITEMS: NavigationItem[] = [
   { id: 'home', label: 'Home', icon: House, route: '/', group: 'library', activeFor: (p) => p === '/' },
   { id: 'master-cv', label: 'Master CV', icon: IdentificationBadge, route: '/master-cv', group: 'profile', activeFor: (p) => p === '/master-cv' },
+  { id: 'answer-bank', label: 'Application Answers', icon: BookmarkSimple, route: '/answer-bank', group: 'profile', activeFor: (p) => p === '/answer-bank' },
   { id: 'recruiters', label: 'Recruiters', icon: Tray, route: '/recruiters', group: 'tools', badgeKey: 'recruiters', activeFor: (p) => p === '/recruiters' },
   { id: 'job-portals', label: 'Job Portals', icon: GlobeSimple, route: '/job-portals', group: 'tools', activeFor: (p) => p === '/job-portals' },
   { id: 'linkedin-posts', label: 'LinkedIn Posts', icon: PaperPlaneTilt, route: '/linkedin-posts', group: 'tools', activeFor: (p) => p === '/linkedin-posts' },

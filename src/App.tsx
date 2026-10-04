@@ -13,6 +13,7 @@ import { JobPortalsScreen } from './components/JobPortalsScreen';
 import { RecruitersScreen } from './components/RecruitersScreen';
 import { AiSystemScreen } from './components/AiSystemScreen';
 import { LinkedInPostsScreen } from './components/LinkedInPostsScreen';
+import { AnswerBankScreen } from './components/AnswerBankScreen';
 import { OnboardingTour, startTour } from './components/OnboardingTour';
 import { LoginScreen } from './components/LoginScreen';
 import { Job, JobState, MasterCv, AppConfig, JobSource, TemplateId } from './types';
@@ -36,10 +37,11 @@ export default function App() {
   const isJobPortalsOpen = pathname === '/job-portals';
   const isAiSystemOpen = pathname === '/ai-interview';
   const isLinkedInPostsOpen = pathname === '/linkedin-posts';
+  const isAnswerBankOpen = pathname === '/answer-bank';
 
   // Unknown paths (stale bookmarks, typos) land on the dashboard instead of
   // a blank screen. Done BEFORE any screen renders.
-  const knownPaths = ['/', '/settings', '/recruiters', '/master-cv', '/applicant-profile', '/manual-jd', '/job-portals', '/ai-interview', '/linkedin-posts'];
+  const knownPaths = ['/', '/settings', '/recruiters', '/master-cv', '/applicant-profile', '/manual-jd', '/job-portals', '/ai-interview', '/linkedin-posts', '/answer-bank'];
   const knownPrefixes: string[] = [];
   const [jobs, setJobs] = useState<Job[]>([]);
   const [masterCv, setMasterCv] = useState<MasterCv | null>(null);
@@ -268,11 +270,10 @@ export default function App() {
   }) => {
     setIsScrapingLoading(true);
     try {
-      // V2 unified search behind a feature flag: when enabled, ScraperBar
-      // submissions route to the provider-driven search endpoint (cache-first,
-      // single-source search). When disabled, V1 stays untouched.
-      const v2Enabled = (import.meta.env.VITE_V2_SEARCH_ENABLED ?? 'false') !== 'false';
-      const endpoint = v2Enabled ? '/api/jobs/search-v2' : '/api/jobs/scrape';
+      // Single unified search endpoint: /api/jobs/scrape runs the
+      // provider-driven (cache-first, single-source) search and routes ATS
+      // sources through the local index.
+      const endpoint = '/api/jobs/scrape';
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -572,6 +573,7 @@ export default function App() {
               case 'ai-interview': navigate('/ai-interview'); break;
               case 'manual-jd': navigate('/manual-jd'); break;
               case 'settings': navigate('/settings'); break;
+              case 'answer-bank': navigate('/answer-bank'); break;
             }
           }}
           badges={{ recruiters: recruiterBadge }}
@@ -750,6 +752,7 @@ export default function App() {
           {/* AI Interview */}
           {isAiSystemOpen && <AiSystemScreen onClose={goHome} />}
           {isLinkedInPostsOpen && <LinkedInPostsScreen onClose={goHome} />}
+          <AnswerBankScreen isOpen={isAnswerBankOpen} onClose={goHome} />
         </NavigationProvider>
       )}
     </div>

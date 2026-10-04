@@ -94,19 +94,39 @@ export async function httpGetOnly(url: string, opts: { timeoutMs?: number; maxBy
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let res: Response;
-    try {
-      res = await fetch(current, {
-        method: 'GET',
-        signal: controller.signal,
-        redirect: 'manual',
-        headers: { 'User-Agent': 'TailorAI-ApplicationEngine/1.0 (read-only inspection)' },
-      });
-    } catch (err: any) {
-      throw new InspectionFailure('INSPECTION_TIMEOUT', err?.name === 'AbortError' ? 'Inspection timed out.' : `Network failure: ${String(err?.message || err).slice(0, 120)}`);
-    } finally {
-      clearTimeout(timer);
+    let res: Response | null = null;
+    let lastErr: any = null;
+    // One automatic retry for TRANSIENT provider failures (5xx / network) —
+    // a single blip should not surface as "provider unavailable".
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), timeoutMs);
+      try {
+        const r = await fetch(current, {
+          method: 'GET',
+          signal: ctrl.signal,
+          redirect: 'manual',
+          headers: { 'User-Agent': 'TailorAI-ApplicationEngine/1.0 (read-only inspection)' },
+        });
+        if (r.status >= 500 && attempt === 0) {
+          lastErr = new InspectionFailure('PROVIDER_UNAVAILABLE', `Provider error (${r.status}).`);
+          await new Promise((res) => setTimeout(res, 1200));
+          continue;
+        }
+        res = r;
+        break;
+      } catch (err: any) {
+        lastErr = new InspectionFailure('INSPECTION_TIMEOUT', err?.name === 'AbortError' ? 'Inspection timed out.' : `Network failure: ${String(err?.message || err).slice(0, 120)}`);
+        if (attempt === 0) {
+          await new Promise((res) => setTimeout(res, 1200));
+          continue;
+        }
+      } finally {
+        clearTimeout(t);
+      }
     }
+    clearTimeout(timer);
+    if (!res) throw lastErr ?? new InspectionFailure('PROVIDER_UNAVAILABLE', 'Inspection failed.');
     if (res.status >= 300 && res.status < 400) {
       const loc = res.headers.get('location');
       if (!loc) throw new InspectionFailure('FORM_CHANGED', 'Redirect without location.');
@@ -221,23 +241,27 @@ export function parseLeverForm(html: string): { fields: ApplicationField[]; prov
     fields.push({ providerFieldId: 'resume', normalizedKey: 'resume', label: 'Resume', type: 'FILE', required: true, category: 'RESUME' });
   }
 
-  // Custom questions: authoritative JSON template on the hidden baseTemplate
-  const templateJson = form.find('input[name$="[baseTemplate]"]').first().attr('value');
-  let templateParsed = false;
-  if (templateJson) {
+  // Custom questions: authoritative JSON templates — ONE hidden baseTemplate
+  // input PER QUESTION CARD. Lever renders each custom question as its own
+  // card, so ALL must be parsed (parsing only the first dropped real questions
+  // like "What is your desired salary range?"). providerFieldId uses each
+  // card's own uuid. Provider JSON is untrusted: explicit field extraction
+  // only, never object merging (blocks __proto__/prototype pollution).
+  form.find('input[name$="[baseTemplate]"]').each((_, el) => {
+    const $el = $(el);
+    const name = $el.attr('name') || '';
+    const cardMatch = name.match(/^cards\[([^\]]+)\]\[baseTemplate\]$/);
+    const cardId = cardMatch ? cardMatch[1] : 'card';
+    const templateJson = $el.attr('value');
+    if (!templateJson) return;
     if (templateJson.length > MAX_TEMPLATE_BYTES) throw new InspectionFailure('FORM_CHANGED', 'Embedded question template exceeds size limit.');
-    // Real Lever pages entity-encode the embedded JSON (&quot; etc.)
     const decoded = templateJson.replace(/&quot;/g, '"').replace(/&#34;/g, '"').replace(/&#123;/g, '{').replace(/&#125;/g, '}').replace(/&amp;/g, '&');
-    const jsonText = decoded;
     try {
-      const template = JSON.parse(jsonText); // JSON.parse only — no eval/Function ever
+      const template = JSON.parse(decoded); // JSON.parse only — no eval/Function ever
       if (template === null || typeof template !== 'object' || Array.isArray(template)) throw new Error('invalid template shape');
-      templateParsed = true;
-      // Explicit field extraction only — provider JSON is untrusted; never
-      // merge objects (blocks __proto__/constructor/prototype pollution).
-      const cardId = typeof template.id === 'string' && template.id ? template.id : 'card';
-      for (const q of (Array.isArray(template.fields) ? template.fields : [])) {
-        if (q === null || typeof q !== 'object' || Array.isArray(q)) continue;
+      const fieldsArr: unknown[] = Array.isArray(template.fields) ? template.fields : [];
+      fieldsArr.forEach((q: any, idx: number) => {
+        if (q === null || typeof q !== 'object' || Array.isArray(q)) return;
         const type = String(q.type || '').toLowerCase();
         const fType: FieldType =
           type === 'textarea' ? 'TEXTAREA' :
@@ -248,11 +272,11 @@ export function parseLeverForm(html: string): { fields: ApplicationField[]; prov
           type === 'date' ? 'DATE' :
           type === 'boolean' ? 'SINGLE_SELECT' : 'TEXT';
         const label = cleanLabel(String(q.text || 'Unknown question')).slice(0, MAX_LABEL_CHARS);
-        const fieldId = `cards[${cardId}][field${template.fields.indexOf(q)}]`;
+        const fieldId = `cards[${cardId}][field${idx}]`;
         const category = classifyCategory(label);
         if (category === 'CONSENT') {
           fields.push({ providerFieldId: fieldId, label, type: 'CONSENT', required: !!q.required, category: 'CONSENT' });
-          continue;
+          return;
         }
         fields.push({
           providerFieldId: fieldId,
@@ -263,39 +287,44 @@ export function parseLeverForm(html: string): { fields: ApplicationField[]; prov
           options: (Array.isArray(q.options) ? q.options : []).map((o: any) => (o && typeof o === 'object' ? String(o.text || o.optionId || '') : String(o)).slice(0, MAX_OPTION_CHARS)),
           category,
         });
-      }
+      });
     } catch {
-      // template JSON malformed — fall back to rendered field markup below
+      // this card's template malformed — the rendered-markup fallback below covers it
     }
-  }
-  if (!templateParsed) {
-    // fallback: rendered card inputs
-    form.find('input[name^="cards["], select[name^="cards["], textarea[name^="cards["]').each((_, el) => {
-      const $el = $(el);
-      const name = $el.attr('name') || '';
-      if (name.endsWith('baseTemplate]')) return;
-      // Hidden inputs are transport metadata (e.g. the hidden 0 sibling of a
-      // consent checkbox) — never applicant fields.
-      if ($el.attr('type') === 'hidden') return;
-      const label = cleanLabel($el.closest('.card-field, .application-form-field').find('label').first().text() || name).slice(0, MAX_LABEL_CHARS);
-      const required = $el.attr('required') !== undefined || $el.attr('aria-required') === 'true';
-      const type = fieldTypeFrom($el.attr('type'), name);
-      const category = classifyCategory(label);
-      if (category === 'CONSENT') {
-        fields.push({ providerFieldId: name, label, type: 'CONSENT', required, category: 'CONSENT' });
-        return;
-      }
-      fields.push({ providerFieldId: name, label, type, required, category, options: type === 'SINGLE_SELECT' || type === 'MULTI_SELECT' ? [] : undefined });
-    });
-  }
+  });
+
+  // Fallback/coverage: rendered card inputs (deduped against template fields).
+  form.find('input[name^="cards["], select[name^="cards["], textarea[name^="cards["]').each((_, el) => {
+    const $el = $(el);
+    const name = $el.attr('name') || '';
+    if (name.endsWith('baseTemplate]')) return;
+    if ($el.attr('type') === 'hidden') return;
+    if (fields.some((f) => f.providerFieldId === name)) return;
+    const label = cleanLabel($el.closest('.card-field, .application-form-field').find('label').first().text() || name).slice(0, MAX_LABEL_CHARS);
+    const required = $el.attr('required') !== undefined || $el.attr('aria-required') === 'true';
+    const type = fieldTypeFrom($el.attr('type'), name);
+    const category = classifyCategory(label);
+    if (category === 'CONSENT') {
+      fields.push({ providerFieldId: name, label, type: 'CONSENT', required, category: 'CONSENT' });
+      return;
+    }
+    fields.push({ providerFieldId: name, label, type, required, category, options: type === 'SINGLE_SELECT' || type === 'MULTI_SELECT' ? [] : undefined });
+  });
 
   // Consent section: only a generic field when it contains no parseable
   // consent[...] inputs (e.g. veo's section is the consent[marketing] opt-in
   // which is already parsed as a field — never double-counted as legal).
   const consentSection = form.find('[data-qa="consent-section"]');
+  // Informational privacy boilerplate ("By applying... your data will be
+  // processed as per ... Policy") has NO control — it must never become a
+  // blocking legal consent (that falsely parked real jobs in NEEDS_REVIEW).
+  // Only a section that actually contains an interactive control counts.
   if (consentSection.length && !consentSection.find('input[name^="consent["]').length) {
-    const sectionText = cleanLabel(consentSection.find('.application-answer-alternative, p, label').first().text() || 'Consent / legal acknowledgement').slice(0, MAX_LABEL_CHARS);
-    fields.push({ providerFieldId: 'consent', label: sectionText, type: 'CONSENT', required: true, category: 'CONSENT' });
+    const hasControl = consentSection.find('input, select, textarea, [role="checkbox"], [role="radio"]').length > 0;
+    if (hasControl) {
+      const sectionText = cleanLabel(consentSection.find('.application-answer-alternative, p, label').first().text() || 'Consent / legal acknowledgement').slice(0, MAX_LABEL_CHARS);
+      fields.push({ providerFieldId: 'consent', label: sectionText, type: 'CONSENT', required: true, category: 'CONSENT' });
+    }
   }
 
   // Consent inputs (e.g. consent[marketing]/consent[legal]) are applicant

@@ -29,6 +29,17 @@ services:
       # (ENABLE_LOCAL_ATS_INDEX=true). Set false for rollback/testing.
       - ENABLE_LOCAL_ATS_INDEX=true
       - ATS_INDEX_PLATFORMS=greenhouse,lever,ashby
+      # Auto Apply (experimental) — smoke-test flags. Fill-only: NEVER submits.
+      - AUTO_APPLY_ENABLED=true
+      - AUTO_APPLY_ANSWER_BANK_ENABLED=true
+      - AUTO_APPLY_BROWSER_FILL_ENABLED=true
+      - AUTO_APPLY_EXECUTION_MODE=fill_only
+      - AUTO_APPLY_EXECUTION_TRANSPORT=tailor_browser
+      - AUTO_APPLY_SUBMIT_ENABLED=true
+      - AUTO_APPLY_SUBMIT_MODE=explicit_approval
+      - AUTO_APPLY_ORCHESTRATOR_ENABLED=true
+      - AUTO_APPLY_MAX_CONCURRENCY=5
+      - AUTO_APPLY_BACKGROUND_EXECUTION=true
     restart: unless-stopped
 
 volumes:

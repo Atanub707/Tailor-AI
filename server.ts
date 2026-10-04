@@ -127,6 +127,7 @@ import { SOURCES } from './src/constants/sources.js';
 import { isEmailFormatValid } from './src/lib/recruiters/emailUtils.js';
 import { compressCv } from './server/ai/cvCompressor.js';
 import { getMarketData } from './server/ai/marketData.js';
+import { createAutoApplyRouter } from './server/autoApply/autoApplyRouter.js';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -1828,75 +1829,10 @@ Return valid JSON only — NO markdown, NO code fences:
   });
 
   // V2 — provider-driven unified search (cache-first, top-up). Additive: V1
-  // POST /api/jobs/scrape stays untouched; V2 path is flag-gated
-  // (V2_SEARCH_ENABLED). No V2 providers are wired yet — this endpoint
-  // returns an honest empty result until a real provider is integrated.
-  app.post('/api/jobs/search-v2', async (req, res) => {
-    try {
-      const { V2_FLAGS } = await import('./server/providers/providerRegistry.js');
-      if (!V2_FLAGS.V2_SEARCH_ENABLED) {
-        res.status(404).json({ error: 'V2 search disabled (V2_SEARCH_ENABLED=false)' });
-        return;
-      }
-      const { keywords, location, datePostedFilter, jobType, workMode, level, limit } = req.body;
-      if (!keywords || !String(keywords).trim()) {
-        res.status(400).json({ error: 'Keywords required' });
-        return;
-      }
-      const { runV2Search } = await import('./server/search/searchOrchestrator.js');
-      const result = await runV2Search(getCurrentUserId(), {
-        keywords: String(keywords).trim(),
-        location: location ? String(location).trim() : undefined,
-        postedWindow: (datePostedFilter as any) || 'any',
-        jobType: jobType || 'all',
-        workMode: workMode || 'all',
-        level: level || 'any',
-        limit: Math.min(Number(limit) || 25, 50),
-      }, []); // no providers wired — honest empty result
-      res.json(result);
-    } catch (err: any) {
-      console.error('V2 search error:', err);
-      res.status(500).json({ error: err.message || 'Search failed' });
-    }
-  });
 
   // V2 — unified ATS search (DB-first, budgeted Santa Maria + provider router).
   // Additive: V1 POST /api/jobs/scrape stays untouched. Cost-safe by design:
   // local DB hit → $0; provider calls always go through the central fetch budget.
-  app.post('/api/jobs/search', async (req, res) => {
-    try {
-      const { keywords, location, remote, postedWithin, limit } = req.body;
-      if (!keywords || !String(keywords).trim()) {
-        res.status(400).json({ error: 'Keywords required' });
-        return;
-      }
-      const userLimit = Math.min(Number(limit) || 25, 50);
-      const { searchWithCache } = await import('./server/services/searchService.js');
-      const { routeProvider } = await import('./server/services/providerRouter.js');
-      const searchRequest = {
-        query: String(keywords).trim(),
-        location: location ? String(location).trim() : undefined,
-        remote: remote === true,
-        postedWithin: (postedWithin as any) || 'all',
-        limit: userLimit,
-      };
-      const result = await searchWithCache(searchRequest, (providerId: string, fetchLimit: number) =>
-        routeProvider(searchRequest, providerId, fetchLimit)
-      );
-      res.json({
-        ...result,
-        jobs: result.jobs,
-        providersCalled: result.providersCalled,
-        cacheHit: result.cacheHit,
-        exhausted: result.exhausted === true,
-        seenCount: result.seenCount ?? 0,
-        totalStored: result.totalStored ?? 0,
-      });
-    } catch (err: any) {
-      console.error('V2 search error:', err);
-      res.status(500).json({ error: err.message || 'Search failed' });
-    }
-  });
 
   // Generic URL-based job description scraper
   app.post('/api/scrape-full-text', async (req, res) => {
@@ -2713,37 +2649,6 @@ const sanitizeAttemptDryRun = (a: any) => ({
       res.json({ configured: false });
     } catch (err: any) { res.status(500).json({ error: String(err?.message || 'Remove failed.').slice(0, 200) }); }
   });
-  // Extension: short-lived single-use credential grant for account creation.
-  app.post('/api/credentials/application-password/grant', async (req, res) => {
-    try {
-      const { assertLoopbackHost } = await import('./server/browserCompanion/companionService.js');
-      assertLoopbackHost(req.headers.host);
-      const { pairingId, installSecret, attemptId, provider, externalJobId } = req.body || {};
-      if (!attemptId || !provider || !externalJobId) return res.status(400).json({ error: 'attemptId/provider/externalJobId required.' });
-      const { verifyPairing } = await import('./server/browserCompanion/companionStore.js');
-      const pairing = verifyPairing(getDb(), String(pairingId || ''), String(installSecret || ''));
-      if (!pairing) return res.status(401).json({ error: 'Extension not paired.' });
-      const { LocalCredentialVault } = await import('./server/credentialVault/credentialVault.js');
-      const vault = new LocalCredentialVault({ db: getDb(), dataDir: require('node:path').join(process.cwd(), 'data') });
-      const grant = vault.authorizeCredentialUse({ userId: pairing.userId, attemptId: String(attemptId), provider: String(provider), externalJobId: String(externalJobId), purpose: 'ATS_NEW_ACCOUNT_CREATION' });
-      res.json({ grantId: grant.grantId, expiresInSec: 300 });
-    } catch (err: any) { res.status(401).json({ error: String(err?.message || 'Grant failed.').slice(0, 200) }); }
-  });
-  app.post('/api/credentials/application-password/use', async (req, res) => {
-    try {
-      const { LocalCredentialVault } = await import('./server/credentialVault/credentialVault.js');
-      const { assertLoopbackHost } = await import('./server/browserCompanion/companionService.js');
-      assertLoopbackHost(req.headers.host);
-      const { pairingId, installSecret, grantId, attemptId, provider, externalJobId } = req.body || {};
-      const { verifyPairing } = await import('./server/browserCompanion/companionStore.js');
-      const pairing = verifyPairing(getDb(), String(pairingId || ''), String(installSecret || ''));
-      if (!pairing) return res.status(401).json({ error: 'Extension not paired.' });
-      const vault = new LocalCredentialVault({ db: getDb(), dataDir: require('node:path').join(process.cwd(), 'data') });
-      const grant = { grantId: String(grantId || ''), userId: pairing.userId, attemptId: String(attemptId), provider: String(provider), externalJobId: String(externalJobId), purpose: 'ATS_NEW_ACCOUNT_CREATION' as const, expiresAt: Date.now() };
-      const plaintext = vault.getCredentialForGrant(grant, { userId: pairing.userId, attemptId: String(attemptId), provider: String(provider), externalJobId: String(externalJobId) });
-      res.json({ credential: plaintext }); // single-use; released only to the paired extension
-    } catch (err: any) { res.status(401).json({ error: String(err?.message || 'Credential denied.').slice(0, 200) }); }
-  });
   // Mail intelligence (V1: connector status + sync via injected connector).
   app.get('/api/mail/status', async (req, res) => {
     try {
@@ -2772,157 +2677,240 @@ const sanitizeAttemptDryRun = (a: any) => ({
     } catch (err: any) { res.status(500).json({ error: String(err?.message || 'Sync failed.').slice(0, 200) }); }
   });
 
-  // ── Browser Companion Phase 1: secure local bridge (loopback-only). ──
-  // Pairing (web UI, authenticated user)
-  app.post('/api/browser-companion/pairing-code', async (req, res) => {
+  // ---------------- Chrome → Tailor Browser handoff (execution: desktop) ----------------
+  // Chrome (authed) mints a single-use execution token; the loopback desktop
+  // bridge claims it. No arbitrary URLs: the job is resolved from the DB.
+  app.post('/api/auto-apply/desktop-handoff', async (req, res) => {
     try {
-      const userId = getCurrentUserId();
-      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
-      const { createPairingCode } = await import('./server/browserCompanion/companionService.js');
-      const { assertLoopbackHost } = await import('./server/browserCompanion/companionService.js');
-      assertLoopbackHost(req.headers.host);
-      const { code, expiresAt } = createPairingCode(getDb(), userId);
-      res.json({ code, expiresAt });
-    } catch (err: any) {
-      res.status(500).json({ error: String(err?.message || 'Pairing code failed.').slice(0, 200) });
-    }
-  });
-  // Extension pairing (loopback + rate-limited)
-  app.post('/api/browser-companion/pair', async (req, res) => {
-    try {
-      const { pairExtension } = await import('./server/browserCompanion/companionService.js');
-      const { assertLoopbackHost } = await import('./server/browserCompanion/companionService.js');
-      assertLoopbackHost(req.headers.host);
-      const { code } = req.body || {};
-      const r = pairExtension(getDb(), String(code || ''));
-      res.json(r);
-    } catch (err: any) {
-      if (err?.name === 'CompanionError') return res.status(401).json({ error: err.message, code: err.code });
-      res.status(500).json({ error: String(err?.message || 'Pairing failed.').slice(0, 200) });
-    }
-  });
-  // Extension presence handshake
-  app.post('/api/browser-companion/status', async (req, res) => {
-    try {
-      const { companionStatus } = await import('./server/browserCompanion/companionService.js');
-      const { assertLoopbackHost } = await import('./server/browserCompanion/companionService.js');
-      assertLoopbackHost(req.headers.host);
-      const { pairingId, installSecret } = req.body || {};
-      res.json(companionStatus(getDb(), String(pairingId || ''), String(installSecret || '')));
-    } catch (err: any) {
-      res.status(500).json({ error: String(err?.message || 'Status failed.').slice(0, 200) });
-    }
-  });
-  // Web UI unpair (authenticated user)
-  app.post('/api/browser-companion/unpair', async (req, res) => {
-    try {
-      const userId = getCurrentUserId();
-      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
-      const { unpairExtension } = await import('./server/browserCompanion/companionService.js');
-      const { pairingId } = req.body || {};
-      if (!pairingId) return res.status(400).json({ error: 'pairingId required.' });
-      unpairExtension(getDb(), String(pairingId));
-      res.json({ ok: true });
-    } catch (err: any) {
-      res.status(500).json({ error: String(err?.message || 'Unpair failed.').slice(0, 200) });
-    }
-  });
-  // Web UI: create a BrowserAssistSession for an attempt (user-triggered)
-  app.post('/api/browser-companion/sessions', async (req, res) => {
-    try {
-      const userId = getCurrentUserId();
-      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
-      const { createCompanionSession } = await import('./server/browserCompanion/companionService.js');
-      const { attemptId } = req.body || {};
-      if (!attemptId) return res.status(400).json({ error: 'attemptId required.' });
-      const r = createCompanionSession(getDb(), userId, String(attemptId));
-      res.json(r);
-    } catch (err: any) {
-      if (err?.name === 'CompanionError') return res.status(409).json({ error: err.message, code: err.code });
-      res.status(500).json({ error: String(err?.message || 'Session creation failed.').slice(0, 200) });
-    }
-  });
-  // Extension: claim session bearer (paired extension only, one-time)
-  app.post('/api/browser-companion/sessions/:id/claim', async (req, res) => {
-    try {
-      const { claimSessionToken } = await import('./server/browserCompanion/companionService.js');
-      const { assertLoopbackHost } = await import('./server/browserCompanion/companionService.js');
-      assertLoopbackHost(req.headers.host);
-      const { pairingId, installSecret } = req.body || {};
-      const r = claimSessionToken(getDb(), String(pairingId || ''), String(installSecret || ''), req.params.id);
-      res.json(r);
-    } catch (err: any) {
-      if (err?.name === 'CompanionError') return res.status(401).json({ error: err.message, code: err.code });
-      res.status(500).json({ error: String(err?.message || 'Claim failed.').slice(0, 200) });
-    }
-  });
-  // Extension: EXACT immutable resume bytes (session bearer ONLY; full
-  // artifact validation per request; never served to installSecret).
-  app.get('/api/browser-companion/sessions/:id/resume', async (req, res) => {
-    try {
-      const { serveSessionResume } = await import('./server/browserCompanion/companionService.js');
-      const { assertLoopbackHost } = await import('./server/browserCompanion/companionService.js');
-      assertLoopbackHost(req.headers.host);
-      const token = bearerToken(req);
-      const { bytes, filename } = serveSessionResume(getDb(), token, req.params.id);
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      res.setHeader('Cache-Control', 'no-store');
-      res.setHeader('X-Content-Type-Options', 'nosniff');
-      res.send(bytes);
-    } catch (err: any) {
-      if (err?.name === 'CompanionError') return res.status(403).json({ error: err.message, code: err.code });
-      res.status(500).json({ error: String(err?.message || 'Resume failed.').slice(0, 200) });
-    }
-  });
-  // Web UI: renew a BrowserAssistSession for an attempt (human checkpoints
-  // can outlive the 10-minute session; renewal re-binds everything).
-  app.post('/api/browser-companion/sessions/renew', async (req, res) => {
-    try {
-      const userId = getCurrentUserId();
-      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
-      const { createCompanionSession } = await import('./server/browserCompanion/companionService.js');
-      const { attemptId } = req.body || {};
-      if (!attemptId) return res.status(400).json({ error: 'attemptId required.' });
-      const r = createCompanionSession(getDb(), userId, String(attemptId));
-      res.json(r);
-    } catch (err: any) {
-      if (err?.name === 'CompanionError') return res.status(409).json({ error: err.message, code: err.code });
-      res.status(500).json({ error: String(err?.message || 'Renewal failed.').slice(0, 200) });
-    }
+      const userId = getCurrentUserId() || String((req.body && req.body.userId) || (req.query && req.query.userId) || '');
+      if (!userId) return res.status(400).json({ error: 'MISSING_USER' });
+      const jobId = typeof req.body?.jobId === 'string' ? req.body.jobId : '';
+      if (!jobId) return res.status(400).json({ error: 'INVALID_JOB_ID' });
+      const { createHandoffToken } = await import('./server/autoApply/desktopHandoff.js');
+      const token = createHandoffToken(getDb(), userId, jobId);
+      if (!token) return res.status(404).json({ error: 'JOB_NOT_FOUND' });
+      return res.json({ executionToken: token.token, expiresAt: token.expiresAt });
+    } catch { return res.status(500).json({ error: 'HANDOFF_ERROR' }); }
   });
 
-  // Extension: session payload (approved fields only; bearer token)
-  app.get('/api/browser-companion/sessions/:id/payload', async (req, res) => {
+  // Loopback-only claim: the token IS the authorization; the attempt is created
+  // server-side under the token's user (no cross-account execution).
+  app.post('/api/auto-apply/desktop-handoff/claim', async (req, res) => {
     try {
-      const { sessionPayload } = await import('./server/browserCompanion/companionService.js');
-      const { assertLoopbackHost } = await import('./server/browserCompanion/companionService.js');
+      const { assertLoopbackHost } = await import('./server/autoApply/loopback.js');
       assertLoopbackHost(req.headers.host);
-      const token = bearerToken(req);
-      const payload = sessionPayload(getDb(), token);
-      res.json(payload);
-    } catch (err: any) {
-      if (err?.name === 'CompanionError') return res.status(401).json({ error: err.message, code: err.code });
-      res.status(500).json({ error: String(err?.message || 'Payload failed.').slice(0, 200) });
-    }
+      const executionToken = typeof req.body?.executionToken === 'string' ? req.body.executionToken : '';
+      const jobId = typeof req.body?.jobId === 'string' ? req.body.jobId : '';
+      if (!executionToken || !jobId) return res.status(400).json({ error: 'BAD_REQUEST' });
+      const { claimHandoffToken, createExecution, buildPlanPayload, getActiveExecutionsForUser, maxConcurrencyFromEnv, supersedeOtherBootExecutions } = await import('./server/autoApply/desktopHandoff.js');
+      const bootId = typeof req.body?.bootId === 'string' ? req.body.bootId.slice(0, 40) : '';
+      const claimed = claimHandoffToken(getDb(), executionToken, jobId);
+      if (!claimed.ok) {
+        const code = String((claimed as { code?: string }).code || 'UNKNOWN_TOKEN');
+        return res.status(409).json({ error: code === 'ALREADY_CLAIMED' ? 'ALREADY_CLAIMED' : code });
+      }
+      const { userId } = claimed.claim;
+      // Crash recovery: this NEW app boot's claim supersedes executions from
+      // previous boots (they can never be waiting anymore) — no zombie BUSY.
+      if (bootId) supersedeOtherBootExecutions(getDb(), userId, bootId);
+      const actives = getActiveExecutionsForUser(getDb(), userId);
+      // Same job re-clicked while its session is still active → reuse notice,
+      // never a duplicate session (this jammed all 5 slots in real usage).
+      const existingForJob = actives.find((a) => a.jobId === jobId);
+      if (existingForJob) {
+        return res.status(409).json({ error: 'ALREADY_ACTIVE', current: [existingForJob] });
+      }
+      const limit = maxConcurrencyFromEnv();
+      if (actives.length >= limit) {
+        return res.status(409).json({ error: 'BUSY', limit, current: actives });
+      }
+      const { runWithUser } = await import('./server/storage/fileStorage.js');
+      const { startFillExecution } = await import('./server/autoApply/fillExecution.js');
+      const result: any = await runWithUser(userId, () => startFillExecution(jobId));
+      if (result.status !== 'FILL_STARTED' && result.status !== 'USER_ACTION_REQUIRED') {
+        return res.status(422).json({ error: result.status, blockers: result.blockers || [], message: result.message || '' });
+      }
+      const attemptId = String(result.attemptId);
+      const { getAttempt } = await import('./server/applicationEngine/executionStore.js');
+      const { getPlanById } = await import('./server/applicationEngine/engine.js');
+      const { getPackageById } = await import('./server/applicationPackage/packageStore.js');
+      const attempt = getAttempt(getDb(), userId, attemptId);
+      const plan = attempt ? getPlanById(userId, attempt.planId) : undefined;
+      const pkg = attempt ? getPackageById(userId, attempt.packageId) : undefined;
+      if (!attempt || !plan || !pkg) return res.status(404).json({ error: 'BINDINGS_MISSING' });
+      const payload = buildPlanPayload(userId, attemptId, plan as any, pkg as any);
+      if (!payload) return res.status(500).json({ error: 'PLAN_PAYLOAD_FAILED' });
+      const exec = createExecution(getDb(), userId, jobId, attemptId, bootId);
+      const { getAutoApplyPreferences } = await import('./server/autoApply/submissionStore.js');
+      const { loadSubmissionConfig } = await import('./server/autoApply/submissionPolicy.js');
+      const cfg = loadSubmissionConfig();
+      const pref = getAutoApplyPreferences(getDb(), userId);
+      const preAuthorizedSubmit = cfg.enabled && cfg.mode !== 'manual_review' && pref.autoSubmitEnabled === true;
+      return res.json({
+        executionId: exec.executionId,
+        attemptId,
+        userId,
+        statusToken: exec.statusToken,
+        preAuthorizedSubmit,
+        resumeUrl: `/api/auto-apply/desktop-execution/resume?token=${encodeURIComponent(exec.statusToken)}`,
+        plan: payload,
+      });
+    } catch { return res.status(500).json({ error: 'CLAIM_ERROR' }); }
   });
-  // Extension: event intake (enum-only, idempotent, non-PII)
-  app.post('/api/browser-companion/sessions/:id/events', async (req, res) => {
+
+  // Loopback status intake from the desktop execution engine (value-free).
+  app.post('/api/auto-apply/desktop-execution/status', async (req, res) => {
     try {
-      const { recordCompanionEvent } = await import('./server/browserCompanion/companionService.js');
-      const { assertLoopbackHost } = await import('./server/browserCompanion/companionService.js');
+      const { assertLoopbackHost } = await import('./server/autoApply/loopback.js');
       assertLoopbackHost(req.headers.host);
-      const token = bearerToken(req);
-      const { type, reasonCode, metadata } = req.body || {};
-      const r = recordCompanionEvent(getDb(), token, String(type || ''), reasonCode ? String(reasonCode) : undefined, metadata || {});
-      res.json(r);
-    } catch (err: any) {
-      if (err?.name === 'CompanionError') return res.status(401).json({ error: err.message, code: err.code });
-      res.status(500).json({ error: String(err?.message || 'Event failed.').slice(0, 200) });
-    }
+      const statusToken = typeof req.body?.statusToken === 'string' ? req.body.statusToken : '';
+      const state = typeof req.body?.state === 'string' ? req.body.state : '';
+      const event = typeof req.body?.event === 'string' ? req.body.event : '';
+      if (!statusToken || !state) return res.status(400).json({ error: 'BAD_REQUEST' });
+      const { postExecutionStatus } = await import('./server/autoApply/desktopHandoff.js');
+      const r = postExecutionStatus(getDb(), statusToken, state, event);
+      return res.status(r.ok ? 200 : 401).json(r);
+    } catch { return res.status(500).json({ error: 'STATUS_ERROR' }); }
   });
+
+  // Explicit submission (Chrome button) — server-authorized, exactly-once.
+  // The desktop may click the Lever submit control ONLY after mark-submitting
+  // returns authorized; confirmation is the only path to a receipt + Applied.
+  app.post('/api/auto-apply/desktop-execution/mark-submitting', async (req, res) => {
+    try {
+      const { assertLoopbackHost } = await import('./server/autoApply/loopback.js');
+      assertLoopbackHost(req.headers.host);
+      const statusToken = typeof req.body?.statusToken === 'string' ? req.body.statusToken : '';
+      if (!statusToken) return res.status(400).json({ error: 'BAD_REQUEST' });
+      const { loadSubmissionConfig } = await import('./server/autoApply/submissionPolicy.js');
+      const cfg = loadSubmissionConfig();
+      if (!cfg.enabled || cfg.mode === 'manual_review') return res.status(409).json({ error: 'SUBMIT_DISABLED' });
+      const { markDesktopSubmitting } = await import('./server/autoApply/desktopHandoff.js');
+      const r = markDesktopSubmitting(getDb(), statusToken);
+      return res.status(r.ok ? 200 : 409).json(r);
+    } catch { return res.status(500).json({ error: 'SUBMIT_MARK_ERROR' }); }
+  });
+
+  app.post('/api/auto-apply/desktop-execution/submitted', async (req, res) => {
+    try {
+      const { assertLoopbackHost } = await import('./server/autoApply/loopback.js');
+      assertLoopbackHost(req.headers.host);
+      const statusToken = typeof req.body?.statusToken === 'string' ? req.body.statusToken : '';
+      if (!statusToken) return res.status(400).json({ error: 'BAD_REQUEST' });
+      const { confirmDesktopSubmit } = await import('./server/autoApply/desktopHandoff.js');
+      const r = confirmDesktopSubmit(getDb(), statusToken, {
+        confirmationType: req.body?.confirmationType,
+        fingerprintHex: req.body?.fingerprintHex,
+      });
+      return res.status(r.ok ? 200 : 409).json(r);
+    } catch { return res.status(500).json({ error: 'SUBMIT_CONFIRM_ERROR' }); }
+  });
+
+  // Loopback resume stream bound to the execution token (exact frozen artifact).
+  app.get('/api/auto-apply/desktop-execution/resume', async (req, res) => {
+    try {
+      const { assertLoopbackHost } = await import('./server/autoApply/loopback.js');
+      assertLoopbackHost(req.headers.host);
+      const token = typeof req.query?.token === 'string' ? req.query.token : '';
+      if (!token) return res.status(400).json({ error: 'MISSING_TOKEN' });
+      const { getExecutionByStatusToken } = await import('./server/autoApply/desktopHandoff.js');
+      const exec = getExecutionByStatusToken(getDb(), token);
+      if (!exec) return res.status(401).json({ error: 'UNKNOWN_EXECUTION' });
+      const { getAttempt } = await import('./server/applicationEngine/executionStore.js');
+      const { getPackageById } = await import('./server/applicationPackage/packageStore.js');
+      const attempt = getAttempt(getDb(), exec.userId, exec.attemptId);
+      const pkg = attempt ? getPackageById(exec.userId, attempt.packageId) : undefined;
+      const hash = pkg?.resumeSnapshot?.pdfHash;
+      if (!hash) return res.status(404).json({ error: 'RESUME_ARTIFACT_MISSING' });
+      const { readPdfArtifact } = await import('./server/applicationPackage/artifactStore.js');
+      const bytes = readPdfArtifact(hash);
+      if (!bytes.length || bytes.length > 5 * 1024 * 1024) return res.status(413).json({ error: 'ARTIFACT_INVALID' });
+      if (bytes.subarray(0, 5).toString('ascii') !== '%PDF-') return res.status(422).json({ error: 'ARTIFACT_INVALID' });
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'attachment; filename="resume.pdf"');
+      res.setHeader('Cache-Control', 'no-store');
+      return void res.send(bytes);
+    } catch { return res.status(500).json({ error: 'RESUME_ERROR' }); }
+  });
+
+  // Chrome polls this (authed) for the live per-job status.
+  app.get('/api/auto-apply/desktop-execution/:attemptId/status', async (req, res) => {
+    try {
+      const userId = getCurrentUserId() || String((req.body && req.body.userId) || (req.query && req.query.userId) || '');
+      if (!userId) return res.status(400).json({ error: 'MISSING_USER' });
+      const { getExecutionForAttempt } = await import('./server/autoApply/desktopHandoff.js');
+      const exec = getExecutionForAttempt(getDb(), userId, String(req.params.attemptId));
+      if (!exec) return res.status(404).json({ error: 'NO_EXECUTION' });
+      return res.json({ state: exec.state, event: exec.lastEvent, updatedAt: exec.updatedAt, executionId: exec.executionId, jobId: exec.jobId });
+    } catch { return res.status(500).json({ error: 'STATUS_ERROR' }); }
+  });
+
+  // ---------------- Auto Apply Phase 5: Controlled Auto Submit (Lever only) ----------------
+  app.get('/api/auto-apply/preferences', async (req, res) => {
+    try {
+      const userId = getCurrentUserId() || String((req.body && req.body.userId) || (req.query && req.query.userId) || '');
+      if (!userId) return res.status(400).json({ error: 'MISSING_USER' });
+      const { getAutoApplyPreferences } = await import('./server/autoApply/submissionStore.js');
+      const { loadSubmissionConfig } = await import('./server/autoApply/submissionPolicy.js');
+      return res.json({ preferences: getAutoApplyPreferences(getDb(), userId), config: loadSubmissionConfig() });
+    } catch { return res.status(500).json({ error: 'PREFERENCES_ERROR' }); }
+  });
+
+  app.put('/api/auto-apply/preferences', async (req, res) => {
+    try {
+      const userId = getCurrentUserId() || String((req.body && req.body.userId) || (req.query && req.query.userId) || '');
+      if (!userId) return res.status(400).json({ error: 'MISSING_USER' });
+      const { setAutoApplyPreferences } = await import('./server/autoApply/submissionStore.js');
+      const body = req.body || {};
+      const mode = ['manual_review', 'explicit_approval', 'safe_auto'].includes(String(body.mode)) ? String(body.mode) : undefined;
+      const preferences = setAutoApplyPreferences(getDb(), userId, {
+        autoSubmitEnabled: typeof body.autoSubmitEnabled === 'boolean' ? body.autoSubmitEnabled : undefined,
+        mode: mode as any,
+      });
+      return res.json({ preferences });
+    } catch { return res.status(500).json({ error: 'PREFERENCES_ERROR' }); }
+  });
+
+  app.get('/api/auto-apply/:attemptId/submission-decision', async (req, res) => {
+    try {
+      const userId = getCurrentUserId() || String((req.body && req.body.userId) || (req.query && req.query.userId) || '');
+      if (!userId) return res.status(400).json({ error: 'MISSING_USER' });
+      const { createSubmissionDecision } = await import('./server/autoApply/submissionEngine.js');
+      const result = createSubmissionDecision(getDb(), userId, String(req.params.attemptId));
+      if (!result) return res.status(404).json({ error: 'ATTEMPT_NOT_FOUND' });
+      return res.json({ config: result.config, preferences: result.preferences, decision: result.decision, attemptStatus: result.attemptStatus, jobId: result.jobId, postingId: result.postingId, sessionBound: result.sessionBound });
+    } catch { return res.status(500).json({ error: 'DECISION_ERROR' }); }
+  });
+
+  app.get('/api/auto-apply/:attemptId/submission-status', async (req, res) => {
+    try {
+      const userId = getCurrentUserId() || String((req.body && req.body.userId) || (req.query && req.query.userId) || '');
+      if (!userId) return res.status(400).json({ error: 'MISSING_USER' });
+      const { submissionStatusFor } = await import('./server/autoApply/submissionEngine.js');
+      const status = submissionStatusFor(getDb(), userId, String(req.params.attemptId));
+      if (!status) return res.status(404).json({ error: 'ATTEMPT_NOT_FOUND' });
+      return res.json(status);
+    } catch { return res.status(500).json({ error: 'STATUS_ERROR' }); }
+  });
+
+  app.post('/api/auto-apply/:attemptId/submit', async (req, res) => {
+    try {
+      const userId = getCurrentUserId() || String((req.body && req.body.userId) || (req.query && req.query.userId) || '');
+      if (!userId) return res.status(400).json({ error: 'MISSING_USER' });
+      const { beginExplicitSubmission } = await import('./server/autoApply/submissionEngine.js');
+      const result = beginExplicitSubmission(getDb(), userId, String(req.params.attemptId));
+      if (!result.ok) return res.status(409).json({ ok: false, blockerCodes: result.blockerCodes || [], message: result.message || 'Submission blocked.' });
+      return res.json(result);
+    } catch { return res.status(500).json({ error: 'SUBMIT_ERROR' }); }
+  });
+
 
   // ── Application Experience V1: user-facing dashboard + handoff. ──
+  // Auto Apply (Experimental) — isolated router. Mount only; all logic lives
+  // in server/autoApply/. Disabled by default (AUTO_APPLY_ENABLED=false) and
+  // read-only when enabled: no submission transport exists.
+  app.use('/api/auto-apply', createAutoApplyRouter());
+
   app.get('/api/applications', async (req, res) => {
     try {
       const userId = getCurrentUserId();

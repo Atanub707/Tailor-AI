@@ -10,11 +10,14 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.cjs",
     "lint": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "desktop:dev": "electron .",
+    "desktop:smoke": "TAILOR_BROWSER_SMOKE=1 electron .",
+    "desktop:eye-smoke": "TAILOR_BROWSER_EYE_SMOKE=1 electron .",
+    "desktop:package": "electron-builder --mac --dir"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
-    "@modelcontextprotocol/sdk": "^1.30.0",
     "@phosphor-icons/react": "^2.1.10",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
@@ -30,7 +33,7 @@
     "lucide-react": "^0.546.0",
     "mammoth": "^1.12.0",
     "multer": "^2.2.0",
-    "nodemailer": "^9.0.5",
+    "nodemailer": "^10.0.14",
     "pdf-parse": "^2.4.5",
     "pdfkit": "^0.19.1",
     "react": "^19.0.1",
@@ -48,11 +51,38 @@
     "@types/nodemailer": "^8.0.1",
     "@types/pdf-parse": "^1.1.5",
     "@types/pdfkit": "^0.17.6",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.25.0",
     "postject": "^1.0.0-alpha.6",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vitest": "^3.2.7"
+  },
+  "main": "desktop/main/main.cjs",
+  "build": {
+    "appId": "com.tailorai.browser",
+    "productName": "Tailor Browser",
+    "directories": {
+      "output": "desktop-dist"
+    },
+    "files": [
+      "desktop/**/*",
+      "package.json",
+      "!node_modules/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "identity": null
+    },
+    "protocols": [
+      {
+        "name": "Tailor AI",
+        "schemes": [
+          "tailor-ai"
+        ]
+      }
+    ]
   }
 }
