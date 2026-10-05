@@ -346,6 +346,21 @@ class Session {
   }
 
   /** AGENT PRIMITIVE (mutating): ONE validated action. Resume upload uses CDP. */
+  /** Browser-level trusted click in CSS pixels. Electron's sendInputEvent
+   *  mis-scales coordinates on HiDPI (dpr≠1) views — the debugger Input
+   *  domain hits exactly where the page measured. */
+  async trustedClick(x, y) {
+    const wc = this.wc;
+    const dbg = wc.debugger;
+    try { if (!dbg.isAttached()) dbg.attach('1.3'); } catch { /* already attached */ }
+    const cx = Math.round(x);
+    const cy = Math.round(y);
+    await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: cx, y: cy });
+    await new Promise((res) => setTimeout(res, 60));
+    await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: cx, y: cy, button: 'left', clickCount: 1, buttons: 1 });
+    await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: cx, y: cy, button: 'left', clickCount: 1, buttons: 1 });
+  }
+
   async act(action) {
     if (!this.alive()) return { ok: false, code: 'NO_SESSION' };
     const safe = this.adapter.validateAgentAction(action);
@@ -356,22 +371,24 @@ class Session {
       return r.ok ? { ok: true, uploaded: true } : { ok: false, code: r.reason || 'UPLOAD_FAILED' };
     }
     try {
-      const r = await this.wc.executeJavaScript(this.adapter.buildActScript(safe), true);
-      // Comboboxes (react-select): the option must be clicked with REAL input —
-      // synthetic clicks can be ignored or destabilize the menu. The act script
-      // measures the matched option; the main process clicks its coordinates
-      // (the same trusted-input path as the submit control).
+      let r = await this.wc.executeJavaScript(this.adapter.buildActScript(safe), true);
+      // Combobox phase 1: synthetic events cannot open react-select menus in
+      // this environment (passive-listener handler failures) — open with a
+      // REAL click on the measured control, then re-run the same action.
+      if (r && r.ok !== true && r.code === 'NEEDS_TRUSTED_OPEN' && r.rect) {
+        await this.trustedClick(r.rect.x, r.rect.y);
+        await new Promise((res) => setTimeout(res, 350));
+        r = await this.wc.executeJavaScript(this.adapter.buildActScript(safe), true);
+      }
+      // Combobox phase 2: the option must be clicked with REAL input too (the
+      // act script measured it); synthetic clicks can be ignored. Verify the
+      // selection through react-select's .select__single-value.
       if (
         r && r.ok !== true && r.code === 'NEEDS_TRUSTED_CLICK' &&
         r.rect && r.rect.w > 0 &&
         typeof this.adapter.buildComboboxCheckScript === 'function'
       ) {
-        const x = Math.round(r.rect.x + r.rect.w / 2);
-        const y = Math.round(r.rect.y + r.rect.h / 2);
-        this.wc.sendInputEvent({ type: 'mouseMove', x, y });
-        await new Promise((res) => setTimeout(res, 80));
-        this.wc.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
-        this.wc.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+        await this.trustedClick(r.rect.x + r.rect.w / 2, r.rect.y + r.rect.h / 2);
         await new Promise((res) => setTimeout(res, 250));
         const check = await this.wc.executeJavaScript(this.adapter.buildComboboxCheckScript(safe.ref), true).catch(() => null);
         const picked = check && String(check.value || '').trim();
@@ -680,12 +697,7 @@ class Session {
     }
     if (r.rect && r.rect.w > 0 && r.rect.h > 0) {
       try {
-        const x = r.rect.x + Math.round(r.rect.w / 2);
-        const y = r.rect.y + Math.round(r.rect.h / 2);
-        wc.sendInputEvent({ type: 'mouseMove', x, y });
-        await new Promise((res) => setTimeout(res, 120));
-        wc.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
-        wc.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+        await this.trustedClick(r.rect.x + r.rect.w / 2, r.rect.y + r.rect.h / 2);
       } catch (e) {
         const fallback = await wc.executeJavaScript(this.adapter.buildSubmitScript(), true);
         if (!fallback.ok) {
@@ -704,6 +716,37 @@ class Session {
       }
     }
     let captchaNotified = false;
+    // SPA form submits (Greenhouse) POST via fetch and the app's own success UI
+    // can freeze in this environment — the network response is the ground
+    // truth. Watch the REAL submission POST (status + body) alongside the DOM.
+    const netPosts = new Map(); // requestId -> { url, status, done }
+    let netConfirmed = null;
+    try {
+      const dbg = this.wc.debugger;
+      if (!dbg.isAttached()) dbg.attach('1.3');
+      dbg.on('message', (_event, method, params) => {
+        try {
+          if (method === 'Network.requestWillBeSent' && params && params.request) {
+            const u = String(params.request.url || '');
+            if (params.request.method === 'POST' && /greenhouse\.io|lever\.co|ashbyhq\.com/.test(u)) {
+              netPosts.set(params.requestId, { url: u });
+            }
+          }
+          if (method === 'Network.responseReceived' && params && netPosts.has(params.requestId)) {
+            const entry = netPosts.get(params.requestId);
+            entry.status = params.response ? params.response.status : 0;
+            entry.done = true;
+            if (entry.status >= 200 && entry.status < 400) {
+              netConfirmed = { status: entry.status, requestId: params.requestId };
+            } else {
+              this.emit('SUBMISSION_POST_REJECTED', `status=${entry.status}`);
+            }
+          }
+        } catch { /* network watch must never break the flow */ }
+      });
+      await dbg.sendCommand('Network.enable');
+    } catch { /* network watch is best-effort */ }
+
     const deadline = Date.now() + 6 * 60 * 1000; // human CAPTCHA solve window
     while (Date.now() < deadline) {
       await new Promise((res) => setTimeout(res, 2000));
@@ -721,6 +764,18 @@ class Session {
         this.setState('SUBMITTED');
         this.emit('SUBMISSION_CONFIRMED', c.duplicate ? 'ALREADY_APPLIED' : (c.evidence || 'SUCCESS_TEXT'));
         return { ok: true, verified: true };
+      }
+      // SPA submit: a 2xx submission POST whose RESPONSE BODY carries the real
+      // success markers is provider confirmation even if the app UI froze.
+      if (netConfirmed && netConfirmed.requestId) {
+        let body = '';
+        try { const r = await this.wc.debugger.sendCommand('Network.getResponseBody', { requestId: netConfirmed.requestId }); body = String((r && r.body) || ''); } catch { /* body may be unavailable */ }
+        if (/thank you for applying|application (has been|was) (submitted|received)|we('ve| have) received your application|already (applied|received)/i.test(body)) {
+          this.setState('SUBMITTED');
+          this.emit('SUBMISSION_CONFIRMED', /already/i.test(body) ? 'ALREADY_APPLIED' : `POST_${netConfirmed.status}_SUCCESS`);
+          return { ok: true, verified: true };
+        }
+        netConfirmed = null; // body without markers — keep watching the DOM
       }
       // A visible CAPTCHA can appear at click time (hCaptcha challenge): tell
       // the user ONCE, keep watching while they solve — never interact with it.

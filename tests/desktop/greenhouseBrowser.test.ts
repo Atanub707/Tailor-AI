@@ -101,12 +101,14 @@ describe('Greenhouse guardrails', () => {
     expect(ob).toContain('byLabel'); // mirror-node dedupe (Country appears twice)
   });
 
-  it('combobox selection is type→click→verify via select__single-value', () => {
+  it('combobox uses the two-phase trusted-input protocol', () => {
     const act = gh.buildActScript({ action: 'type', ref: 'ta1', value: 'India' });
-    expect(act).toContain('pickComboboxOption');
-    expect(act).toContain('select__single-value');
-    expect(act).toContain('hit.click()');
-    expect(act).toContain('OPTION_NOT_FOUND');
+    expect(act).toContain('NEEDS_TRUSTED_OPEN');
+    expect(act).toContain('NEEDS_TRUSTED_CLICK');
+    expect(act).not.toContain('hit.click()');
+    expect(sessionSrc).toContain("code === 'NEEDS_TRUSTED_OPEN'");
+    expect(sessionSrc).toContain("code === 'NEEDS_TRUSTED_CLICK'");
+    expect(sessionSrc).toContain('buildComboboxCheckScript');
   });
 });
 

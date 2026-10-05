@@ -162,7 +162,7 @@ describe('Deterministic scripts — invariants (never submit, never bypass CAPTC
     const sub = lever.buildSubmitScript({ trustedInput: true });
     expect(sub).toContain('const useTrusted = true');
     expect(sub).toContain('getBoundingClientRect');
-    expect(sessionSrc).toContain('sendInputEvent');
+    expect(sessionSrc).toContain('Input.dispatchMouseEvent');
     expect(sessionSrc).toContain("this.adapter.buildSubmitScript({ trustedInput: true })");
   });
 

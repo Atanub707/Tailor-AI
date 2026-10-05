@@ -80,9 +80,10 @@ function buildObserveScript() {
     const fields = [];
     const scope = form || document;
     for (const el of scope.querySelectorAll('input, select, textarea')) {
-      if (!visible(el)) continue;
       const type = (el.getAttribute('type') || (el.tagName === 'TEXTAREA' ? 'textarea' : el.tagName.toLowerCase())).toLowerCase();
       if (type === 'hidden') continue;
+      // File inputs sit behind custom upload buttons (visually-hidden) — they
+      // are the REAL attach targets and must never be visibility-filtered.
       if (type === 'file') {
         fields.push({ ref: ref(el), kind: 'file', name: el.id || el.name || '', label: labelFor(el), required: !!(el.required || el.getAttribute('aria-required') === 'true'),
           value: el.files && el.files.length ? String(el.files[0].name).slice(0, 80) : '' });
@@ -176,6 +177,19 @@ function buildActScript(action) {
     const captchaish = (x) => { try { let p = x; for (let i = 0; i < 4 && p; i++) { if (p.classList && (p.classList.contains('g-recaptcha') || p.classList.contains('h-captcha'))) return true; p = p.parentElement; } return false; } catch (e) { return false; } };
     if (captchaish(el)) return { ok: false, code: 'CAPTCHA_NEVER_TOUCHED' };
     const fire = (node, evs) => { for (const t of evs) node.dispatchEvent(new Event(t, { bubbles: true })); };
+    const instantScroll = async (node, block) => {
+      try {
+        document.documentElement.style.scrollBehavior = 'auto';
+        document.body.style.scrollBehavior = 'auto';
+      } catch (e) { /* best-effort */ }
+      try { node.scrollIntoView({ block: block || 'center' }); } catch (e) { /* best-effort */ }
+      let last = -1;
+      for (let i = 0; i < 15; i++) {
+        await new Promise((r) => setTimeout(r, 60));
+        if (Math.abs(window.scrollY - last) < 1) break;
+        last = window.scrollY;
+      }
+    };
     const setNative = (node, value) => {
       try {
         const proto = node instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : (node instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype);
@@ -185,35 +199,18 @@ function buildActScript(action) {
       } catch (e) { try { node.value = value; return true; } catch (e2) { return false; } }
     };
     const findOpenMenu = () => document.querySelector('[role="listbox"]') || document.querySelector('[class*="listbox"], [class*="menu"], [class*="popover"], [class*="dropdown"]');
-    const currentSelection = () => {
-      const control = el.closest('.select__control') || el.parentElement;
-      const single = control ? control.querySelector('.select__single-value') : null;
-      return single ? String(single.textContent || '').trim().slice(0, 120) : String(el.value || '').trim().slice(0, 120);
-    };
-    const pickComboboxOption = async (wanted) => {
+    const findComboboxOption = async (wanted) => {
       const want = String(wanted || '').trim().toLowerCase();
-      const start = Date.now();
+      const startMs = Date.now();
       let cleared = false;
       const clearTo = async () => { setNative(el, ''); fire(el, ['input']); await new Promise((r) => setTimeout(r, 250)); };
-      while (Date.now() < start + 6000) {
+      while (Date.now() < startMs + 6000) {
         await new Promise((r) => setTimeout(r, 200));
-        let list = findOpenMenu();
-        if (!list) {
-          // The menu can end up closed between cycles — actively re-open it
-          // (react-select toggles on the control's mousedown + focuses).
-          try {
-            const ctl = el.closest('.select__control') || el;
-            ctl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-            el.focus();
-            fire(el, ['input']);
-          } catch (e) { /* best-effort */ }
-          await new Promise((r0) => setTimeout(r0, 200));
-          list = findOpenMenu();
-        }
+        const list = findOpenMenu();
         const opts = list ? Array.from(list.querySelectorAll('[role="option"], li, [class*="option"]'))
           .filter((o) => String(o.textContent || '').trim()) : [];
         if (!opts.length) {
-          if (!cleared && Date.now() > start + 1200) { cleared = true; await clearTo(); }
+          if (!cleared && Date.now() > startMs + 1200) { cleared = true; await clearTo(); }
           continue;
         }
         // Option text can carry a dial code ("India +91") — strip it, then
@@ -223,42 +220,57 @@ function buildActScript(action) {
         const hit = opts.find((o) => clean(o) === want)
           || opts.find((o) => clean(o).startsWith(want + ' '))
           || opts.slice().sort((a, b) => clean(a).length - clean(b).length).find((o) => clean(o).includes(want) || want.includes(clean(o)));
-        if (!hit) { if (!cleared && Date.now() > start + 1200) { cleared = true; await clearTo(); } continue; }
-        hit.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-        hit.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-        hit.click();
-        await new Promise((r) => setTimeout(r, 220));
-        const picked = currentSelection();
-        if (picked) return { ok: true, value: picked };
+        if (!hit) { if (!cleared && Date.now() > startMs + 1200) { cleared = true; await clearTo(); } continue; }
+        // The trusted click lands on VIEWPORT coordinates. Scroll ONLY when
+        // the control is out of view (scrolling closes the open menu).
+        const cr0 = el.getBoundingClientRect();
+        if (cr0.top < 60 || cr0.bottom > window.innerHeight - 60) {
+          await instantScroll(el, 'center');
+        }
+        let r = hit.getBoundingClientRect();
+        if (r.top < 4 || r.top > window.innerHeight - 24) {
+          window.scrollBy(0, r.top - Math.round(window.innerHeight / 2));
+          let last = -1;
+          for (let i = 0; i < 15; i++) { await new Promise((r2) => setTimeout(r2, 60)); if (Math.abs(window.scrollY - last) < 1) break; last = window.scrollY; }
+          r = hit.getBoundingClientRect();
+        }
+        return { rect: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }, text: String(hit.textContent || '').trim().slice(0, 80) };
       }
       const menu = findOpenMenu();
       const sample = menu ? Array.from(menu.querySelectorAll('[role="option"], li, [class*="option"]')).slice(0, 4).map((o) => String(o.textContent || '').trim().slice(0, 24)) : [];
-      return { ok: false, diag: { want: want.slice(0, 40), menuId: menu ? String(menu.id || menu.className).slice(0, 30) : null, opts: menu ? menu.querySelectorAll('[role="option"], li, [class*="option"]').length : 0, sample, input: String(el.value || '').slice(0, 30), focused: document.activeElement === el } };
+      return { rect: null, diag: { want: want.slice(0, 40), menu: !!menu, opts: menu ? menu.querySelectorAll('[role="option"]').length : 0, sample, input: String(el.value || '').slice(0, 30) } };
     };
     if (a.action === 'type') {
       const textValue = String(a.value == null ? '' : a.value);
       const isCombobox = !!(el.classList && el.classList.contains('select__input'));
       if (isCombobox) {
-        try {
-          // Clear first: react-select keeps the previous search text after a
-          // failed pick, and re-typing the SAME value would not reopen the
-          // menu (no change event). Clear → type guarantees a fresh menu.
-          setNative(el, '');
-          fire(el, ['input']);
-          el.focus();
-          el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-          el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-        } catch (e) { /* open is best-effort */ }
+        // react-select ignores synthetic open attempts in some environments
+        // (passive-listener handler failures) — the menu is opened by a REAL
+        // click on the control (session sends trusted input), then typing
+        // filters and the matched option is measured for a trusted click.
+        // CRITICAL: scrolling closes react-select's menu — only scroll when
+        // the menu is CLOSED (i.e., before the trusted open click).
+        let menuOpen = !!findOpenMenu();
+        if (!menuOpen) {
+          await instantScroll(el, 'center');
+          menuOpen = !!findOpenMenu();
+          if (!menuOpen) {
+            const ctl = el.closest('.select__control') || el;
+            const cr = ctl.getBoundingClientRect();
+            return { ok: false, code: 'NEEDS_TRUSTED_OPEN', rect: { x: Math.round(cr.left + cr.width / 2), y: Math.round(cr.top + cr.height / 2), w: 2, h: 2 } };
+          }
+        }
+        setNative(el, '');
+        fire(el, ['input']);
+        await new Promise((r0) => setTimeout(r0, 120));
+        setNative(el, textValue);
+        fire(el, ['input', 'change']);
+        const opt = await findComboboxOption(textValue);
+        if (!opt || !opt.rect) return { ok: false, code: 'OPTION_NOT_FOUND', message: JSON.stringify((opt && opt.diag) || {}) };
+        return { ok: false, code: 'NEEDS_TRUSTED_CLICK', rect: opt.rect, option: opt.text };
       }
       if (!setNative(el, textValue)) return { ok: false, code: 'SET_FAILED' };
       fire(el, ['input', 'change']);
-      // Greenhouse combobox: typing filters; click the matching option and
-      // verify via .select__single-value (the search input clears on select).
-      if (isCombobox) {
-        const picked = await pickComboboxOption(textValue);
-        if (!picked || !picked.ok) return { ok: false, code: 'OPTION_NOT_FOUND', message: JSON.stringify((picked && picked.diag) || {}) };
-        return { ok: true, value: picked.value };
-      }
       return { ok: true, value: String(el.value || '').slice(0, 300) };
     }
     if (a.action === 'select') {
