@@ -165,9 +165,11 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
 
   const handleAaClick = async () => {
     if (busy || !autoApplyable) return;
+    setState('STARTING');
+    setMessage('Starting Auto Apply…');
     // Pre-flight: when required questions are still missing, ask them in the
     // left-side chat BEFORE starting any browser work.
-    if (!(await preflightNeedsInput())) return;
+    if (!(await preflightNeedsInput())) { setState('IDLE'); setMessage(null); return; }
     // Tailor Browser (desktop transport): the REAL Chromium view does the work —
     // no extension, no session claim, no external tab.
     if (desktopBridge) { await runDesktopFlow(); return; }
@@ -248,6 +250,20 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
       setMessage('Opening application…');
       const started = await startDesktopExecution(job.id, handoff.executionToken);
       if (started.code === 'ALREADY_ACTIVE') {
+        // This job ALREADY has a live session (e.g. the page was reloaded and
+        // the row lost its state). ADOPT it — never dead-end: remember the
+        // session, bring the window forward, and keep watching it.
+        const existing = (Array.isArray(started.current) ? started.current : []).find((c) => c && String(c.jobId || '') === job.id) || (Array.isArray(started.current) ? started.current[0] : null);
+        if (existing && existing.executionId) {
+          setAttemptId(existing.attemptId ? String(existing.attemptId) : null);
+          setCurrentExecution({ executionId: String(existing.executionId), attemptId: String(existing.attemptId || ''), jobId: job.id, jobTitle: job.title, company: job.company });
+          if (existing.attemptId) startDesktopStatusPolling(String(existing.attemptId));
+          startAskWatcher(String(existing.executionId));
+          void focusTailorBrowser(String(existing.executionId));
+          setState('USER_ACTION_REQUIRED');
+          setMessage('This job is already open in Tailor Browser — bringing it forward. Finish the action there; the run continues by itself.');
+          return;
+        }
         setState('USER_ACTION_REQUIRED');
         setMessage('This job already has a session — open Tailor Browser (Action needed) or wait for it.');
         return;
@@ -265,6 +281,18 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
           if (!retryToken.ok || !retryToken.executionToken) continue;
           const retry = await startDesktopExecution(job.id, retryToken.executionToken);
           if (retry.code === 'ALREADY_ACTIVE') {
+            const existing = (Array.isArray(retry.current) ? retry.current : []).find((c) => c && String(c.jobId || '') === job.id) || (Array.isArray(retry.current) ? retry.current[0] : null);
+            if (existing && existing.executionId) {
+              setAttemptId(existing.attemptId ? String(existing.attemptId) : null);
+              setCurrentExecution({ executionId: String(existing.executionId), attemptId: String(existing.attemptId || ''), jobId: job.id, jobTitle: job.title, company: job.company });
+              if (existing.attemptId) startDesktopStatusPolling(String(existing.attemptId));
+              startAskWatcher(String(existing.executionId));
+              void focusTailorBrowser(String(existing.executionId));
+              setState('USER_ACTION_REQUIRED');
+              setMessage('This job is already open in Tailor Browser — bringing it forward. Finish the action there; the run continues by itself.');
+              setDesktopUnavailable(false);
+              return;
+            }
             setState('USER_ACTION_REQUIRED');
             setMessage('This job already has a session — open Tailor Browser (Action needed) or wait for it.');
             setDesktopUnavailable(false);
@@ -514,6 +542,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     if (!attemptId || !currentExecution) {
       // No live session: a previous failure must never dead-end. If answers
       // are missing the chat opens; otherwise RETRY the full apply flow.
+      setMessage('Restarting the application…');
       await handleAaClick();
       return;
     }
@@ -525,6 +554,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
       const live = (health.sessions || []).find((s) => s.executionId === currentExecution.executionId);
       const usable = !!live && !live.crashed && !!live.pageUrl && live.pageUrl !== 'about:blank';
       if (!usable) {
+        setMessage('The session ended — restarting the application…');
         try { await stopDesktopExecution(currentExecution.executionId); } catch { /* cleanup best-effort */ }
         setCurrentExecution(null);
         setAttemptId(null);
@@ -532,11 +562,37 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
         await handleAaClick();
         return;
       }
-    } catch { /* bridge probe failed — fall through to the focus attempt */ }
-    const focused = await focusTailorBrowser(currentExecution.executionId);
-    if (!focused.ok) {
-      setMessage('Tailor Browser is not running.');
-      setDesktopUnavailable(true);
+      // The ACTION decides the response: a question opens the chat (right
+      // drawer), a CAPTCHA needs the visible window, anything else gets the
+      // window brought forward. Feedback is set in EVERY branch — the button
+      // must never look stuck with no clue.
+      if (live.waitReason === 'QUESTIONS_REQUIRED' && live.asks && live.asks.length) {
+        const qs: AnswerChatQuestion[] = live.asks.filter((a) => !a.human).map((a, i) => ({ providerFieldId: `ask-${i}`, label: a.label, options: a.options }));
+        if (qs.length) {
+          handledAskSigRef.current = `${currentExecution.executionId}|${qs.map((q) => q.label).join('|')}`;
+          setMidRunAsks(qs);
+          setOpen(true);
+          setMessage('This run needs your input — answer in the chat, then it continues by itself.');
+          return;
+        }
+      }
+      if (live.waitReason === 'CAPTCHA_REQUIRED') {
+        await focusTailorBrowser(currentExecution.executionId);
+        setMessage('Complete the CAPTCHA in the Tailor Browser window — the run continues and submits by itself.');
+        return;
+      }
+      const focused = await focusTailorBrowser(currentExecution.executionId);
+      if (!focused.ok) {
+        setMessage('Tailor Browser is not running.');
+        setDesktopUnavailable(true);
+        return;
+      }
+      setMessage('Tailor Browser opened — complete the action there; the run continues by itself.');
+    } catch {
+      // Bridge probe failed — still try to bring the window forward, with feedback.
+      const focused = await focusTailorBrowser(currentExecution.executionId);
+      setMessage(focused.ok ? 'Tailor Browser opened — complete the action there.' : 'Tailor Browser is not running — click Auto Apply to restart it.');
+      if (!focused.ok) setDesktopUnavailable(true);
     }
   };
 
