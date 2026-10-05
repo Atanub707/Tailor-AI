@@ -110,6 +110,7 @@ export type FailureKind =
 // ── Deterministic helpers (pure; testable) ──────────────────────────────
 
 const HOST_PROVIDERS: Array<{ host: string; provider: Provider }> = [
+  { host: 'greenhouse.io', provider: 'greenhouse' }, // matches *.greenhouse.io incl. EU regional hosts
   { host: 'boards.greenhouse.io', provider: 'greenhouse' },
   { host: 'job-boards.greenhouse.io', provider: 'greenhouse' },
   { host: 'jobs.lever.co', provider: 'lever' },

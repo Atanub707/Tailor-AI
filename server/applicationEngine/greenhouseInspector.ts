@@ -22,7 +22,7 @@ import {
 import type { ApplicationInspectionAdapter } from './fixtureAdapter.js';
 import { InspectionFailure } from './leverInspector.js';
 
-export const GREENHOUSE_HOSTS = ['job-boards.greenhouse.io', 'boards.greenhouse.io'];
+export const GREENHOUSE_HOSTS = ['greenhouse.io', 'job-boards.greenhouse.io', 'boards.greenhouse.io'];
 export const GREENHOUSE_INSPECTOR_VERSION = 'greenhouse-core-1';
 
 

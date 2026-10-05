@@ -11,7 +11,7 @@
 // touch CAPTCHA nodes, exactly-once submit through the authorized path,
 // positive-only confirmation markers.
 
-const GREENHOUSE_HOSTS = ['job-boards.greenhouse.io', 'boards.greenhouse.io'];
+const GREENHOUSE_HOSTS = ['greenhouse.io', 'job-boards.greenhouse.io', 'boards.greenhouse.io'];
 
 /** Parse a Greenhouse application URL. Same contract as lever.parseLeverUrl:
  *  { canonical, siteSlug, postingId, isApplyPage } or null for foreign hosts.
@@ -25,7 +25,8 @@ function parseLeverUrl(url) {
   }
   if (u.protocol !== 'https:') return null;
   const host = u.hostname.toLowerCase();
-  if (!GREENHOUSE_HOSTS.includes(host)) return null;
+  if (!GREENHOUSE_HOSTS.includes(host) && !host.endsWith('.greenhouse.io')) return null;
+  if (!/^(job-boards|boards)(\.[a-z]{2})?\.greenhouse\.io$/.test(host)) return null;
   const parts = u.pathname.split('/').filter(Boolean);
   const jobsIdx = parts.indexOf('jobs');
   if (jobsIdx !== 1 || !parts[0] || !parts[2]) return null;

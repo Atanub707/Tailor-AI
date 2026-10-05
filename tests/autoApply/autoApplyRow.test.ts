@@ -327,6 +327,7 @@ describe('Auto Apply visibility — Lever + Greenhouse', () => {
     expect(isAutoApplyJob(j({ applyUrl: 'https://jobs.lever.co/acme/1' }))).toBe(true);
     expect(isAutoApplyJob(j({ applyUrl: 'https://job-boards.greenhouse.io/acme/jobs/1' }))).toBe(true);
     expect(isAutoApplyJob(j({ applyUrl: 'https://boards.greenhouse.io/acme/jobs/1' }))).toBe(true);
+    expect(isAutoApplyJob(j({ applyUrl: 'https://job-boards.eu.greenhouse.io/acme/jobs/1' }))).toBe(true); // EU regional host
     expect(isAutoApplyJob(j({ applyUrl: 'https://jobs.ashbyhq.com/acme/1' }))).toBe(false);
   });
 });

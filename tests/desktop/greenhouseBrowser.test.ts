@@ -28,6 +28,9 @@ describe('Greenhouse URL parsing', () => {
     expect(a?.isApplyPage).toBe(true);
     const b = gh.parseLeverUrl('https://boards.greenhouse.io/acme/jobs/1234567');
     expect(b?.canonical).toBe('https://boards.greenhouse.io/acme/jobs/1234567');
+    const eu = gh.parseLeverUrl('https://job-boards.eu.greenhouse.io/proton/jobs/4996808101');
+    expect(eu?.canonical).toBe('https://job-boards.eu.greenhouse.io/proton/jobs/4996808101');
+    expect(eu?.siteSlug).toBe('proton');
   });
 
   it('rejects foreign hosts, http, job pages and malformed paths', () => {
