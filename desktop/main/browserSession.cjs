@@ -950,7 +950,9 @@ class BrowserSessionManager {
     });
     const wc = view.webContents;
     wc.setWindowOpenHandler(({ url }) => {
-      this.emit(null, 'EXTERNAL_OPEN_BLOCKED', this.adapter.parseLeverUrl(url) ? 'lever-popup' : 'external');
+      let providerPopup = false;
+      try { providerPopup = !!(greenhouseAdapter.parseLeverUrl(url) || lever.parseLeverUrl(url)); } catch { /* external */ }
+      this.emit(null, 'EXTERNAL_OPEN_BLOCKED', providerPopup ? 'provider-popup' : 'external');
       return { action: 'deny' };
     });
     return view;
@@ -976,11 +978,24 @@ class BrowserSessionManager {
       session.scheduleAutoClose(AUTO_CLOSE_FAILED_MS);
     });
     wc.on('will-navigate', (e, url) => {
-      const target = this.adapter.parseLeverUrl(url);
-      if (!target || (session.canonical && target.canonical !== session.canonical)) {
+      try {
+        const target = session.adapter.parseLeverUrl(url);
+        if (target) {
+          if (session.canonical && target.canonical !== session.canonical) {
+            e.preventDefault();
+            this.emit(session, 'NAVIGATION_BLOCKED', String(url).slice(0, 120));
+          }
+          return; // same posting (or navigation before identity) → allow
+        }
+        // Terminal/flow routes of the SAME provider host (confirmation,
+        // thanks, already-received) are part of the real submission flow.
+        const host = String(url || '').replace(/^https?:\/\//, '').split('/')[0].toLowerCase();
+        const canonHost = session.canonical ? String(session.canonical).replace(/^https?:\/\//, '').split('/')[0].toLowerCase() : '';
+        if (canonHost && host === canonHost && /\/(confirmation|thanks|already-received)(?:[?#]|$)/i.test(String(url))) return;
+        if (!session.canonical) return;
         e.preventDefault();
         this.emit(session, 'NAVIGATION_BLOCKED', String(url).slice(0, 120));
-      }
+      } catch { /* a navigation event must never crash the main process */ }
     });
     if (!this.visibleId) this.setVisibleSession(session.executionId);
     this.emit(session, 'SESSION_CREATED', `attempt=${plan && plan.attemptId ? plan.attemptId : ''}`);
