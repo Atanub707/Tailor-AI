@@ -24,6 +24,15 @@ describe('Agent decision core (one layer, pure)', () => {
     expect(d.submit).toBe(false);
   });
 
+  it('unlabelled structural controls are never asked or acted on', () => {
+    const d = composeDecision(
+      base({ fields: [{ ref: 'ta1', kind: 'text', label: '', required: true, value: '' }] }),
+      new Map(),
+    );
+    expect(d.asks).toEqual([]);
+    expect(d.actions).toEqual([]);
+  });
+
   it('bank concept aliases resolve non-literal labels deterministically', () => {
     expect(bankKeysForLabel('Salary expectations per month?')).toContain('expectedSalary');
     expect(bankKeysForLabel('What is your Notice Period?')).toContain('noticePeriod');

@@ -175,6 +175,12 @@ export function composeDecision(state: ObservedState, values: Map<string, string
 
   for (const f of state.fields || []) {
     if (isFilled(f)) continue;
+    // Structural mirrors (react-select search inputs, hidden widgets) carry no
+    // label — they are never questions and never actionable.
+    if (!String(f.label || '').trim()) {
+      notes.push(`unlabelled control skipped (${String(f.name || f.ref || '').slice(0, 40)})`);
+      continue;
+    }
 
     if (f.kind === 'file') {
       // Only the resume is ever uploaded; optional cover letters are left empty.
