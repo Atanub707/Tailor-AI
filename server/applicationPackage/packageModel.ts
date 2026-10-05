@@ -13,9 +13,7 @@
 
 import type { ApplicantProfile, MasterCv, Job } from '../../src/types.js';
 import type { FitResult } from '../fit/fitEngine.js';
-import type { TailorDraft } from '../tailorV2/drafter.js';
-import type { TailorVerification } from '../tailorV2/verifier.js';
-import type { TailoredResumeVersionRow } from '../tailorV2/versionStore.js';
+import type { TailorDraft, TailorVerification } from '../tailor/tailorTypes.js';
 
 export type PackageStatus = 'DRAFT' | 'NEEDS_INPUT' | 'READY' | 'STALE';
 export const PACKAGE_VERSION = 1;

@@ -16,7 +16,7 @@
 //     stays needs-input and the dry run continues
 
 import type { ApplicantProfile, MasterCv, Job } from '../../src/types.js';
-import type { TailorDraft } from '../tailorV2/drafter.js';
+import type { TailorDraft } from '../tailor/tailorTypes.js';
 import { parseJobRequirements } from '../fit/requirementsParser.js';
 import { experienceYears } from '../fit/experience.js';
 import { askJson } from '../llm/askJson.js';

@@ -29,6 +29,11 @@ services:
       # (ENABLE_LOCAL_ATS_INDEX=true). Set false for rollback/testing.
       - ENABLE_LOCAL_ATS_INDEX=true
       - ATS_INDEX_PLATFORMS=greenhouse,lever,ashby
+      # Laya decision runtime — local sidecar running on the HOST (Docker
+      # Desktop publishes it as host.docker.internal). Advisory classification
+      # only; never generates values, never touches CAPTCHA/consent.
+      - LAYA_ENABLED=true
+      - LAYA_URL=http://host.docker.internal:8765
       # Auto Apply (experimental) — smoke-test flags. Fill-only: NEVER submits.
       - AUTO_APPLY_ENABLED=true
       - AUTO_APPLY_ANSWER_BANK_ENABLED=true

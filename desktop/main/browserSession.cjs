@@ -19,8 +19,12 @@ const STATES = [
 const CHECKPOINT_POLL_MS = 2000;
 const CHECKPOINT_TIMEOUT_MS = 15 * 60 * 1000;
 const NAV_TIMEOUT_MS = 30_000;
+// AGENT MODE (Phase 2): when enabled, the session is driven by the decision
+// loop (observe → server decide → act) instead of the per-field scripts.
+// Env-gated so normal runs keep the scripted path until this is proven.
+const AGENT_MODE_ENABLED = process.env.TAILOR_BROWSER_AGENT_MODE === '1';
 const AUTO_CLOSE_FAILED_MS = 20_000;
-const AUTO_CLOSE_READY_MS = 120_000; // explicit-review window; auto-submit closes sooner
+const AUTO_CLOSE_READY_MS = 10 * 60 * 1000; // explicit-review window stays open (10 min)
 
 class Session {
   constructor(manager, { executionId, userId, attemptId, plan, resumeBytes, resumeSha256, resumeFilename, preAuthorizedSubmit }) {
@@ -38,6 +42,14 @@ class Session {
     this.checkpointAttempts = 0;
     this.submitPerformed = false;
     this.view = null;
+    this.pageUrl = '';
+    this.crashed = false;
+    this.agentMode = AGENT_MODE_ENABLED;
+    this.statusToken = '';
+    this.backendBase = '';
+    this.pendingAsks = [];
+    this.waitReason = null;
+    this.tmpDirs = [];
     this.attached = false;
   }
 
@@ -72,6 +84,12 @@ class Session {
     this.checkpointTimer = null;
     clearTimeout(this.autoCloseTimer);
     this.autoCloseTimer = null;
+    // Resume artifacts live until the session closes (Chromium reads them at
+    // submit time); clean up here.
+    for (const d of this.tmpDirs || []) {
+      try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+    this.tmpDirs = [];
     try {
       if (this.view && !this.view.webContents.isDestroyed()) {
         try { if (this.view.webContents.debugger.isAttached()) this.view.webContents.debugger.detach(); } catch { /* ignore */ }
@@ -101,6 +119,10 @@ class Session {
       const { nodeId } = await dbg.sendCommand('DOM.querySelector', { nodeId: root.nodeId, selector: 'input[type="file"][name="resume"]' });
       if (!nodeId) return { ok: false, reason: 'NO_RESUME_CONTROL' };
       tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tailor-resume-'));
+      // The file MUST stay on disk until the session closes: Chromium reads it
+      // at SUBMIT time, not at attach time. Deleting it here caused every POST
+      // to fail mid-upload (chrome-error page, no submission, no email).
+      this.tmpDirs.push(tmpDir);
       const safeName = String(filename || 'resume.pdf').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
       const filePath = path.join(tmpDir, safeName);
       fs.writeFileSync(filePath, buf, { mode: 0o600 });
@@ -113,13 +135,20 @@ class Session {
         this.emit('RESUME_ATTACHMENT_FAILED', 'verify-failed');
         return { ok: false, reason: 'RESUME_VERIFY_FAILED' };
       }
+      // Fire change so Lever's own resume parser runs (it may auto-fill
+      // name/email/location + selectedLocation). Best-effort: the captcha-gated
+      // /parseResume endpoint may decline; our own fills cover that case.
+      try {
+        await wc.executeJavaScript(
+          `(() => { const i = document.querySelector('input[type="file"][name="resume"]'); if (i) { i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true })); } return true; })()`,
+          true
+        );
+      } catch { /* parser trigger is best-effort */ }
       this.emit('RESUME_ATTACHED', `bytes=${buf.length}`);
       return { ok: true };
     } catch (e) {
       this.emit('RESUME_ATTACHMENT_FAILED', String(e.message || e).slice(0, 80));
       return { ok: false, reason: 'RESUME_ATTACH_FAILED' };
-    } finally {
-      if (tmpDir) { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ } }
     }
   }
 
@@ -148,6 +177,7 @@ class Session {
   }
 
   async run() {
+    if (this.agentMode) return this.agentRun();
     const wc = this.wc;
     try {
       const target = lever.parseLeverUrl(this.currentPlan.url);
@@ -262,6 +292,23 @@ class Session {
 
   /** Manual unblock: "I completed the challenge — revalidate now." */
   async continueCheckpoint() {
+    if (this.agentMode) {
+      if (this.state !== 'WAITING_FOR_USER') return { ok: false, code: 'NOT_WAITING' };
+      clearInterval(this.checkpointTimer);
+      this.checkpointTimer = null;
+      this.emit('CHECKPOINT_CLEARED', 'USER_CONTINUE');
+      // The user may have solved a CAPTCHA after the submit watch expired and
+      // the POST already landed on Lever's success page — capture it first.
+      const conf = await this.wc.executeJavaScript(lever.buildConfirmationScript(), true).catch(() => null);
+      if (conf && (conf.confirmed || conf.duplicate)) {
+        this.setState('SUBMITTED');
+        this.emit('SUBMISSION_CONFIRMED', conf.duplicate ? 'ALREADY_APPLIED' : (conf.evidence || 'SUCCESS_TEXT'));
+        return { ok: true, result: { ok: true, code: 'AGENT_CONFIRMED' } };
+      }
+      this.setState('INSPECTING');
+      const loop = await this.agentLoop();
+      return { ok: true, result: loop };
+    }
     if (this.state !== 'WAITING_FOR_USER' || !this.currentPlan) return { ok: false, code: 'NOT_WAITING' };
     clearInterval(this.checkpointTimer);
     this.checkpointTimer = null;
@@ -276,8 +323,37 @@ class Session {
     return { ok: true, result };
   }
 
+  /** AGENT PRIMITIVE (read-only): compact page inventory for the decision loop. */
+  async observe() {
+    if (!this.alive()) return { ok: false, code: 'NO_SESSION' };
+    try {
+      const state = await this.wc.executeJavaScript(lever.buildObserveScript(), true);
+      return { ok: true, state };
+    } catch (e) {
+      return { ok: false, code: 'OBSERVE_FAILED', message: String(e && e.message ? e.message : e).slice(0, 160) };
+    }
+  }
+
+  /** AGENT PRIMITIVE (mutating): ONE validated action. Resume upload uses CDP. */
+  async act(action) {
+    if (!this.alive()) return { ok: false, code: 'NO_SESSION' };
+    const safe = lever.validateAgentAction(action);
+    if (!safe) return { ok: false, code: 'BAD_ACTION' };
+    if (safe.action === 'upload_resume') {
+      if (!this.lastResume) return { ok: false, code: 'NO_RESUME_ARTIFACT' };
+      const r = await this.attachResume(this.lastResume.bytes, this.lastResume.sha256, this.lastResume.filename);
+      return r.ok ? { ok: true, uploaded: true } : { ok: false, code: r.reason || 'UPLOAD_FAILED' };
+    }
+    try {
+      return await this.wc.executeJavaScript(lever.buildActScript(safe), true);
+    } catch (e) {
+      return { ok: false, code: 'ACT_FAILED', message: String(e && e.message ? e.message : e).slice(0, 160) };
+    }
+  }
+
   /** FINAL submit revalidation: identity → CAPTCHA cleared → refill → clean read-back → control. */
   async finalSubmitRevalidation() {
+    if (this.agentMode) return this.agentFinalRevalidation();
     const wc = this.wc;
     const ident = await wc.executeJavaScript(lever.buildIdentityScript(), true);
     const herr = lever.parseLeverUrl(ident.href);
@@ -307,30 +383,310 @@ class Session {
     return { ok: true, control: control.control };
   }
 
-  /** ONE click on the validated control, then confirmation detection. Never called without server authorization. */
+  // ── AGENT MODE (Phase 2): the ONE decision layer drives every action ──────
+
+  /** Ask the server's decision facade what to do next (observe → decide). */
+  async decideRemote(state) {
+    try {
+      if (!this.backendBase || !this.statusToken) return null;
+      const res = await fetch(`${this.backendBase}/api/auto-apply/agent/decide`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ statusToken: this.statusToken, state }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || !data.decision) return null;
+      return data.decision;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Navigate + identity, then hand over to the loop. */
+  async agentRun() {
+    const wc = this.wc;
+    try {
+      const target = lever.parseLeverUrl(this.currentPlan.url);
+      this.canonical = target ? target.canonical : null;
+      this.setState('NAVIGATING');
+      const loaded = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('NAVIGATION_TIMEOUT')), NAV_TIMEOUT_MS);
+        wc.once('did-finish-load', () => { clearTimeout(timer); resolve(); });
+        wc.once('did-fail-load', (_e, code, desc) => { clearTimeout(timer); reject(new Error(`NAVIGATION_FAILED:${code}:${String(desc).slice(0, 60)}`)); });
+      });
+      await wc.loadURL(target.isApplyPage ? this.currentPlan.url : `${this.canonical}/apply`);
+      await loaded;
+      this.emit('BROWSER_OPENED', this.canonical);
+      const ident = await wc.executeJavaScript(lever.buildIdentityScript(), true);
+      const herr = lever.parseLeverUrl(ident.href);
+      if (!herr || herr.canonical !== this.canonical) {
+        this.setState('FAILED');
+        this.emit('JOB_MISMATCH', 'page identity differs from the frozen plan');
+        this.scheduleAutoClose(AUTO_CLOSE_FAILED_MS);
+        return { ok: false, code: 'JOB_MISMATCH' };
+      }
+      this.emit('LEVER_VERIFIED', `${herr.siteSlug}/${herr.postingId}`);
+      this.setState('INSPECTING');
+      return await this.agentLoop();
+    } catch (e) {
+      this.setState('FAILED');
+      this.emit('RUN_FAILED', String((e && e.message) || e).slice(0, 120));
+      this.scheduleAutoClose(AUTO_CLOSE_FAILED_MS);
+      return { ok: false, code: 'RUN_FAILED' };
+    }
+  }
+
+  /** observe → decide → act until clean, asking/pausing on the human edges. */
+  async agentLoop() {
+    const wc = this.wc;
+    const deadline = Date.now() + 10 * 60 * 1000;
+    let captchaNotified = false;
+    let questionsNotified = false;
+    let fillsEmitted = 0;
+    for (let cycle = 0; cycle < 80 && Date.now() < deadline; cycle++) {
+      if (!this.alive()) return { ok: false, code: 'SESSION_GONE' };
+      let cur = '';
+      try { cur = String(wc.getURL() || ''); } catch { /* ignore */ }
+      if (cur.startsWith('chrome-error://')) {
+        this.setState('FAILED');
+        this.emit('RUN_FAILED', 'PAGE_ERROR');
+        this.scheduleAutoClose(AUTO_CLOSE_FAILED_MS);
+        return { ok: false, code: 'PAGE_ERROR' };
+      }
+
+      // A late human CAPTCHA solve can POST at any moment; if the page already
+      // reached Lever's REAL success surface, capture it immediately instead of
+      // looping forever on a form that no longer exists.
+      const conf = await wc.executeJavaScript(lever.buildConfirmationScript(), true).catch(() => null);
+      if (conf && (conf.confirmed || conf.duplicate)) {
+        this.setState('SUBMITTED');
+        this.emit('SUBMISSION_CONFIRMED', conf.duplicate ? 'ALREADY_APPLIED' : (conf.evidence || 'SUCCESS_TEXT'));
+        return { ok: true, statuses: 'AGENT_CONFIRMED' };
+      }
+
+      // Human CAPTCHA checkpoint — never touched; watch until it clears.
+      const cp = await wc.executeJavaScript(lever.buildCheckpointScript(), true).catch(() => null);
+      if (cp && cp.captchaPresent) {
+        if (!captchaNotified) {
+          captchaNotified = true;
+          this.waitReason = 'CAPTCHA_REQUIRED';
+          this.setState('WAITING_FOR_USER');
+          this.emit('HUMAN_ACTION_REQUIRED', 'CAPTCHA_REQUIRED');
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+        continue;
+      }
+      if (captchaNotified) {
+        captchaNotified = false;
+        this.waitReason = null;
+        this.setState('INSPECTING');
+        this.emit('CHECKPOINT_CLEARED', 'AGENT_AUTO_RESUME');
+      }
+
+      const obs = await this.observe();
+      if (!obs.ok) {
+        this.setState('FAILED');
+        this.emit('RUN_FAILED', `observe:${obs.code || 'FAILED'}`);
+        this.scheduleAutoClose(AUTO_CLOSE_FAILED_MS);
+        return obs;
+      }
+      const decision = await this.decideRemote(obs.state);
+      if (!decision) {
+        this.setState('FAILED');
+        this.emit('RUN_FAILED', 'DECISION_UNAVAILABLE');
+        this.scheduleAutoClose(AUTO_CLOSE_FAILED_MS);
+        return { ok: false, code: 'DECISION_UNAVAILABLE' };
+      }
+      this.emit('FORM_DISCOVERED', `agent cycle=${cycle} actions=${decision.actions.length} asks=${decision.asks.length}`);
+
+      // Apply answerable actions FIRST so filling proceeds even while a
+      // question is pending; submission stays gated on the ask clearing below.
+      let actedThisCycle = false;
+      if (decision.actions.length) {
+        this.setState('FILLING');
+        let applied = 0;
+        for (const a of decision.actions) {
+          const r = await this.act(a);
+          if (!r || r.ok !== true) {
+            this.emit('SUBMISSION_BLOCKED', `act:${a.action}:${(r && r.code) || 'FAILED'}`);
+            break; // stale refs self-heal on the next observe/decide cycle
+          }
+          applied += 1;
+        }
+        if (applied > 0) {
+          fillsEmitted += applied;
+          actedThisCycle = true;
+          this.emit('FIELDS_FILLED', `count=${fillsEmitted};agent`);
+        }
+      }
+
+      if (decision.asks.length) {
+        // Human/chat edge: notify ONCE, then KEEP WATCHING — the user resolves
+        // in the visible browser (or via the chat in the full UI) and the loop
+        // resumes by itself on the next clean observation.
+        if (!questionsNotified) {
+          questionsNotified = true;
+          this.waitReason = 'QUESTIONS_REQUIRED';
+          this.pendingAsks = decision.asks.map((a) => `${String(a.label).slice(0, 70)} — ${String(a.reason).slice(0, 60)}`);
+          this.setState('WAITING_FOR_USER');
+          this.emit('HUMAN_ACTION_REQUIRED', `QUESTIONS_REQUIRED:${String(decision.asks[0].label).slice(0, 80)}`);
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+        continue;
+      }
+      if (questionsNotified) {
+        questionsNotified = false;
+        this.waitReason = null;
+        this.pendingAsks = [];
+        this.setState('INSPECTING');
+        this.emit('CHECKPOINT_CLEARED', 'AGENT_USER_RESOLVED');
+      }
+
+      if (actedThisCycle) continue; // re-observe after acting
+
+      if (decision.submit) {
+        this.setState('READY_FOR_SUBMISSION');
+        this.emit('READY_FOR_REVIEW', 'agent:form-clean');
+        return { ok: true, statuses: 'AGENT_CLEAN' };
+      }
+
+      // Nothing to do and not submittable (e.g., disabled control) — wait briefly.
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    this.setState('WAITING_FOR_USER');
+    this.emit('SUBMISSION_UNCONFIRMED', 'agent loop exhausted — user reviews');
+    return { ok: false, code: 'AGENT_LOOP_EXHAUSTED' };
+  }
+
+  /** Agent-mode submit revalidation: re-observe, require a clean decision, control check. */
+  async agentFinalRevalidation() {
+    const cp = await this.wc.executeJavaScript(lever.buildCheckpointScript(), true).catch(() => null);
+    if (cp && cp.captchaPresent) {
+      this.emit('SUBMISSION_BLOCKED', 'CAPTCHA_REQUIRED');
+      return { ok: false, code: 'CAPTCHA_REQUIRED' };
+    }
+    const obs = await this.observe();
+    if (!obs.ok) return { ok: false, code: 'OBSERVE_FAILED' };
+    const decision = await this.decideRemote(obs.state);
+    if (!decision || !decision.submit) {
+      this.emit('SUBMISSION_BLOCKED', `VERIFICATION:${decision && decision.asks.length ? String(decision.asks[0].label).slice(0, 60) : 'not-clean'}`);
+      return { ok: false, code: 'VERIFICATION_FAILED' };
+    }
+    const control = await this.wc.executeJavaScript(lever.buildSubmitControlCheckScript(), true);
+    if (!control.ok) {
+      this.emit('SUBMISSION_BLOCKED', control.code);
+      return { ok: false, code: control.code };
+    }
+    return { ok: true, control: control.control };
+  }
+
+  /** ONE click on the validated control, then confirmation detection. Never called without server authorization.
+   *  A visible CAPTCHA at click time pauses for the human (never bypassed) and
+   *  the loop KEEPS WATCHING through the solve → confirmation. */
   async performSubmit() {
     if (this.submitPerformed) return { ok: false, code: 'SUBMISSION_ALREADY_PERFORMED' };
     const wc = this.wc;
     this.submitPerformed = true;
     this.setState('SUBMITTING');
     this.emit('SUBMIT_CONTROL_ACTIVATED', 'lever:application-submit');
-    const r = await wc.executeJavaScript(lever.buildSubmitScript(), true);
+    // Make the session visible + focused: an occluded/backgrounded view cannot
+    // render an hCaptcha challenge, and the human must SEE it to solve it.
+    try {
+      if (this.manager && typeof this.manager.setVisibleSession === 'function') this.manager.setVisibleSession(this.executionId);
+    } catch { /* visibility is best-effort */ }
+    try {
+      const win = this.manager && this.manager.parentWindow;
+      if (win && !win.isDestroyed()) { if (!win.isVisible()) win.show(); win.focus(); }
+    } catch { /* focus is best-effort */ }
+    // Trusted input first: a programmatic .click() carries no user activation,
+    // and gesture-gated submit handlers (invisible hCaptcha) silently stall on
+    // it. Validate + measure in-page, then send REAL mouse events at the control.
+    const r = await wc.executeJavaScript(lever.buildSubmitScript({ trustedInput: true }), true);
     if (!r.ok) {
       this.setState('FAILED');
       this.emit('SUBMISSION_FAILED', r.code);
       return r;
     }
-    for (let i = 0; i < 20; i++) {
-      await new Promise((res) => setTimeout(res, 1500));
-      const c = await wc.executeJavaScript(lever.buildConfirmationScript(), true);
-      if (c.confirmed || c.formGone) {
-        this.setState('SUBMITTED');
-        this.emit('SUBMISSION_CONFIRMED', c.confirmed ? 'SUCCESS_TEXT' : 'FORM_REPLACED');
-        return { ok: true, verified: true };
+    if (r.rect && r.rect.w > 0 && r.rect.h > 0) {
+      try {
+        const x = r.rect.x + Math.round(r.rect.w / 2);
+        const y = r.rect.y + Math.round(r.rect.h / 2);
+        wc.sendInputEvent({ type: 'mouseMove', x, y });
+        await new Promise((res) => setTimeout(res, 120));
+        wc.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+        wc.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+      } catch (e) {
+        const fallback = await wc.executeJavaScript(lever.buildSubmitScript(), true);
+        if (!fallback.ok) {
+          this.setState('FAILED');
+          this.emit('SUBMISSION_FAILED', fallback.code);
+          return fallback;
+        }
+      }
+    } else {
+      // No measurable rect (offscreen/odd layout): programmatic click fallback.
+      const fallback = await wc.executeJavaScript(lever.buildSubmitScript(), true);
+      if (!fallback.ok) {
+        this.setState('FAILED');
+        this.emit('SUBMISSION_FAILED', fallback.code);
+        return fallback;
       }
     }
+    let captchaNotified = false;
+    const deadline = Date.now() + 6 * 60 * 1000; // human CAPTCHA solve window
+    while (Date.now() < deadline) {
+      await new Promise((res) => setTimeout(res, 2000));
+      // A dead renderer (chrome-error page) can never produce a confirmation —
+      // fail fast and honestly instead of waiting out the window.
+      let cur = '';
+      try { cur = String(wc.getURL() || ''); } catch { /* ignore */ }
+      if (cur.startsWith('chrome-error://')) {
+        this.setState('WAITING_FOR_USER');
+        this.emit('SUBMISSION_UNCONFIRMED', `page-error:${cur.slice(0, 40)}`);
+        return { ok: false, code: 'SUBMITTED_UNVERIFIED' };
+      }
+      const c = await wc.executeJavaScript(lever.buildConfirmationScript(), true);
+      if (c.confirmed || c.duplicate) {
+        this.setState('SUBMITTED');
+        this.emit('SUBMISSION_CONFIRMED', c.duplicate ? 'ALREADY_APPLIED' : (c.evidence || 'SUCCESS_TEXT'));
+        return { ok: true, verified: true };
+      }
+      // A visible CAPTCHA can appear at click time (hCaptcha challenge): tell
+      // the user ONCE, keep watching while they solve — never interact with it.
+      // Checked BEFORE error classification (Lever renders captcha/required
+      // text that would otherwise be misread as a rejection).
+      const cp = await wc.executeJavaScript(lever.buildCheckpointScript(), true).catch(() => null);
+      if (cp && cp.captchaPresent) {
+        if (!captchaNotified) {
+          captchaNotified = true;
+          this.setState('WAITING_FOR_USER');
+          this.emit('HUMAN_ACTION_REQUIRED', 'CAPTCHA_REQUIRED');
+        }
+        continue;
+      }
+      if (captchaNotified && !(cp && cp.captchaPresent)) {
+        // Solved — Lever's callback submits; keep watching for confirmation.
+        captchaNotified = false;
+        this.setState('SUBMITTING');
+      }
+      if (c.error) {
+        this.setState('WAITING_FOR_USER');
+        this.emit('SUBMISSION_UNCONFIRMED', `rejected:${String(c.evidence || 'validation')}`);
+        return { ok: false, code: 'SUBMISSION_REJECTED' };
+      }
+      // `formGone` alone is NOT proof: a validation error or a navigation can
+      // remove the form without accepting the application. Positivity required.
+    }
+    // Timed out: capture a short page snippet so the row message is actionable.
+    let snippet = null;
+    try {
+      snippet = await wc.executeJavaScript(
+        `(() => { const t = (document.body && document.body.innerText) || ''; const m = t.match(/[^\\n]*(error|required|invalid|captcha)[^\\n]*/i); return String(m ? m[0] : t).slice(0, 160); })()`,
+        true
+      );
+    } catch { /* snippet is best-effort */ }
     this.setState('WAITING_FOR_USER');
-    this.emit('SUBMISSION_UNCONFIRMED', 'no confirmation within 30s — user reviews');
+    this.emit('SUBMISSION_UNCONFIRMED', snippet ? `no confirmation: ${String(snippet).slice(0, 150)}` : 'no confirmation within 6min — user reviews');
     return { ok: false, code: 'SUBMITTED_UNVERIFIED' };
   }
 }
@@ -384,12 +740,24 @@ class BrowserSessionManager {
   }
 
   /** Create an independent execution session (own view; visible only if first). */
-  createSession({ executionId, userId, attemptId, plan, resumeBytes, resumeSha256, resumeFilename, preAuthorizedSubmit }) {
+  createSession({ executionId, userId, attemptId, plan, resumeBytes, resumeSha256, resumeFilename, preAuthorizedSubmit, statusToken, backendBase }) {
     this.ensurePartition(userId);
     const session = new Session(this, { executionId, userId, attemptId, plan, resumeBytes, resumeSha256, resumeFilename, preAuthorizedSubmit });
+    session.statusToken = String(statusToken || '');
+    session.backendBase = String(backendBase || '');
     session.view = this.makeView();
     this.sessions.set(session.executionId, session);
     const wc = session.view.webContents;
+    // Page-health telemetry: a crashed/blank renderer must never masquerade
+    // as "Action required" with a white view.
+    wc.on('did-navigate', (_e, url) => { session.pageUrl = String(url || session.pageUrl || ''); });
+    wc.on('did-finish-load', () => { try { session.pageUrl = String(wc.getURL() || session.pageUrl || ''); } catch { /* ignore */ } });
+    wc.on('render-process-gone', (_e, details) => {
+      session.crashed = true;
+      this.emit(session, 'RUN_FAILED', `renderer-gone:${String((details && details.reason) || 'unknown').slice(0, 40)}`);
+      session.setState('FAILED');
+      session.scheduleAutoClose(AUTO_CLOSE_FAILED_MS);
+    });
     wc.on('will-navigate', (e, url) => {
       const target = lever.parseLeverUrl(url);
       if (!target || (session.canonical && target.canonical !== session.canonical)) {
@@ -467,7 +835,11 @@ class BrowserSessionManager {
         title: (s.currentPlan && s.currentPlan.title) || '',
         company: (s.currentPlan && s.currentPlan.company) || '',
         checkpoint: s.state === 'WAITING_FOR_USER' ? 'ACTION_REQUIRED' : null,
+        waitReason: s.waitReason || null,
+        asks: s.pendingAsks || [],
         preAuthorizedSubmit: s.preAuthorizedSubmit,
+        pageUrl: s.pageUrl || '',
+        crashed: s.crashed === true,
       })),
       // Back-compat aggregate view for older callers.
       state: visible ? visible.state : 'IDLE',

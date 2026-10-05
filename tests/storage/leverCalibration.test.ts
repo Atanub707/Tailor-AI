@@ -44,9 +44,9 @@ const makePackage = async (job: Job = makeJob('https://jobs.lever.co/veo/e1/appl
   p.workAuthorization = { country: 'India', authorizedToWork: 'yes', requiresSponsorship: 'no' };
   const cv: MasterCv = { fullName: 'Ravi Kumar', email: 'ravi@example.com', phone: '+91 90000 00000', location: 'Bengaluru', summary: 'DevOps', experiences: [], education: [], skills: [], certifications: [] };
   const fit = computeFit(p, cv, job, job.description || '');
-  return buildPackage({ userId: USER, job, jd: job.description || '', profile: p, masterCv: cv, fit, tailoredVersion: {
-    id: 't-cal', userId: USER, jobId: job.id, version: 1, masterCvUpdatedAt: 'cv1', profileUpdatedAt: 'p1', jdHash: 'jd1', fitEngineVersion: 3, tailorEngineVersion: 1,
-    content: { summary: 'x', skills: [], experience: [], education: [], certifications: [], projects: [] }, verification: { passed: true, issues: [] }, stale: false, createdAt: new Date().toISOString(),
+  return buildPackage({ userId: USER, job, jd: job.description || '', profile: p, masterCv: cv, fit, tailoredCv: {
+    candidateName: 'Ravi Kumar', targetRole: 'DevOps Engineer', professionalSummary: 'DevOps.', coreCompetencies: [],
+    workExperience: [], education: [], technicalSkills: [], certifications: [], projects: [],
   } as any }, 'cv1');
 };
 

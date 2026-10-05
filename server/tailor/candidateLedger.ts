@@ -1,6 +1,6 @@
-// Candidate Fact Ledger — deterministic source-of-truth for Tailor V2.
-// Generated WITHOUT any LLM from the Master CV + Applicant Profile.
-// Every candidate claim in a tailored resume must be grounded here.
+// Candidate Fact Ledger — deterministic source-of-truth built WITHOUT any LLM
+// from the Master CV + Applicant Profile. Used by the generated-text safety
+// check so optional LLM-written answers can never assert unsupported facts.
 
 import type { MasterCv, ApplicantProfile } from '../../src/types.js';
 

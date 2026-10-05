@@ -17,7 +17,8 @@ import type { Database } from 'better-sqlite3';
 import { randomToken, sha256Hex } from './crypto.js';
 import { getReceiptByAttempt, saveSubmissionReceipt } from './submissionStore.js';
 import { getAttempt } from '../applicationEngine/executionStore.js';
-import { getJobById, updateJobInStorage } from '../storage/fileStorage.js';
+import { transitionAttempt } from '../applicationEngine/executionEngine.js';
+import { getJobById, updateJobInStorage, runWithUser } from '../storage/fileStorage.js';
 import type { SubmissionPlan } from '../applicationEngine/contract.js';
 
 export const HANDOFF_TTL_MS = 120_000;
@@ -168,16 +169,29 @@ export function confirmDesktopSubmit(
   ).run(submittedAt, submittedAt, tokenHash);
 
   // Job → Applied ONLY here: verified confirmation + persisted receipt.
+  // The bridge confirm route has NO web session, so the user-scoped storage
+  // helpers must run inside the execution owner's context.
   let jobApplied = false;
   try {
-    const getJob = deps.getJobFn || (getJobById as (id: string) => unknown);
-    const updateJob = deps.updateJobFn || (updateJobInStorage as (job: unknown) => unknown);
-    const job = getJob(jobId) as { state?: string } | undefined;
-    if (job && String(job.state || '') !== 'applied') {
-      updateJob({ ...(job as object), state: 'applied' });
-      jobApplied = true;
-    }
+    const apply = () => {
+      const job = (deps.getJobFn || (getJobById as (id: string) => unknown))(jobId) as { state?: string } | undefined;
+      if (job && String(job.state || '') !== 'applied') {
+        (deps.updateJobFn || (updateJobInStorage as (job: unknown) => unknown))({ ...(job as object), state: 'applied' });
+        return true;
+      }
+      return false;
+    };
+    jobApplied = deps.getJobFn || deps.updateJobFn ? apply() : runWithUser(userId, apply);
   } catch { /* receipt stands; job update best-effort */ }
+
+  // Attempt audit state (phase-1-enterable only) — the receipt stays the
+  // authoritative submission record.
+  try {
+    const attempt = getAttempt(db, userId, attemptId) as { status?: string } | null;
+    if (String(attempt?.status || '') === 'READY_FOR_USER_SUBMISSION') {
+      transitionAttempt(db, userId, attemptId, 'SUBMISSION_OBSERVED');
+    }
+  } catch { /* best-effort */ }
   return { ok: true, receiptId, jobApplied };
 }
 

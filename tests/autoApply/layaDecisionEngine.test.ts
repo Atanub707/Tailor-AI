@@ -85,10 +85,11 @@ describe('Laya config', () => {
     expect(cfg.reviewConfidence).toBe(0.7);
   });
 
-  it('loopback-only guard accepts 127.0.0.1/localhost/::1 and refuses everything else', () => {
+  it('loopback-only guard accepts local hosts (incl. Docker host loopback) and refuses everything else', () => {
     expect(isLoopbackUrl('http://127.0.0.1:8765')).toBe(true);
     expect(isLoopbackUrl('http://localhost:8765')).toBe(true);
     expect(isLoopbackUrl('http://[::1]:8765')).toBe(true);
+    expect(isLoopbackUrl('http://host.docker.internal:8765')).toBe(true); // Docker Desktop host loopback
     expect(isLoopbackUrl('http://192.168.1.50:8765')).toBe(false);
     expect(isLoopbackUrl('https://laya.example.com')).toBe(false);
     expect(isLoopbackUrl('http://0.0.0.0:8765')).toBe(false);

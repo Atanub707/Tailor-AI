@@ -19,8 +19,8 @@ process.env.TAILOR_ENGINE = 'v1';
 const { getDb, runWithUser, saveMasterCv, getJobById, getMasterCv } = await import('../../server/storage/fileStorage.js');
 const { ensureV2Tables } = await import('../../server/storage/v2Tables.js');
 const { ensureApplicantProfileSchema, defaultApplicantProfile, saveApplicantProfile } = await import('../../server/storage/applicantProfile.js');
-const { tailorJobWithV2 } = await import('../../server/tailorV2/tailorService.js');
-const { containsKeyword } = await import('../../server/tailorV2/keywordMatch.js');
+const { tailorJob } = await import('../../server/tailor/tailorService.js');
+const { containsKeyword } = await import('../../server/tailor/keywordMatch.js');
 import type { MasterCv, Job } from '../../src/types.js';
 
 const USER = 'v1-rewrite-user';
@@ -98,7 +98,7 @@ describe('V1 engine — tailoring must actually tailor', () => {
 
   it('FAILS CLOSED when the LLM echoes the master bullets verbatim (no rewrite, no keyword added)', async () => {
     stubLlm(verbatimDraft());
-    await expect(runWithUser(USER, () => tailorJobWithV2(getJobById('v1-rw1')!, { userId: USER })))
+    await expect(runWithUser(USER, () => tailorJob(getJobById('v1-rw1')!, { userId: USER })))
       .rejects.toMatchObject({ name: 'TailorVerificationFailedError' });
   });
 
@@ -110,7 +110,7 @@ describe('V1 engine — tailoring must actually tailor', () => {
       inSkills: [],
       technicalSkills: [{ category: 'Languages', skills: [] }],
     });
-    const r = await runWithUser(USER, () => tailorJobWithV2(getJobById('v1-rw1')!, { userId: USER }));
+    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-rw1')!, { userId: USER }));
     const audit = r.tailoredCv.audit!;
     // Python + Prometheus genuinely woven in -> score moves; C++ NOT added.
     expect(audit.afterScore).toBeGreaterThan(audit.beforeScore);
@@ -135,7 +135,7 @@ describe('V1 engine — tailoring must actually tailor', () => {
       inSkills: [],
       technicalSkills: [{ category: 'Languages', skills: [] }],
     });
-    const r = await runWithUser(USER, () => tailorJobWithV2(getJobById('v1-rw1')!, { userId: USER }));
+    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-rw1')!, { userId: USER }));
     const audit = r.tailoredCv.audit!;
     expect(audit.afterScore).toBeGreaterThan(audit.beforeScore);
     expect(audit.addedAfter.keywordsInSummary).toContain('C++');

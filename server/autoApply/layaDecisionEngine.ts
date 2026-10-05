@@ -40,7 +40,9 @@ export function isLoopbackUrl(raw: string): boolean {
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
   const host = url.hostname.toLowerCase();
-  return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]';
+  // host.docker.internal is Docker Desktop's host loopback — the Laya runtime
+  // stays on the same machine (container → host), never a remote endpoint.
+  return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]' || host === 'host.docker.internal';
 }
 
 export class LayaDecisionEngine implements DecisionEngine {

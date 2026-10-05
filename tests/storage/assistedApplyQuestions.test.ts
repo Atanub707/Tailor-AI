@@ -74,18 +74,13 @@ beforeAll(async () => {
 });
 
 async function ensureTailorVersion() {
-  const { ensureTailorV2Schema, storeTailorVersion } = await import('../../server/tailorV2/versionStore.js');
-  ensureTailorV2Schema();
-  storeTailorVersion(USER, 'lever-qa', { summary: 'x', skills: [], experience: [], education: [], certifications: [], projects: [] } as any,
-    { passed: true, issues: [], supportedJdTermsBefore: [], supportedJdTermsAfter: [], unsupportedInserted: [] } as any, { masterCvUpdatedAt: 'c', profileUpdatedAt: 'p', jdHash: 'j', fitEngineVersion: 3 });
+  // V1: the tailored CV lives ON the job record — nothing to seed separately.
 }
 
 const makePackage = async (profile: any) => {
   const masterCv = cv();
   const fit = computeFit(profile, masterCv, leverJob(), 'Kubernetes, AWS, Terraform required.');
-  const { getLatestTailorVersion } = await import('../../server/tailorV2/versionStore.js');
-  const v = getLatestTailorVersion(USER, 'lever-qa')!;
-  const pkg = await buildPackage({ userId: USER, job: leverJob(), jd: 'Kubernetes, AWS, Terraform required.', profile, masterCv, fit, tailoredVersion: v }, 'c');
+  const pkg = await buildPackage({ userId: USER, job: leverJob(), jd: 'Kubernetes, AWS, Terraform required.', profile, masterCv, fit }, 'c');
   const { storePackage } = await import('../../server/applicationPackage/packageStore.js');
   storePackage(pkg);
   return pkg;

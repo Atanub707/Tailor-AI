@@ -15,9 +15,7 @@ const { ensureV2Tables } = await import('../../server/storage/v2Tables.js');
 const { ensureApplicantProfileSchema, defaultApplicantProfile } = await import('../../server/storage/applicantProfile.js');
 const { computeFit } = await import('../../server/fit/fitEngine.js');
 const { fitCacheKeyFor } = await import('../../server/fit/fitCache.js');
-const { ensureTailorV2Schema, storeTailorVersion, getLatestTailorVersion, listTailorVersions } = await import('../../server/tailorV2/versionStore.js');
 const { buildPackage } = await import('../../server/applicationPackage/packageEngine.js');
-const { resumePdfHash } = await import('../../server/applicationPackage/packageEngine.js');
 import type { MasterCv, Job } from '../../src/types.js';
 
 const USER = 'wfc-user';
@@ -36,13 +34,6 @@ const profile = () => {
   return p;
 };
 const cv = (): MasterCv => ({ fullName: 'Ravi Kumar', email: 'ravi@example.com', phone: '+91 90000 00000', location: 'B', summary: 'DevOps with Kubernetes', experiences: [], education: [], skills: [{ category: 'skills', items: ['Kubernetes'] }], certifications: [] });
-
-const v2Version = (n: number) => ({
-  id: `t-${n}`, userId: USER, jobId: 'wfj1', version: n, masterCvUpdatedAt: 'c', profileUpdatedAt: 'p', jdHash: 'j', fitEngineVersion: 3, tailorEngineVersion: 1,
-  content: { summary: 'x', skills: [], experience: [], education: [], certifications: [], projects: [] } as any,
-  verification: { passed: true, issues: [] },
-  stale: false, createdAt: new Date().toISOString(),
-});
 
 const APP_TSX = fs.readFileSync(path.join(process.cwd(), 'src/App.tsx'), 'utf8');
 const CARD = fs.readFileSync(path.join(process.cwd(), 'src/components/JobMatrix.tsx'), 'utf8');
@@ -63,7 +54,6 @@ const walk = (dir: string): string[] => {
 beforeAll(async () => {
   ensureV2Tables();
   ensureApplicantProfileSchema();
-  ensureTailorV2Schema();
 });
 
 afterAll(() => {

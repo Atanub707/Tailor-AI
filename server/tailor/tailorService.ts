@@ -1,50 +1,33 @@
-// Tailor V2 — canonical user-facing tailoring service.
+// Tailoring service — the V1 user-facing engine.
 //
-// Single entry point used by EVERY normal Tailor Resume path (job-card
-// Tailor, Re-Tailor, batch Tailor, Manual JD Tailor, application-package
-// auto-tailor). There is exactly one tailoring implementation: the
-// fact-grounded V2 pipeline (ledger → drafter → verifier → fail-closed).
-//
-//   job (resolved JD) + master CV + applicant profile
-//     → deterministic fit (cached)
-//     → Candidate Fact Ledger (deterministic, LLM-free)
-//     → LLM drafter
-//     → deterministic verifier (fail closed)
-//     → verified version persisted (versioned, per job)
-//     → PDF with text-layer verification
-//     → UI-compatible TailoredCv + audit
-//
-// The job description is NEVER candidate evidence. Unsupported claims fail
-// verification; the generated resume is never persisted or published.
+// Single entry point used by EVERY Tailor Resume path (job-card Tailor,
+// Re-Tailor, batch Tailor, Manual JD Tailor, Auto Apply pre-flight) and by
+// the application package (Auto Apply attaches THIS tailored CV's PDF).
 
 import type { Job, MasterCv, TailoredCv, TailoringAudit } from '../../src/types.js';
 import type { FitResult } from '../fit/fitEngine.js';
-import { TailorVerificationFailedError, runTailorV2, toTailoredCv, type TailorV2Result, type EnhancementLedger } from './tailorV2Engine.js';
-import { getLatestTailorVersion } from './versionStore.js';
 import { getCurrentUserId, getMasterCv, getMasterCvUpdatedAt, getDb, listUsers, runWithUser } from '../storage/fileStorage.js';
 import { getApplicantProfile } from '../storage/applicantProfile.js';
 import { computeFit } from '../fit/fitEngine.js';
-import { fitCacheKeyFor, getCachedFit, storeCachedFit, jdHash } from '../fit/fitCache.js';
-import type { TailorDraft } from './drafter.js';
-import type { TailorVerification } from './verifier.js';
-import { jdSkillTerms } from './tailorV2Engine.js';
+import { fitCacheKeyFor, getCachedFit, storeCachedFit } from '../fit/fitCache.js';
+import { jdSkillTerms, TailorVerificationFailedError, type TailorDraft } from './tailorTypes.js';
 import { computeBulletDiffs, computeKeywordStatus } from './bulletDiff.js';
 import { containsKeyword } from './keywordMatch.js';
+
+export { TailorVerificationFailedError };
 
 export interface TailorJobResult {
   version: number;
   tailoredCv: TailoredCv;
   draft: TailorDraft;
-  verification: TailorVerification;
   jdTerms: string[];
   pdfOk: boolean;
   audit: TailoringAudit;
-  enhancementLedger?: EnhancementLedger;
 }
 
 /** Resolve the real job description or throw (never tailor on a stub). */
 export async function resolveJobDescription(job: Job): Promise<Job> {
-  const { ensureJobDescription } = await import('../tailor/jdResolver.js');
+  const { ensureJobDescription } = await import('./jdResolver.js');
   return ensureJobDescription(job);
 }
 
@@ -61,9 +44,9 @@ export function fitForJob(userId: string, job: Job, masterCv: MasterCv, jd: stri
 
 /** UI audit: same field shape the job detail / manual JD screens consume.
  *  beforeScore = the existing Resume Match score (unchanged methodology);
- *  afterScore mirrors the previous deterministic keyword-weighted formula
- *  using the VERIFIER's grounded keyword coverage — never a separate score. */
-export function buildTailorAudit(job: Job, draft: TailorDraft, verification: TailorVerification, jdTerms: string[], masterCv: MasterCv): TailoringAudit {
+ *  afterScore mirrors the deterministic keyword-weighted formula
+ *  using the engine's grounded keyword coverage — never a separate score. */
+export function buildTailorAudit(job: Job, draft: TailorDraft, jdTerms: string[], masterCv: MasterCv): TailoringAudit {
   const beforeScore = job.matchScore ?? job.gapAnalysis?.matchScore ?? 50;
   const expText = (draft.experience || []).flatMap((w) => w.highlights || []).join(' ');
   const skillsText = (draft.skills || []).join(' ');
@@ -85,11 +68,11 @@ export function buildTailorAudit(job: Job, draft: TailorDraft, verification: Tai
 
   // Informative audit: per-bullet before→after diffs (addedTerms filled from
   // the JD terms present in each rewritten bullet) + per-JD-term reason.
-  const bulletDiffs = computeBulletDiffs(masterCv, draft, verification.enhancementLedger);
+  const bulletDiffs = computeBulletDiffs(masterCv, draft);
   for (const d of bulletDiffs) {
     d.addedTerms = jdTerms.filter((t) => containsKeyword(d.rewritten, t));
   }
-  const keywordStatus = computeKeywordStatus(jdTerms, draft, masterCv, verification.enhancementLedger);
+  const keywordStatus = computeKeywordStatus(jdTerms, draft, masterCv);
 
   return {
     beforeScore,
@@ -123,66 +106,57 @@ export function buildTailorAudit(job: Job, draft: TailorDraft, verification: Tai
   };
 }
 
-/** The one canonical user-facing tailoring entry point. */
-// Product decision (2026-09-03): the user-facing Tailor engine is V1 —
-// its whole point is integrating the JD's missing keywords so the score
-// MOVES (rephrasing without keyword gains = not tailoring). V2 stays in
-// the codebase as a dormant engine; this flag is the single switch.
-// Tests set TAILOR_ENGINE=v2 to validate the dormant engine directly.
-const TAILOR_ENGINE: 'v1' | 'v2' = process.env.TAILOR_ENGINE === 'v2' ? 'v2' : 'v1';
-
-export async function tailorJobWithV2(
-  job: Job,
-  opts: { userId?: string; mode?: 'strict' | 'enhanced' } = {}
-): Promise<TailorJobResult> {
-  if (TAILOR_ENGINE === 'v1') return tailorJobWithV1(job, opts);
+/** The one canonical user-facing tailoring entry point (V1). V1 integrates
+ *  the JD's missing keywords into bullets/skills — the score boost is its
+ *  whole purpose. The informative audit fields are enriched deterministically
+ *  so the UI (What changed / Keyword placement) keeps working unchanged. */
+export async function tailorJob(job: Job, opts: { userId?: string; mode?: 'strict' | 'enhanced' } = {}): Promise<TailorJobResult> {
   const userId = opts.userId || getCurrentUserId();
-
   const fullJob = await resolveJobDescription(job);
   const jd = fullJob.description || '';
   const masterCv = getMasterCv(userId);
-  const profile = getApplicantProfile(userId);
-  const fit = fitForJob(userId, fullJob, masterCv, jd);
 
-  const result: TailorV2Result = await runTailorV2(
-    userId, masterCv, profile, fullJob, jd, fit,
-    { masterCvUpdatedAt: getMasterCvUpdatedAt(userId), profileUpdatedAt: profile.updatedAt, jdHash: jdHash(jd), fitEngineVersion: fit.version },
-    undefined,
-    { mode: opts.mode }
-  );
+  // Match analysis when missing.
+  if (!fullJob.gapAnalysis) {
+    const { LlmMatcher } = await import('../matcher/llmMatcher.js');
+    const matchResult = await new LlmMatcher().matchJob(fullJob, masterCv);
+    fullJob.gapAnalysis = matchResult.gapAnalysis;
+    fullJob.matchScore = matchResult.matchScore;
+  }
 
-  const tailoredCv = toTailoredCv(result.draft, masterCv.fullName || '');
-  const audit = buildTailorAudit(fullJob, result.draft, result.verification, result.jdTerms, masterCv);
-  // Carry the enhancement ledger onto the artifact (via a non-persisted
-  // stash) so the audit the UI reads includes it.
-  (tailoredCv as any).__enhancementLedger = result.enhancementLedger;
-  // The UI artifact carries the same metadata the legacy engine provided:
-  // contact block (templates render the header/contact area), audit
-  // (before/after scores, gaps, keyword incorporation) and display-only
-  // counters. The versioned draft itself stays canonical.
-  enrichTailoredCv(tailoredCv, audit, masterCv);
-  delete (tailoredCv as any).__enhancementLedger;
-  // Skills render grouped exactly like the Master CV preview.
-  groupSkillsLikeMasterCv(tailoredCv, masterCv);
-  // Projects/education/certs copied verbatim — only summary, skills and
-  // experience bullets are tailored.
-  applyMasterSectionsVerbatim(tailoredCv, masterCv);
+  const { LlmCvTailor } = await import('../builder/llmCvTailor.js');
+  const tailoredCv = await new LlmCvTailor().tailorCv(fullJob, masterCv);
+
+  // Informative audit (deterministic) — the UI reads audit.bulletDiffs /
+  // keywordStatus; compute from the output so nothing changes in the UI.
+  const draft = tailoredCvToDraft(tailoredCv);
+  // JD terms for the informative audit: prefer the deterministic parse, but
+  // fall back to the match's gap-analysis keywords.
+  const parsedTerms = jdSkillTerms(jd);
+  const gapTerms = [
+    ...(fullJob.gapAnalysis?.missingSkills || []),
+    ...(fullJob.gapAnalysis?.missingKeywords || []),
+    ...(fullJob.gapAnalysis?.matchingSkills || []),
+  ];
+  const jdTerms = [...new Set([...parsedTerms, ...gapTerms])];
+  const bulletDiffs = computeBulletDiffs(masterCv, draft);
+  for (const d of bulletDiffs) {
+    d.addedTerms = jdTerms.filter((t) => containsKeyword(d.rewritten, t));
+  }
+  const keywordStatus = computeKeywordStatus(jdTerms, draft, masterCv);
+  if (tailoredCv.audit) {
+    tailoredCv.audit.bulletDiffs = bulletDiffs;
+    tailoredCv.audit.keywordStatus = keywordStatus;
+  }
 
   return {
-    version: result.version,
+    version: 0,
     tailoredCv,
-    draft: result.draft,
-    verification: result.verification,
-    jdTerms: result.jdTerms,
-    pdfOk: result.pdfOk,
-    audit,
-    enhancementLedger: result.enhancementLedger,
+    draft,
+    jdTerms,
+    pdfOk: true,
+    audit: tailoredCv.audit as TailoringAudit,
   };
-}
-
-/** Latest verified Tailor V2 version for a job (for package/immutable use). */
-export function latestVerifiedVersion(userId: string, jobId: string) {
-  return getLatestTailorVersion(userId, jobId);
 }
 
 /** Re-group the tailored flat skill list into the Master CV's skill
@@ -227,14 +201,9 @@ export function groupSkillsLikeMasterCv(tailoredCv: TailoredCv, masterCv: Master
   return tailoredCv;
 }
 
-/** Every Master CV project MUST appear in the tailored resume. The drafter
- *  may omit projects (the verifier only rejects invented ones, and dropping
- *  is not a violation). Deterministically append any missing project from
- *  the Master CV — candidate-owned evidence is always safe to include. */
 /** Tailoring scope: summary, skill sections and experience bullets only.
  *  Projects, education and certifications are copied VERBATIM from the
- *  Master CV — same entries, same wording, same order. No LLM touches them
- *  (the AI may not rename/reorder/add/remove these sections). */
+ *  Master CV — same entries, same wording, same order. No LLM touches them. */
 export function applyMasterSectionsVerbatim(tailoredCv: TailoredCv, masterCv: MasterCv): TailoredCv {
   tailoredCv.projects = (masterCv.projects || []).map((p) => ({
     id: p.id,
@@ -267,15 +236,13 @@ export function enrichTailoredCv(tailoredCv: TailoredCv, audit: TailoringAudit, 
       website: masterCv.website,
     };
   }
-  const stash = (tailoredCv as any).__enhancementLedger;
-  if (stash && audit) audit.enhancementLedger = stash;
   tailoredCv.audit = audit;
   tailoredCv.rephraseHighlightsCount = audit.addedAfter.rephrasedHighlightsCount;
   tailoredCv.keywordsIncorporated = audit.addedAfter.keywordsIncorporated;
   return tailoredCv;
 }
 
-/** Deterministic backfill for tailored CVs stored before the V2 service
+/** Deterministic backfill for tailored CVs stored before the service
  *  attached audit/contactInfo. No LLM calls — rerun-safe. */
 export function backfillTailoredAudits(): number {
   // Run per-user: the master CV (source of truth for projects/skills/
@@ -348,7 +315,7 @@ function backfillRowWithTerms(job: Job, cv: TailoredCv, terms: string[], db: Ret
       certifications: (cv.certifications || []).map((c) => (typeof c === 'string' ? c : c.name || '')),
       projects: (cv.projects || []).map((p) => ({ name: p.name, description: p.description || '' })),
     };
-    audit = buildTailorAudit(job, draft, { passed: true, issues: [], supportedJdTermsBefore: 0, supportedJdTermsAfter: terms.length, unsupportedInserted: 0 }, terms, getMasterCv());
+    audit = buildTailorAudit(job, draft, terms, getMasterCv());
   }
   enrichTailoredCv(cv, audit as TailoringAudit, getMasterCv());
   groupSkillsLikeMasterCv(cv, getMasterCv());
@@ -357,64 +324,8 @@ function backfillRowWithTerms(job: Job, cv: TailoredCv, terms: string[], db: Ret
   db.prepare('UPDATE jobs SET data = ? WHERE id = ? AND user_id = ?').run(JSON.stringify(job), rowId, getCurrentUserId());
 }
 
-export { TailorVerificationFailedError };
-/** V1-backed tailoring (the user-facing engine). V1 integrates the JD's
- *  missing keywords into bullets/skills — the score boost is its whole
- *  purpose. The informative audit fields are enriched deterministically
- *  so the UI (What changed / Keyword placement) keeps working unchanged. */
-async function tailorJobWithV1(job: Job, opts: { userId?: string; mode?: 'strict' | 'enhanced' } = {}): Promise<TailorJobResult> {
-  const userId = opts.userId || getCurrentUserId();
-  const fullJob = await resolveJobDescription(job);
-  const jd = fullJob.description || '';
-  const masterCv = getMasterCv(userId);
-
-  // Match analysis when missing (same as the pre-V2 route behavior).
-  if (!fullJob.gapAnalysis) {
-    const { LlmMatcher } = await import('../matcher/llmMatcher.js');
-    const matchResult = await new LlmMatcher().matchJob(fullJob, masterCv);
-    fullJob.gapAnalysis = matchResult.gapAnalysis;
-    fullJob.matchScore = matchResult.matchScore;
-  }
-
-  const { LlmCvTailor } = await import('../builder/llmCvTailor.js');
-  const tailoredCv = await new LlmCvTailor().tailorCv(fullJob, masterCv);
-
-  // Informative audit (deterministic) — the UI reads audit.bulletDiffs /
-  // keywordStatus; compute from V1's output so nothing changes in the UI.
-  const draft = tailoredCvToDraft(tailoredCv);
-  // JD terms for the informative audit: prefer the deterministic parse, but
-  // fall back to the match's gap-analysis keywords (V1's keyword universe).
-  const parsedTerms = jdSkillTerms(jd);
-  const gapTerms = [
-    ...(fullJob.gapAnalysis?.missingSkills || []),
-    ...(fullJob.gapAnalysis?.missingKeywords || []),
-    ...(fullJob.gapAnalysis?.matchingSkills || []),
-  ];
-  const jdTerms = [...new Set([...parsedTerms, ...gapTerms])];
-  const bulletDiffs = computeBulletDiffs(masterCv, draft);
-  for (const d of bulletDiffs) {
-    d.addedTerms = jdTerms.filter((t) => containsKeyword(d.rewritten, t));
-  }
-  const keywordStatus = computeKeywordStatus(jdTerms, draft, masterCv);
-  if (tailoredCv.audit) {
-    tailoredCv.audit.bulletDiffs = bulletDiffs;
-    tailoredCv.audit.keywordStatus = keywordStatus;
-  }
-
-  return {
-    version: 0,
-    tailoredCv,
-    draft,
-    verification: undefined,
-    jdTerms,
-    pdfOk: true,
-    audit: tailoredCv.audit as TailoringAudit,
-    enhancementLedger: undefined,
-  };
-}
-
 /** Adapter: TailoredCv → TailorDraft shape for the deterministic audit. */
-function tailoredCvToDraft(cv: TailoredCv): TailorDraft {
+export function tailoredCvToDraft(cv: TailoredCv): TailorDraft {
   return {
     summary: cv.professionalSummary || '',
     skills: cv.coreCompetencies || [],

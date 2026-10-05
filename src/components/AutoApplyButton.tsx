@@ -40,7 +40,7 @@ import {
   mapDesktopStateToRow,
 } from '../lib/browserExecutionTransport';
 import { pushDesktopEvent, resetDesktopTimeline } from '../lib/desktopTimeline';
-import { AutoApplyDryRunPreview } from './AutoApplyDryRunPreview';
+import { AnswerChatPanel } from './AnswerChatPanel';
 import type { AutoApplyDryRunResult } from '../../server/autoApply/autoApplyTypes';
 
 interface AutoApplyButtonProps {
@@ -54,13 +54,11 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [result, setResult] = useState<AutoApplyDryRunResult | null>(null);
   const [open, setOpen] = useState(false);
-  const [previewBusy, setPreviewBusy] = useState(false);
   const desktopBridge = tailorBrowserBridge();
   const pollRef = useRef<number | null>(null);
   const [decision, setDecision] = useState<SubmissionDecisionView | null>(null);
   const [currentExecution, setCurrentExecution] = useState<{ executionId: string; attemptId: string; jobId: string; jobTitle: string; company: string } | null>(null);
   const [desktopUnavailable, setDesktopUnavailable] = useState(false);
-  const [answerNotice, setAnswerNotice] = useState<string | null>(null);
   const [phase, setPhase] = useState<'IDLE' | 'TAILOR' | 'BROWSER' | 'FILL' | 'VERIFY' | 'SUBMIT'>('IDLE');
   const [paneVisible, setPaneVisible] = useState(false);
   const [submitBusy, setSubmitBusy] = useState(false);
@@ -123,7 +121,6 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
 
 
   const runDryRun = async () => {
-    setPreviewBusy(true);
     try {
       const res = await fetch('/api/auto-apply/dry-run', {
         method: 'POST',
@@ -134,20 +131,25 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
       if (!res.ok) {
         setResult(null);
         setMessage(data?.error || 'Auto Apply preview failed.');
+        setOpen(false);
       } else {
-        setResult(data as AutoApplyDryRunResult);
+        const next = data as AutoApplyDryRunResult;
+        setResult(next);
+        // The CHAT is the only surface: it opens exactly when required answers
+        // are missing. Nothing else ever pops up.
+        setOpen((next?.unresolvedFields ?? []).some((f) => f.requiresUser));
       }
-      setOpen(true);
     } catch {
       setMessage('Could not reach the Auto Apply service.');
-      setOpen(true);
-    } finally {
-      setPreviewBusy(false);
+      setOpen(false);
     }
   };
 
   const handleAaClick = async () => {
     if (busy || !lever) return;
+    // Pre-flight: when required questions are still missing, ask them in the
+    // left-side chat BEFORE starting any browser work.
+    if (!(await preflightNeedsInput())) return;
     // Tailor Browser (desktop transport): the REAL Chromium view does the work —
     // no extension, no session claim, no external tab.
     if (desktopBridge) { await runDesktopFlow(); return; }
@@ -162,28 +164,20 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     stopPolling();
     setMessage(null);
     setDesktopUnavailable(false);
-    setAnswerNotice(null);
     setPhase('IDLE');
     setState('STARTING');
-    // ── Step 0: AA ALWAYS applies with a VERIFIED TAILORED CV ───────────────
-    // The application package only carries a tailored resume when the VERIFIED
-    // V2 pipeline has a job-specific version (the V1 job-record blob is never
-    // used for submissions). Check the V2 store first; only when no verified
-    // version exists do we run the V2 tailor before the handoff. An existing
-    // verified version is never regenerated at fill time.
-    let hasVerifiedTailor = false;
-    try {
-      const latestRes = await fetch(`/api/jobs/${job.id}/tailor-v2/latest`);
-      const latest = latestRes.ok ? await latestRes.json().catch(() => null) : null;
-      hasVerifiedTailor = Boolean(latest?.version);
-    } catch { /* treat as missing — tailor below */ }
-    if (!hasVerifiedTailor) {
+    // ── Step 0: AA applies with the job's TAILORED CV (V1 engine — the same
+    // pipeline the manual Tailor button runs). When the job has no tailored
+    // CV yet, run the V1 tailor first; the server then builds the package and
+    // the attached PDF from this exact tailored CV. An existing tailored CV
+    // is never regenerated at fill time.
+    if (!job.tailoredCv) {
       setPhase('TAILOR');
       setMessage('Tailoring your CV…');
       try {
         const controller = new AbortController();
         const tailorTimer = window.setTimeout(() => controller.abort(), 6 * 60 * 1000);
-        const tail = await fetch(`/api/jobs/${job.id}/tailor-v2`, {
+        const tail = await fetch(`/api/jobs/${job.id}/tailor`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ mode: job.tailorMode ?? 'enhanced' }),
@@ -197,7 +191,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
           setPhase('IDLE');
           return;
         }
-        setMessage('Verified tailored CV ready — starting Auto Apply…');
+        setMessage('Tailored CV ready — starting Auto Apply…');
       } catch {
         setState('NEEDS_REVIEW');
         setMessage('Tailoring timed out or failed — try again.');
@@ -338,6 +332,37 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     stopPolling();
     setMessage(null);
     setState('STARTING');
+    // Step 0: apply with the job's TAILORED CV (V1 engine — the same pipeline
+    // the manual Tailor button runs). Generate it first when missing; the
+    // server builds the package + attached PDF from this exact tailored CV.
+    if (!job.tailoredCv) {
+      setPhase('TAILOR');
+      setMessage('Tailoring your CV…');
+      try {
+        const controller = new AbortController();
+        const tailorTimer = window.setTimeout(() => controller.abort(), 6 * 60 * 1000);
+        const tail = await fetch(`/api/jobs/${job.id}/tailor`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: job.tailorMode ?? 'enhanced' }),
+          signal: controller.signal,
+        });
+        window.clearTimeout(tailorTimer);
+        const tdata = await tail.json().catch(() => null);
+        if (!tail.ok) {
+          setState('NEEDS_REVIEW');
+          setMessage(tdata?.error || 'Tailoring failed — try again.');
+          setPhase('IDLE');
+          return;
+        }
+        setMessage('Tailored CV ready — starting Auto Apply…');
+      } catch {
+        setState('NEEDS_REVIEW');
+        setMessage('Tailoring timed out or failed — try again.');
+        setPhase('IDLE');
+        return;
+      }
+    }
     try {
       const res = await fetch('/api/auto-apply/browser/start', {
         method: 'POST',
@@ -417,23 +442,37 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
                 ? 'Submission is not enabled.'
                 : code === 'SUBMITTED_UNVERIFIED'
                   ? 'Submission may have occurred, but confirmation could not be verified. Check the site before retrying.'
-                  : result.ok
-                    ? 'Submitted — waiting for confirmation.'
-                    : 'Submission is blocked — see Tailor Browser.'
+                  : code === 'SUBMISSION_REJECTED'
+                    ? 'The form rejected the submission — fix the highlighted fields in Tailor Browser and retry.'
+                    : result.ok
+                      ? 'Submitted — waiting for confirmation.'
+                      : 'Submission is blocked — see Tailor Browser.'
     );
-  };
-
-  const handleCheckStatus = async () => {
-    if (!attemptId) return;
-    await pollOnce(attemptId);
   };
 
   const handleAttentionClick = async () => {
     if (!attemptId || !currentExecution) {
-      // No live session (readiness/input blocking): show EXACTLY what's remaining.
-      await runDryRun();
+      // No live session: a previous failure must never dead-end. If answers
+      // are missing the chat opens; otherwise RETRY the full apply flow.
+      await handleAaClick();
       return;
     }
+    // Liveness: a session is USABLE only if the bridge knows it AND its page
+    // is alive (not crashed, not blank). A dead/white view never gets focused —
+    // we stop it and retry the whole apply instead.
+    try {
+      const health = await desktopHealth();
+      const live = (health.sessions || []).find((s) => s.executionId === currentExecution.executionId);
+      const usable = !!live && !live.crashed && !!live.pageUrl && live.pageUrl !== 'about:blank';
+      if (!usable) {
+        try { await stopDesktopExecution(currentExecution.executionId); } catch { /* cleanup best-effort */ }
+        setCurrentExecution(null);
+        setAttemptId(null);
+        setState('IDLE');
+        await handleAaClick();
+        return;
+      }
+    } catch { /* bridge probe failed — fall through to the focus attempt */ }
     const focused = await focusTailorBrowser(currentExecution.executionId);
     if (!focused.ok) {
       setMessage('Tailor Browser is not running.');
@@ -441,8 +480,32 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     }
   };
 
-  const handleAnswer = async (_providerFieldId: string, question: string, answer: string, remember: boolean) => {
-    setAnswerNotice(null);
+  /** Returns true when it is OK to proceed. When required questions are
+   *  missing it opens the left chat and returns false. Never blocks on a
+   *  failed preview (the real run surfaces errors). */
+  const preflightNeedsInput = async (): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/auto-apply/dry-run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: job.id }),
+      });
+      if (!res.ok) return true;
+      const data = (await res.json()) as AutoApplyDryRunResult;
+      setResult(data);
+      const pending = (data?.unresolvedFields ?? []).filter((f) => f.requiresUser);
+      if (pending.length > 0) {
+        setOpen(true);
+        return false;
+      }
+      return true;
+    } catch {
+      return true;
+    }
+  };
+
+  /** Chat saves: one answer at a time, straight into the Answer Bank. */
+  const handleSaveAnswer = async (question: string, answer: string, remember: boolean): Promise<{ ok: boolean; error?: string }> => {
     try {
       const res = await fetch('/api/auto-apply/answer-bank/learn', {
         method: 'POST',
@@ -450,17 +513,16 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
         body: JSON.stringify({ jobId: job.id, question, answer, remember }),
       });
       const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        setAnswerNotice((data && data.error) || 'Could not save that answer — try again.');
-        return;
-      }
-      setAnswerNotice(remember ? 'Answer saved — re-checking…' : 'Answer used for this run — re-checking…');
+      if (!res.ok) return { ok: false, error: (data && data.error) || 'Could not save that answer — try again.' };
+      return { ok: true };
     } catch {
-      setAnswerNotice('Could not reach the Auto Apply service.');
-      return;
+      return { ok: false, error: 'Could not reach the Auto Apply service.' };
     }
-    await runDryRun();
   };
+
+  const chatQuestions = (result?.unresolvedFields ?? [])
+    .filter((f) => f.requiresUser)
+    .map((f) => ({ providerFieldId: f.providerFieldId, label: f.label, options: f.options }));
 
   const phaseLabel =
     phase === 'TAILOR' ? 'Tailoring CV…'
@@ -557,18 +619,14 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
           {submissionBlockerMessage(decision.blockerCodes)}
         </span>
       )}
-            {open && (
-        <AutoApplyDryRunPreview
-          result={result}
-          error={null}
+            {open && chatQuestions.length > 0 && (
+        <AnswerChatPanel
           jobTitle={job.title}
           company={job.company}
+          questions={chatQuestions}
+          onSaveAnswer={handleSaveAnswer}
+          onSubmit={async () => { setOpen(false); await handleAaClick(); }}
           onClose={() => setOpen(false)}
-          onAnswer={handleAnswer}
-          onFill={handleAaClick}
-          onCheckStatus={handleCheckStatus}
-          fillState={state !== 'IDLE' ? { status: state, message: (answerNotice ?? message) ?? undefined, attemptId: attemptId ?? undefined } : null}
-          fillBusy={previewBusy}
         />
       )}
     </>

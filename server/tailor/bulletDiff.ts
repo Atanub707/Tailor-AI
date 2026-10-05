@@ -1,6 +1,5 @@
 import type { MasterCv } from '../../src/types.js';
-import type { TailorDraft } from './drafter.js';
-import type { EnhancementLedger } from './enhancementLedger.js';
+import type { EnhancementLedger, TailorDraft } from './tailorTypes.js';
 import { containsKeyword } from './keywordMatch.js';
 
 export interface BulletDiff {

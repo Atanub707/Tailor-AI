@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { computeBulletDiffs, computeKeywordStatus } from '../../server/tailorV2/bulletDiff.js';
+import { computeBulletDiffs, computeKeywordStatus } from '../../server/tailor/bulletDiff.js';
 import type { MasterCv } from '../../src/types.js';
-import type { TailorDraft } from '../../server/tailorV2/drafter.js';
+import type { TailorDraft } from '../../server/tailor/tailorTypes.js';
 
 const cv = {
   experiences: [

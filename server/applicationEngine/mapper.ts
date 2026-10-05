@@ -117,9 +117,12 @@ export function mapRequirements(pkg: ApplicationPackage, fields: ApplicationFiel
   });
 
   for (const f of fields) {
-    // HARD SAFETY: EEO fields are never auto-mapped.
+    // SAFETY: EEO fields are never inferred or mapped from the profile/CV/AI.
+    // They are routed to unresolved (voluntary, never required) so the user's
+    // OWN saved, verified Answer Bank entries can fill them — the bank's
+    // sensitivity policy (user-provided + verified only) is the gate.
     if (isEeo(f.category)) {
-      manual.push({ providerFieldId: f.providerFieldId, label: f.label, required: f.required, reason: 'EEO — manual/voluntary only, never inferred or auto-filled' });
+      unresolved.push(uItem(f, 'voluntary EEO — only ever filled from your saved answers'));
       continue;
     }
     // HARD SAFETY: consent fields are never auto-accepted.

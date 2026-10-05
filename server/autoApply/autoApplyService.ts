@@ -19,7 +19,6 @@ import { getApplicantProfile } from '../storage/applicantProfile.js';
 import { ensureJobDescription, JDResolutionError } from '../tailor/jdResolver.js';
 import { computeFit } from '../fit/fitEngine.js';
 import { fitCacheKeyFor, getCachedFit, storeCachedFit } from '../fit/fitCache.js';
-import { getLatestTailorVersion } from '../tailorV2/versionStore.js';
 import { buildPackage, computePackageKeys } from '../applicationPackage/packageEngine.js';
 import { getLatestPackage, storePackage, packageInputFingerprint } from '../applicationPackage/packageStore.js';
 import { artifactExists } from '../applicationPackage/artifactStore.js';
@@ -27,6 +26,7 @@ import { createPlan, EngineGateError } from '../applicationEngine/engine.js';
 import { targetFromJob, type ApplicationInspectionAdapter } from '../applicationEngine/fixtureAdapter.js';
 import { InspectionFailure } from '../applicationEngine/leverInspector.js';
 import { resumeAttachmentFilename } from '../applicationEngine/resumeNaming.js';
+import { canonicalOption } from '../applicationEngine/leverPayloadBuilder.js';
 import type { ApplicationPackage } from '../applicationPackage/packageModel.js';
 import type { SubmissionPlan } from '../applicationEngine/contract.js';
 import type { AutoApplyDryRunResult, AutoApplyResumePreview } from './autoApplyTypes.js';
@@ -202,19 +202,19 @@ export async function runAutoApplyDryRun(
     fit = computeFit(profile, masterCv, fullJob, jd);
     storeCachedFit(userId, job.id, fitKey, fit);
   }
-  const tailored = getLatestTailorVersion(userId, job.id);
+  const tailoredCv = fullJob.tailoredCv;
 
   // Existing package engine — reuse a READY package with identical inputs;
   // otherwise build a new immutable version (Master CV fallback included).
   const latest = getLatestPackage(userId, job.id);
-  const keys = computePackageKeys({ userId, job: fullJob, jd, profile, masterCv, fit, tailoredVersion: tailored });
+  const keys = computePackageKeys({ userId, job: fullJob, jd, profile, masterCv, fit, tailoredCv });
   keys.masterCvUpdatedAt = getMasterCvUpdatedAt(userId);
   const fingerprint = packageInputFingerprint(keys);
   let pkg: ApplicationPackage;
   if (latest && latest.status === 'READY' && latest.inputFingerprint === fingerprint) {
     pkg = latest;
   } else {
-    pkg = await buildPackage({ userId, job: fullJob, jd, profile, masterCv, fit, tailoredVersion: tailored }, keys.masterCvUpdatedAt);
+    pkg = await buildPackage({ userId, job: fullJob, jd, profile, masterCv, fit, tailoredCv }, keys.masterCvUpdatedAt);
     storePackage(pkg);
   }
 
@@ -243,7 +243,7 @@ export async function runAutoApplyDryRun(
   const requiredUnresolved = plan.unresolvedDetails.filter((u) => u.required);
   const warnings: string[] = [...pkg.validation.warnings];
   if (pkg.resumeSnapshot?.source === 'MASTER_CV') {
-    warnings.push('No verified tailored resume exists for this job yet — your Master CV PDF will be used.');
+    warnings.push('No tailored CV exists for this job yet — your Master CV PDF will be used.');
   }
   // (the 'needs your input' warning is emitted AFTER bank resolution below — pre-bank counts lied)
   // Consent policy: only LEGAL / REQUIRED_ACKNOWLEDGEMENT / UNKNOWN consent
@@ -258,7 +258,7 @@ export async function runAutoApplyDryRun(
     warnings.push(`${optionalConsentCount} optional consent/marketing field(s) are left untouched — never auto-accepted, and they never block filling.`);
   }
   if (plan.manualFields.length > 0) {
-    warnings.push('This application includes voluntary/EEO or manual-only fields — never inferred or auto-filled.');
+    warnings.push('Voluntary/EEO and manual-only fields are never inferred — EEO fills only from your saved, verified answers.');
   }
 
   // Candidate Answer Bank — resolution order: deterministic (mapper) →
@@ -278,19 +278,35 @@ export async function runAutoApplyDryRun(
         options: u.options,
       }))
     );
+    const optionsByField = new Map(
+      plan.unresolvedDetails.map((u) => [u.providerFieldId, Array.isArray(u.options) && u.options.length ? u.options : undefined]),
+    );
+    // A saved answer that no longer matches the form's options must be re-asked,
+    // never treated as a clean fill (the payload builder would reject it).
+    const valueMatchesOptions = (value: unknown, options: string[] | undefined): boolean => {
+      if (!options || options.length === 0) return true;
+      const values = Array.isArray(value) ? value : [value];
+      return values.every((v) => canonicalOption(String(v), options) !== null);
+    };
     bankMatched = resolved
       .filter((r) => r.matchStatus !== 'NONE' && r.value !== null && r.value !== undefined)
-      .map((r) => ({
-        providerFieldId: r.providerFieldId,
-        label: r.label,
-        matchStatus: r.matchStatus as 'EXACT' | 'CANONICAL' | 'SEMANTIC',
-        value: r.value,
-        source: 'ANSWER_BANK' as const,
-        confidence: r.confidence,
-        requiresReview: r.requiresReview,
-        matchedAnswerId: r.matchedAnswerId,
-        reason: r.reason,
-      }));
+      .map((r) => {
+        const options = optionsByField.get(r.providerFieldId);
+        const optionOk = valueMatchesOptions(r.value, options);
+        return {
+          providerFieldId: r.providerFieldId,
+          label: r.label,
+          matchStatus: r.matchStatus as 'EXACT' | 'CANONICAL' | 'SEMANTIC',
+          value: r.value,
+          source: 'ANSWER_BANK' as const,
+          confidence: r.confidence,
+          requiresReview: r.requiresReview || !optionOk,
+          matchedAnswerId: r.matchedAnswerId,
+          reason: optionOk
+            ? r.reason
+            : `saved answer is not one of the allowed options (${(options || []).join(' | ')})`,
+        };
+      });
     for (const match of bankMatched) {
       bankAnswered.add(match.providerFieldId);
       if (!match.requiresReview && match.matchedAnswerId) recordBankUsage(userId, match.matchedAnswerId);
@@ -390,10 +406,23 @@ export async function runAutoApplyDryRun(
   const unresolvedRequired = plan.unresolvedDetails
     .filter((u) => u.required && !bankAnswered.has(u.providerFieldId))
     .map((u) => u.label);
+  // Only REQUIRED review-required items gate readiness. An optional saved
+  // answer that needs review is simply left unfilled (never blocks the run,
+  // never guessed) — conditional follow-ups are the common case.
   const reviewRequired = [
-    ...bankMatched.filter((m) => m.requiresReview).map((m) => ({ label: m.label, reason: m.reason ?? 'saved answer needs review' })),
-    ...aiSuggestions.filter((s) => s.generatedDraft).map((s) => ({ label: s.label, reason: 'generated draft requires your approval' })),
+    ...bankMatched
+      .filter((m) => m.requiresReview && requiredById.get(m.providerFieldId) === true)
+      .map((m) => ({ label: m.label, reason: m.reason ?? 'saved answer needs review' })),
+    ...aiSuggestions
+      .filter((s) => s.generatedDraft && requiredById.get(s.providerFieldId) === true)
+      .map((s) => ({ label: s.label, reason: 'generated draft requires your approval' })),
   ];
+  const optionalReviewSkipped =
+    bankMatched.filter((m) => m.requiresReview && requiredById.get(m.providerFieldId) !== true).length +
+    aiSuggestions.filter((s) => s.generatedDraft && requiredById.get(s.providerFieldId) !== true).length;
+  if (optionalReviewSkipped > 0) {
+    warnings.push(`${optionalReviewSkipped} optional saved answer(s) need your review and were left unfilled.`);
+  }
   const mappedRequired = plan.mappedFields.filter((m) => m.required).length;
   const totalRequiredFields =
     mappedRequired +
@@ -469,6 +498,7 @@ export async function runAutoApplyDryRun(
       required: u.required,
       reason: u.reason,
       requiresUser: u.required,
+      options: Array.isArray(u.options) && u.options.length ? u.options : undefined,
     })),
     consentFields: plan.consentFields.map((c) => ({
       providerFieldId: c.providerFieldId,

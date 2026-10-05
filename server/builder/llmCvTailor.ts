@@ -1,8 +1,8 @@
 import { BaseCvBuilder } from './baseBuilder.js';
 import { Job, MasterCv, TailoredCv } from '../../src/types.js';
 import { askJson } from '../llm/askJson.js';
-import { containsKeyword } from '../tailorV2/keywordMatch.js';
-import { TailorVerificationFailedError } from '../tailorV2/tailorV2Engine.js';
+import { containsKeyword } from '../tailor/keywordMatch.js';
+import { TailorVerificationFailedError } from '../tailor/tailorTypes.js';
 
 export class LlmCvTailor extends BaseCvBuilder {
   async tailorCv(

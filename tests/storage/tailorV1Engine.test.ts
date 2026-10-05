@@ -13,7 +13,7 @@ process.env.TAILOR_ENGINE = 'v1';
 const { getDb, runWithUser, saveMasterCv, getJobById, getMasterCv } = await import('../../server/storage/fileStorage.js');
 const { ensureV2Tables } = await import('../../server/storage/v2Tables.js');
 const { ensureApplicantProfileSchema, defaultApplicantProfile, saveApplicantProfile } = await import('../../server/storage/applicantProfile.js');
-const { tailorJobWithV2 } = await import('../../server/tailorV2/tailorService.js');
+const { tailorJob } = await import('../../server/tailor/tailorService.js');
 import type { MasterCv, Job } from '../../src/types.js';
 
 const USER = 'v1-user';
@@ -81,7 +81,7 @@ describe('V1 engine — the production tailoring engine', () => {
       afterScore: 72,
       auditNotes: ['Integrated Python and Prometheus from the JD'],
     });
-    const r = await runWithUser(USER, () => tailorJobWithV2(getJobById('v1-j1')!, { userId: USER }));
+    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-j1')!, { userId: USER }));
     expect(r.tailoredCv.audit?.addedAfter?.keywordsIncorporated ?? []).toContain('Python');
     expect(r.tailoredCv.audit?.afterScore ?? 0).toBeGreaterThan(r.tailoredCv.audit?.beforeScore ?? 0);
     const text = JSON.stringify(r.tailoredCv).toLowerCase();

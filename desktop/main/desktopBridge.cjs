@@ -52,7 +52,11 @@ function mapEventToState(ev) {
       PLAN_REJECTED: 'FAILED',
       SUBMIT_CONTROL_ACTIVATED: 'SUBMITTING',
       SUBMISSION_CONFIRMED: 'SUBMITTED_VERIFIED',
-      SUBMISSION_UNCONFIRMED: 'FAILED',
+      // Unconfirmed/rejected/blocked are NOT terminal: keep the session so the
+      // user can review, fix, and retry — never delete on an unverified outcome.
+      SUBMISSION_UNCONFIRMED: 'WAITING_FOR_USER',
+      SUBMISSION_REJECTED: 'WAITING_FOR_USER',
+      SUBMISSION_BLOCKED: 'WAITING_FOR_USER',
       SUBMISSION_FAILED: 'FAILED',
     }[String(ev.type)] || null
   );
@@ -153,7 +157,7 @@ function createDesktopBridge({ manager, backendBase, onFocus, port = PORT, bootI
       setTimeout(() => manager.destroySession(executionId, 'APPLIED'), 3000);
       return { ok: true, verified: true };
     }
-    return { ok: true, verified: false, code: (result && result.code) || 'SUBMITTED_UNVERIFIED' };
+    return { ok: false, verified: false, code: (result && result.code) || 'SUBMITTED_UNVERIFIED' };
   }
 
   const postStatus = (ev) => {
@@ -266,6 +270,8 @@ function createDesktopBridge({ manager, backendBase, onFocus, port = PORT, bootI
           resumeSha256: data.plan && data.plan.resume ? data.plan.resume.sha256 : undefined,
           resumeFilename: data.plan && data.plan.resume ? data.plan.resume.filename : undefined,
           preAuthorizedSubmit: data.preAuthorizedSubmit === true,
+          statusToken: data.statusToken,
+          backendBase,
         });
         // STEALTH execution: the new job becomes the session shown IF/WHEN the
         // user opens Tailor Browser (Eye), but the handoff NEVER steals focus —
@@ -309,6 +315,29 @@ function createDesktopBridge({ manager, backendBase, onFocus, port = PORT, bootI
         manager.destroySession(executionId, 'STOPPED_BY_USER');
         sessions.delete(executionId);
         return json(res, 200, { ok: true, stopped: executionId }, origin);
+      }
+
+      // ── AGENT PRIMITIVES (Phase 1): the decision loop's hands ──────────
+      // observe = read-only page inventory; act = ONE validated primitive.
+      // Neither makes decisions; submit stays on the authorized path.
+      if (req.method === 'POST' && path === '/agent/observe') {
+        const body = await readJson(req);
+        const executionId = typeof body.executionId === 'string' ? body.executionId : '';
+        if (!sessions.has(executionId)) return json(res, 409, { error: 'EXECUTION_MISMATCH' }, origin);
+        const session = manager.getSession(executionId);
+        if (!session) return json(res, 409, { error: 'EXECUTION_MISMATCH' }, origin);
+        const r = await session.observe();
+        return json(res, r.ok ? 200 : 409, r, origin);
+      }
+
+      if (req.method === 'POST' && path === '/agent/act') {
+        const body = await readJson(req);
+        const executionId = typeof body.executionId === 'string' ? body.executionId : '';
+        if (!sessions.has(executionId)) return json(res, 409, { error: 'EXECUTION_MISMATCH' }, origin);
+        const session = manager.getSession(executionId);
+        if (!session) return json(res, 409, { error: 'EXECUTION_MISMATCH' }, origin);
+        const r = await session.act(body.action);
+        return json(res, 200, r, origin);
       }
 
       return json(res, 404, { error: 'NOT_FOUND' }, origin);

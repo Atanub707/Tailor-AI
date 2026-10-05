@@ -52,23 +52,22 @@ const job = (over: Partial<Job> = {}): Job => ({
   ...over,
 } as unknown as Job);
 
-const tailoredVersion = (jobId = 'j1') => ({
-  id: `t2-${USER.slice(-8)}-${jobId.slice(-10)}-v1`, userId: USER, jobId, version: 1,
-  masterCvUpdatedAt: 'cv1', profileUpdatedAt: 'p1', jdHash: 'jd1', fitEngineVersion: 3, tailorEngineVersion: 1,
-  content: {
-    summary: 'DevOps engineer with 4+ years experience.', skills: ['Kubernetes', 'AWS', 'Terraform'],
-    experience: [{ title: 'DevOps Engineer', company: 'Acme Cloud', location: 'Bengaluru', dates: 'Mar 2022 – Jun 2023', highlights: ['Reduced deployment time by 70%'] }],
-    education: [{ degree: 'B.Tech', institution: 'IIT', dates: '2012 – 2016' }], certifications: ['CKA'], projects: [],
-  },
-  verification: { passed: true, issues: [], supportedJdTermsBefore: 2, supportedJdTermsAfter: 3, unsupportedInserted: 0 },
-  stale: false, createdAt: new Date().toISOString(),
+const tailoredCv = () => ({
+  candidateName: 'Ravi Kumar', targetRole: 'DevOps Engineer',
+  professionalSummary: 'DevOps engineer with 4+ years experience.',
+  coreCompetencies: ['Kubernetes', 'AWS', 'Terraform'],
+  workExperience: [{ title: 'DevOps Engineer', company: 'Acme Cloud', location: 'Bengaluru', dates: 'Mar 2022 – Jun 2023', highlights: ['Reduced deployment time by 70%'] }],
+  education: [{ degree: 'B.Tech', institution: 'IIT', dates: '2012 – 2016' }],
+  technicalSkills: [{ category: 'Skills', skills: ['Kubernetes', 'AWS', 'Terraform'] }],
+  certifications: ['CKA'], projects: [],
+  contactInfo: { email: 'ravi@example.com', phone: '+91 90000 00000', location: 'B' },
 });
 
 const makePackage = async (jobOver: Partial<Job> = {}) => {
   const p = profile();
   const j = job(jobOver);
   const fit = computeFit(p, cv, j, j.description || '');
-  return buildPackage({ userId: USER, job: j, jd: j.description || '', profile: p, masterCv: cv, fit, tailoredVersion: tailoredVersion() }, 'cv1');
+  return buildPackage({ userId: USER, job: j, jd: j.description || '', profile: p, masterCv: cv, fit, tailoredCv: tailoredCv() }, 'cv1');
 };
 
 describe('Application Engine V1 — Phase 1', () => {
@@ -129,13 +128,18 @@ describe('Application Engine V1 — Phase 1', () => {
     expect(reused).toBe(false);
   });
 
-  it('plan: fixture-C complex → NEEDS_REVIEW (consent + EEO), never auto-mapped', async () => {
+  it('plan: fixture-C complex → NEEDS_REVIEW (consent + EEO), EEO stays voluntary/unresolved', async () => {
     const pkg = await makePackage();
     const { plan } = await createPlan({ userId: USER, mode: 'fixture' as const, pkg, job: job(), adapter: new FixtureInspectionAdapter('fixture-c-complex'), artifactOk: true });
     expect(plan.status).toBe('NEEDS_REVIEW');
     expect(plan.consentFields.length).toBe(1);
     expect(plan.consentFields[0].label).toContain('privacy');
-    expect(plan.manualFields.filter((m) => m.reason.includes('EEO')).length).toBe(2);
+    // EEO is never profiled/mapped — it waits as an optional unresolved field
+    // that only the user's own saved (verified) answers may fill.
+    expect(plan.manualFields.filter((m) => m.reason.includes('EEO')).length).toBe(0);
+    const eeo = plan.unresolvedDetails.filter((u) => (u as { category?: string }).category === 'EEO');
+    expect(eeo.length).toBe(2);
+    expect(eeo.every((u) => !u.required)).toBe(true);
     // clearance + custom_blob required + unknown optional
     expect(plan.unresolvedDetails.some((u) => u.providerFieldId === 'clearance')).toBe(true);
     expect(plan.unresolvedDetails.some((u) => u.providerFieldId === 'custom_blob')).toBe(true);
@@ -225,7 +229,11 @@ describe('Application Engine V1 — Phase 1', () => {
     ];
     const r = mapRequirements(pkg, fields);
     expect(r.mapped.some((m) => m.providerFieldId === 'gender')).toBe(false);
-    expect(r.manual.some((m) => m.providerFieldId === 'gender')).toBe(true);
+    expect(r.manual.some((m) => m.providerFieldId === 'gender')).toBe(false);
+    // EEO waits as an optional unresolved field (bank-only fill).
+    const eeo = r.unresolved.find((u) => u.providerFieldId === 'gender') as { required?: boolean; category?: string } | undefined;
+    expect(eeo?.required).toBe(false);
+    expect(eeo?.category).toBe('EEO');
     expect(r.consent.some((c) => c.providerFieldId === 'privacy')).toBe(true);
     expect(r.unresolved.some((u) => u.providerFieldId === 'mystery')).toBe(true);
   });

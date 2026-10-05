@@ -54,9 +54,9 @@ const makeReady = async (userId: string, j: Job = job()) => {
   p.contact = { city: 'Bengaluru', country: 'India' };
   const cv: MasterCv = { fullName: 'Ravi Kumar', email: 'ravi@example.com', phone: '+91 90000 00000', location: 'B', summary: 'DevOps', experiences: [], education: [], skills: [], certifications: [] };
   const fit = computeFit(p, cv, j, 'x');
-  const pkg = await buildPackage({ userId, job: j, jd: 'x', profile: p, masterCv: cv, fit, tailoredVersion: {
-    id: `t-${j.id}`, userId, jobId: j.id, version: 1, masterCvUpdatedAt: 'c', profileUpdatedAt: 'p', jdHash: 'j', fitEngineVersion: 3, tailorEngineVersion: 1,
-    content: { summary: 'x', skills: [], experience: [], education: [], certifications: [], projects: [] }, verification: { passed: true, issues: [] }, stale: false, createdAt: new Date().toISOString(),
+  const pkg = await buildPackage({ userId, job: j, jd: 'x', profile: p, masterCv: cv, fit, tailoredCv: {
+    candidateName: 'Ravi Kumar', targetRole: 'DevOps Engineer', professionalSummary: 'DevOps.', coreCompetencies: [],
+    workExperience: [], education: [], technicalSkills: [], certifications: [], projects: [],
   } as any }, 'c');
   storePackage(pkg);
   return { pkg, job: j };

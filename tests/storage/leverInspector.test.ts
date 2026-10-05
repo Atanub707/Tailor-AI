@@ -52,12 +52,11 @@ const leverJob = (): Job => ({
 const makePackage = async (job: Job = leverJob()) => {
   const p = profile();
   const fit = computeFit(p, cv, job, job.description || '');
-  return buildPackage({ userId: USER, job, jd: job.description || '', profile: p, masterCv: cv, fit, tailoredVersion: {
-    id: 't2-eng2a-j1-v1', userId: USER, jobId: 'j1', version: 1, masterCvUpdatedAt: 'cv1', profileUpdatedAt: 'p1', jdHash: 'jd1',
-    fitEngineVersion: 3, tailorEngineVersion: 1,
-    content: { summary: 'x', skills: ['Kubernetes'], experience: [{ title: 'Platform Engineer', company: 'Veo', highlights: ['Reduced deployment time by 70%'] }], education: [], certifications: [], projects: [] },
-    verification: { passed: true, issues: [], supportedJdTermsBefore: 1, supportedJdTermsAfter: 2, unsupportedInserted: 0 },
-    stale: false, createdAt: new Date().toISOString(),
+  return buildPackage({ userId: USER, job, jd: job.description || '', profile: p, masterCv: cv, fit, tailoredCv: {
+    candidateName: 'Ravi Kumar', targetRole: 'Platform Engineer', professionalSummary: 'Platform engineer.',
+    coreCompetencies: ['Kubernetes'],
+    workExperience: [{ title: 'Platform Engineer', company: 'Veo', location: '', dates: '', highlights: ['Reduced deployment time by 70%'] }],
+    education: [], technicalSkills: [{ category: 'Skills', skills: ['Kubernetes'] }], certifications: [], projects: [],
   } as any }, 'cv1');
 };
 

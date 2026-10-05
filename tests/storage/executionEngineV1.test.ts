@@ -79,9 +79,9 @@ const makeReady = async (userId: string, j: Job = job()) => {
   p.workAuthorization = { country: 'India', authorizedToWork: 'yes', requiresSponsorship: 'no' };
   const cv: MasterCv = { fullName: 'Ravi Kumar', email: 'ravi@example.com', phone: '+91 90000 00000', location: 'Bengaluru', summary: 'DevOps', experiences: [], education: [], skills: [], certifications: [] };
   const fit = computeFit(p, cv, j, j.description || '');
-  const pkg = await buildPackage({ userId, job: j, jd: j.description || '', profile: p, masterCv: cv, fit, tailoredVersion: {
-    id: `t-${j.id}`, userId, jobId: j.id, version: 1, masterCvUpdatedAt: 'cv1', profileUpdatedAt: 'p1', jdHash: 'jd1', fitEngineVersion: 3, tailorEngineVersion: 1,
-    content: { summary: 'x', skills: [], experience: [], education: [], certifications: [], projects: [] }, verification: { passed: true, issues: [] }, stale: false, createdAt: new Date().toISOString(),
+  const pkg = await buildPackage({ userId, job: j, jd: j.description || '', profile: p, masterCv: cv, fit, tailoredCv: {
+    candidateName: 'Ravi Kumar', targetRole: 'DevOps Engineer', professionalSummary: 'DevOps.', coreCompetencies: [],
+    workExperience: [], education: [], technicalSkills: [], certifications: [], projects: [],
   } as any }, 'cv1');
   storePackage(pkg);
   return { pkg, job: j };
@@ -321,7 +321,11 @@ describe('Multipart payload builder', () => {
     const eeoHtml = FORM('<input type="hidden" name="cards[c2][baseTemplate]" value="{&quot;id&quot;:&quot;c2&quot;,&quot;fields&quot;:[{&quot;type&quot;:&quot;multiple-choice&quot;,&quot;text&quot;:&quot;Gender?&quot;,&quot;required&quot;:false,&quot;id&quot;:&quot;f0&quot;,&quot;options&quot;:[{&quot;text&quot;:&quot;Male&quot;},{&quot;text&quot;:&quot;Female&quot;},{&quot;text&quot;:&quot;Decline to answer&quot;}]}]}"><input type="radio" name="cards[c2][field0]" value="Male"><input type="radio" name="cards[c2][field0]" value="Female">');
     const { plan } = await createPlan({ userId: USER, mode: 'fixture', pkg, job: j, adapter: realAdapter(eeoHtml), artifactOk: true });
     resolveUserAnswers(plan, {});
-    expect(plan.manualFields.length).toBeGreaterThanOrEqual(1); // EEO never mapped
+    // EEO is never profiled/mapped — it waits as an optional unresolved field
+    // that only the user's own saved (verified) answers may fill.
+    expect(plan.manualFields.filter((m) => m.reason.includes('EEO')).length).toBe(0);
+    const eeoField = plan.unresolvedDetails.find((u) => u.providerFieldId === 'cards[c2][field0]');
+    expect(eeoField?.required).toBe(false);
     const fresh = freshReqs(eeoHtml);
     const resume = { filename: 'r.pdf', mimeType: 'application/pdf', size: 1, sha256: 'x', artifactReference: 'a' };
     const payload = buildLeverPayload({ plan, targetUrl: 'u', requirements: fresh, resume, transport: {}, marketingOptIn: false, consentSelections: {}, omitTracking: true });

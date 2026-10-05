@@ -34,6 +34,8 @@ export interface AutoApplyUnresolvedField {
   reason: string;
   /** Required unresolved fields always need the user; optional stay informational. */
   requiresUser: boolean;
+  /** Allowed options for select/radio/checkbox questions (drives chat chips). */
+  options?: string[];
 }
 
 export interface AutoApplyConsentField {

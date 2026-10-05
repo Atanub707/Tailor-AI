@@ -25,7 +25,6 @@ const { ensureV2Tables } = await import('../../server/storage/v2Tables.js');
 const { ensureApplicantProfileSchema, defaultApplicantProfile, saveApplicantProfile } = await import('../../server/storage/applicantProfile.js');
 const { FixtureInspectionAdapter } = await import('../../server/applicationEngine/fixtureAdapter.js');
 const { resetInspectionState } = await import('../../server/applicationEngine/leverInspector.js');
-const { storeTailorVersion } = await import('../../server/tailorV2/versionStore.js');
 const { autoApplyEnabled, runAutoApplyDryRun, AutoApplyError } = await import('../../server/autoApply/autoApplyService.js');
 const { createAutoApplyRouter } = await import('../../server/autoApply/autoApplyRouter.js');
 import type { MasterCv, Job } from '../../src/types.js';
@@ -186,7 +185,7 @@ describe('Auto Apply — Lever dry run (read-only)', () => {
     expect(result.resume.available).toBe(true);
   });
 
-  it('verified tailored resume is preferred and used exactly', async () => {
+  it('a tailored CV on the job is preferred and used exactly', async () => {
     const j = job({ id: 'aa-tailored' });
     seedJob(j);
     const content = {
@@ -195,8 +194,13 @@ describe('Auto Apply — Lever dry run (read-only)', () => {
       education: [{ degree: 'B.Tech', institution: 'IIT', dates: '2012 – 2016' }],
       certifications: ['CKA'], projects: [],
     };
-    const verification = { passed: true, issues: [], supportedJdTermsBefore: 1, supportedJdTermsAfter: 2, unsupportedInserted: 0 };
-    storeTailorVersion(USER, j.id, content as never, verification as never, { jdHash: 'jd1', fitEngineVersion: 3, masterCvUpdatedAt: 'cv1', profileUpdatedAt: 'p1' });
+    const tailoredCv = {
+      candidateName: 'Ravi Kumar', targetRole: 'Platform Engineer', professionalSummary: content.summary,
+      coreCompetencies: content.skills, workExperience: content.experience, education: content.education,
+      technicalSkills: [{ category: 'Skills', skills: content.skills }], certifications: content.certifications, projects: [],
+    } as any;
+    const { updateJobInStorage } = await import('../../server/storage/fileStorage.js');
+    runWithUser(USER, () => updateJobInStorage({ ...j, tailoredCv } as any));
     const result = await runWithUser(USER, () => runAutoApplyDryRun(j.id, fixtureOpts()));
     expect(result.status).toBe('DRY_RUN_READY');
     expect(result.resume.source).toBe('TAILORED');
@@ -226,13 +230,15 @@ describe('Auto Apply — Lever dry run (read-only)', () => {
     expect(result.fields.some((f) => f.providerFieldId === 'privacy_consent')).toBe(false);
   });
 
-  it('EEO fields → sensitive only, never inferred', async () => {
+  it('EEO fields → voluntary unresolved only, never inferred', async () => {
     const j = job({ id: 'aa-eeo' });
     seedJob(j);
     const result = await runWithUser(USER, () => runAutoApplyDryRun(j.id, fixtureOpts('fixture-c-complex')));
-    const ids = result.sensitiveFields.map((f) => f.providerFieldId);
+    const ids = result.unresolvedFields.map((f) => f.providerFieldId);
     expect(ids).toContain('gender');
     expect(ids).toContain('veteran');
+    // Voluntary and optional — they never block, and they are never inferred.
+    expect(result.unresolvedFields.filter((f) => f.providerFieldId === 'gender').every((f) => f.requiresUser === false)).toBe(true);
     expect(result.fields.some((f) => f.providerFieldId === 'gender' || f.providerFieldId === 'veteran')).toBe(false);
   });
 

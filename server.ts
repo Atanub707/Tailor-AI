@@ -2806,6 +2806,24 @@ const sanitizeAttemptDryRun = (a: any) => ({
     } catch { return res.status(500).json({ error: 'SUBMIT_CONFIRM_ERROR' }); }
   });
 
+  // Agent decision (Phase 2): the desktop loop observes the page and asks the
+  // ONE decision layer what to do next. Loopback + execution-token bound.
+  app.post('/api/auto-apply/agent/decide', async (req, res) => {
+    try {
+      const { assertLoopbackHost } = await import('./server/autoApply/loopback.js');
+      assertLoopbackHost(req.headers.host);
+      const statusToken = typeof req.body?.statusToken === 'string' ? req.body.statusToken : '';
+      const state = req.body?.state;
+      if (!statusToken || !state || typeof state !== 'object') return res.status(400).json({ error: 'BAD_REQUEST' });
+      const { getExecutionByStatusToken } = await import('./server/autoApply/desktopHandoff.js');
+      const exec = getExecutionByStatusToken(getDb(), statusToken);
+      if (!exec) return res.status(401).json({ error: 'UNKNOWN_EXECUTION' });
+      const { agentDecide } = await import('./server/autoApply/agentDecision.js');
+      const decision = await agentDecide({ userId: exec.userId, state: state as never });
+      return res.json({ ok: true, decision });
+    } catch { return res.status(500).json({ error: 'AGENT_DECIDE_ERROR' }); }
+  });
+
   // Loopback resume stream bound to the execution token (exact frozen artifact).
   app.get('/api/auto-apply/desktop-execution/resume', async (req, res) => {
     try {
@@ -3125,8 +3143,7 @@ const sanitizeAttemptDryRun = (a: any) => ({
     const { getLatestPackage, listPackages, getPackageById, markPackageStale, packageInputFingerprint } = await import('./server/applicationPackage/packageStore.js');
     const { getApplicantProfile } = await import('./server/storage/applicantProfile.js');
     const { getMasterCv, getMasterCvUpdatedAt } = await import('./server/storage/fileStorage.js');
-    const { getLatestTailorVersion } = await import('./server/tailorV2/versionStore.js');
-    return { preparePackage, resumePdfHash, getLatestPackage, listPackages, getPackageById, markPackageStale, packageInputFingerprint, getApplicantProfile, getMasterCv, getMasterCvUpdatedAt, getLatestTailorVersion };
+    return { preparePackage, resumePdfHash, getLatestPackage, listPackages, getPackageById, markPackageStale, packageInputFingerprint, getApplicantProfile, getMasterCv, getMasterCvUpdatedAt };
   };
   const packageContext = async (userId: string, job: Job) => {
     const deps = await loadPackageDeps();
@@ -3143,8 +3160,8 @@ const sanitizeAttemptDryRun = (a: any) => ({
       fit = computeFit(profile, masterCv, fullJob, jd);
       storeCachedFit(userId, job.id, key, fit);
     }
-    const tailored = deps.getLatestTailorVersion(userId, job.id);
-    return { deps, fullJob, profile, masterCv, jd, fit, tailored };
+    const tailoredCv = fullJob.tailoredCv;
+    return { deps, fullJob, profile, masterCv, jd, fit, tailoredCv };
   };
 
   // Create or reuse the current package for a job.
@@ -3155,43 +3172,48 @@ const sanitizeAttemptDryRun = (a: any) => ({
       const job = getJobById(req.params.id);
       if (!job) return res.status(404).json({ error: 'Job not found.' });
       const ctx = await packageContext(userId, job);
-      // EASY FLOW: auto-tailor on Apply — when no job-specific Tailor V2 CV
-      // exists yet, generate one before building the package so the attached
-      // resume is always the tailored CV. One LLM call per job (the version
-      // store caches it forever). Never blocks apply: on failure we fall back
-      // to the Master CV and report cvSource so the UI can say so.
-      let tailored = ctx.tailored;
+      // EASY FLOW: auto-tailor on Apply — when no job-specific tailored CV
+      // exists yet, generate one with the V1 engine (the SAME pipeline the
+      // manual Tailor button uses) before building the package so the attached
+      // resume is always the job-specific tailored CV. Never blocks apply: on
+      // failure we fall back to the Master CV and report cvSource so the UI
+      // can say so.
+      let tailoredCv = ctx.tailoredCv;
       let autoTailored = false;
       let autoTailorError: string | undefined;
-      if (req.body?.autoTailor === true && !tailored) {
+      if (req.body?.autoTailor === true && !tailoredCv) {
         try {
-          const { runTailorV2 } = await import('./server/tailorV2/tailorV2Engine.js');
-          const { jdHash } = await import('./server/fit/fitCache.js');
-          const result = await runTailorV2(
-            userId, ctx.masterCv, ctx.profile, ctx.fullJob, ctx.jd, ctx.fit,
-            { masterCvUpdatedAt: ctx.deps.getMasterCvUpdatedAt(userId), profileUpdatedAt: ctx.profile.updatedAt, jdHash: jdHash(ctx.jd), fitEngineVersion: ctx.fit.version }
-          );
-          tailored = ctx.deps.getLatestTailorVersion(userId, job.id) ?? tailored;
-          autoTailored = Boolean(result?.version);
+          const { tailorJob } = await import('./server/tailor/tailorService.js');
+          const mode = req.body?.mode === 'strict' ? 'strict' : 'enhanced';
+          const result = await tailorJob(ctx.fullJob, { userId, mode });
+          updateJobInStorage({
+            ...ctx.fullJob,
+            tailoredCv: result.tailoredCv,
+            state: 'tailored',
+            tailoredAt: new Date().toISOString(),
+            tailorMode: mode,
+          } as Job);
+          tailoredCv = result.tailoredCv;
+          autoTailored = true;
         } catch (tailorErr: any) {
-          autoTailorError = String(tailorErr?.message || 'Tailor V2 failed.').slice(0, 160);
+          autoTailorError = String(tailorErr?.message || 'Tailoring failed.').slice(0, 160);
         }
       }
       const { buildPackage, computePackageKeys } = await import('./server/applicationPackage/packageEngine.js');
       const { getLatestPackage, storePackage, packageInputFingerprint } = await import('./server/applicationPackage/packageStore.js');
       const latest = getLatestPackage(userId, job.id);
-      const keys = computePackageKeys({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredVersion: tailored });
+      const keys = computePackageKeys({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredCv });
       keys.masterCvUpdatedAt = ctx.deps.getMasterCvUpdatedAt(userId);
       const fp = packageInputFingerprint(keys);
       // Reuse only a READY package — a DRAFT one (missing prerequisites at
       // build time) is rebuilt so current engine policy applies.
       if (latest && latest.status === 'READY' && latest.inputFingerprint === fp) {
-        res.json({ package: latest, reused: true, cvSource: latest.resumeSnapshot?.source ?? null, autoTailored, autoTailorError, tailorVersion: tailored?.version ?? null });
+        res.json({ package: latest, reused: true, cvSource: latest.resumeSnapshot?.source ?? null, autoTailored, autoTailorError });
         return;
       }
-      const pkg = await buildPackage({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredVersion: tailored }, ctx.deps.getMasterCvUpdatedAt(userId));
+      const pkg = await buildPackage({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredCv }, ctx.deps.getMasterCvUpdatedAt(userId));
       storePackage(pkg);
-      res.json({ package: pkg, reused: false, cvSource: pkg.resumeSnapshot?.source ?? null, autoTailored, autoTailorError, tailorVersion: tailored?.version ?? null });
+      res.json({ package: pkg, reused: false, cvSource: pkg.resumeSnapshot?.source ?? null, autoTailored, autoTailorError });
     } catch (err: any) {
       res.status(500).json({ error: String(err?.message || 'Package preparation failed.').slice(0, 300) });
     }
@@ -3288,7 +3310,7 @@ const sanitizeAttemptDryRun = (a: any) => ({
       const ctx = await packageContext(userId, job);
       const { buildPackage } = await import('./server/applicationPackage/packageEngine.js');
       const { storePackage } = await import('./server/applicationPackage/packageStore.js');
-      const pkg = await buildPackage({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredVersion: ctx.tailored, answers: old.answers, questions: old.questions }, ctx.deps.getMasterCvUpdatedAt(userId));
+      const pkg = await buildPackage({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredCv: ctx.tailoredCv, answers: old.answers, questions: old.questions }, ctx.deps.getMasterCvUpdatedAt(userId));
       storePackage(pkg);
       res.json({ package: pkg, oldStatus: old.status });
     } catch (err: any) {
@@ -3296,109 +3318,7 @@ const sanitizeAttemptDryRun = (a: any) => ({
     }
   });
 
-  // ── Tailor V2 — grounded resume tailoring + fact verification ─────────
-  app.post('/api/jobs/:id/tailor-v2', async (req, res) => {
-    try {
-      const userId = getCurrentUserId();
-      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
-      const job = getJobById(req.params.id);
-      if (!job) {
-        res.status(404).json({ error: 'Job not found.' });
-        return;
-      }
-      const { ensureJobDescription } = await import('./server/tailor/jdResolver.js');
-      let fullJob: Job;
-      try {
-        fullJob = await ensureJobDescription(job);
-      } catch (jdErr: any) {
-        if (jdErr?.name === 'JDResolutionError') {
-          res.status(502).json({ error: jdErr.message });
-          return;
-        }
-        throw jdErr;
-      }
-      const { computeFit } = await import('./server/fit/fitEngine.js');
-      const { getApplicantProfile } = await import('./server/storage/applicantProfile.js');
-      const { getMasterCv, getMasterCvUpdatedAt } = await import('./server/storage/fileStorage.js');
-      const { fitCacheKeyFor, getCachedFit, storeCachedFit } = await import('./server/fit/fitCache.js');
-      const profile = getApplicantProfile(userId);
-      const masterCv = getMasterCv(userId);
-      const jd = fullJob.description || '';
-      const key = fitCacheKeyFor(profile.updatedAt, getMasterCvUpdatedAt(userId), jd);
-      let fit = getCachedFit(userId, job.id, key);
-      if (!fit) {
-        fit = computeFit(profile, masterCv, fullJob, jd);
-        storeCachedFit(userId, job.id, key, fit);
-      }
-      const { runTailorV2 } = await import('./server/tailorV2/tailorV2Engine.js');
-      const { jdHash } = await import('./server/fit/fitCache.js');
-      const result = await runTailorV2(
-        userId, masterCv, profile, fullJob, jd, fit,
-        { masterCvUpdatedAt: getMasterCvUpdatedAt(userId), profileUpdatedAt: profile.updatedAt, jdHash: jdHash(jd), fitEngineVersion: fit.version }
-      );
-      res.json({
-        success: true,
-        version: result.version,
-        resume: result.draft,
-        verification: result.verification,
-        jdTerms: result.jdTerms,
-        pdfOk: result.pdfOk,
-        fromCache: false,
-      });
-    } catch (err: any) {
-      if (err?.name === 'TailorVerificationFailedError') {
-        res.status(422).json({ error: err.message, code: 'verification_failed' });
-        return;
-      }
-      res.status(500).json({ error: String(err?.message || 'Tailor V2 failed.').slice(0, 300) });
-    }
-  });
-
-  // PDF for the latest Tailor V2 version of a job (regenerated deterministically).
-  app.get('/api/jobs/:id/tailor-v2/pdf', async (req, res) => {
-    try {
-      const userId = getCurrentUserId();
-      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
-      const { getLatestTailorVersion } = await import('./server/tailorV2/versionStore.js');
-      const { toTailoredCv } = await import('./server/tailorV2/tailorV2Engine.js');
-      const { getMasterCv } = await import('./server/storage/fileStorage.js');
-      const v = getLatestTailorVersion(userId, req.params.id);
-      if (!v) {
-        res.status(404).json({ error: 'No tailored resume for this job yet.' });
-        return;
-      }
-      const { generatePdfBuffer } = await import('./server/builder/docxGenerator.js');
-      const cv = getMasterCv(userId);
-      const buf = await generatePdfBuffer(toTailoredCv(v.content, cv.fullName || ''));
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="tailored-cv-v${v.version}.pdf"`);
-      res.send(buf);
-    } catch (err: any) {
-      res.status(500).json({ error: String(err?.message || 'PDF failed.').slice(0, 200) });
-    }
-  });
-
   // ── Fit Engine V1 — deterministic applicant ↔ job matching ───────────
-  // Latest verified Tailor V2 version for a job (read-only) — powers the
-  // Job Detail "Tailored Resume" tab for V2 output.
-  app.get('/api/jobs/:id/tailor-v2/latest', async (req, res) => {
-    try {
-      const userId = getCurrentUserId();
-      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
-      const { getLatestTailorVersion } = await import('./server/tailorV2/versionStore.js');
-      const v = getLatestTailorVersion(userId, req.params.id);
-      if (!v) return res.json({ version: null });
-      res.json({
-        version: v.version,
-        verification: v.verification,
-        jdTerms: (v as any).jdTerms ?? [],
-        stale: v.stale,
-        createdAt: v.createdAt,
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: String(err?.message || 'Failed to load tailored version.').slice(0, 300) });
-    }
-  });
   app.post('/api/jobs/:id/fit', async (req, res) => {
     try {
       const userId = getCurrentUserId();
@@ -3492,10 +3412,10 @@ const sanitizeAttemptDryRun = (a: any) => ({
 
       const masterCv = getMasterCv();
       const mode = req.body?.mode === 'strict' ? 'strict' : 'enhanced';
-      const { tailorJobWithV2 } = await import('./server/tailorV2/tailorService.js');
-      let tailoredResult: Awaited<ReturnType<typeof tailorJobWithV2>>;
+      const { tailorJob } = await import('./server/tailor/tailorService.js');
+      let tailoredResult: Awaited<ReturnType<typeof tailorJob>>;
       try {
-        tailoredResult = await tailorJobWithV2(jobToTailor, { mode });
+        tailoredResult = await tailorJob(jobToTailor, { mode });
       } catch (llmErr: any) {
         const { LLMError } = await import('./server/llm/llmErrors.js');
         if (llmErr instanceof LLMError) {
@@ -3552,7 +3472,7 @@ const sanitizeAttemptDryRun = (a: any) => ({
 
       const masterCv = getMasterCv();
       const mode = req.body?.mode === 'strict' ? 'strict' : 'enhanced';
-      const { tailorJobWithV2 } = await import('./server/tailorV2/tailorService.js');
+      const { tailorJob } = await import('./server/tailor/tailorService.js');
 
       // Process concurrently (bounded) so a large batch finishes fast
       // and the rest of the app keeps working. Every job runs through the
@@ -3567,7 +3487,7 @@ const sanitizeAttemptDryRun = (a: any) => ({
         while (cursor < candidateJobs.length) {
           const job = candidateJobs[cursor++];
           try {
-            const tailoredResult = await tailorJobWithV2(job, { mode });
+            const tailoredResult = await tailorJob(job, { mode });
 
             const updated = updateJobInStorage({
               ...job,
@@ -3705,14 +3625,14 @@ const sanitizeAttemptDryRun = (a: any) => ({
         ...(matchScore !== undefined ? { matchScore: Number(matchScore) } : {}),
       };
 
-      const { tailorJobWithV2 } = await import('./server/tailorV2/tailorService.js');
+      const { tailorJob } = await import('./server/tailor/tailorService.js');
       const mode = req.body?.mode === 'strict' ? 'strict' : 'enhanced';
       // Manual JD Tailor runs the SAME canonical V2 pipeline. The manual JD
       // is DATA ONLY — it can influence emphasis and gap reporting, never
       // candidate facts. includeSkills (user's chip selection) is accepted
       // for API compatibility; unsupported selections surface as
       // notIntegrable gaps because the verifier rejects JD-only facts.
-      const tailoredResult = await tailorJobWithV2(virtualJob, { mode });
+      const tailoredResult = await tailorJob(virtualJob, { mode });
       const tailoredCv = tailoredResult.tailoredCv;
 
       const token = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -4122,7 +4042,7 @@ const sanitizeAttemptDryRun = (a: any) => ({
   // contactInfo/audit metadata (details view showed a hard 92% fallback;
   // header contact block was empty). Deterministic — no LLM calls.
   try {
-    const { backfillTailoredAudits } = await import('./server/tailorV2/tailorService.js');
+    const { backfillTailoredAudits } = await import('./server/tailor/tailorService.js');
     const count = backfillTailoredAudits();
     if (count) console.log(`[Tailor] Backfilled audit + contactInfo on ${count} tailored CV(s)`);
   } catch (err: any) {

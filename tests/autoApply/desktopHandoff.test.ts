@@ -311,6 +311,12 @@ describe('Explicit desktop submission — server-authorized, exactly once', () =
     confirmDesktopSubmit(db, t, {}, { getJobFn: () => undefined, updateJobFn: (j) => j });
     expect(getExecutionByStatusToken(db, t)?.state).toBe('SUBMITTED_VERIFIED');
   });
+
+  it('job → Applied default path runs in the execution owner context (bridge has no web session)', () => {
+    const src = read('server/autoApply/desktopHandoff.ts');
+    expect(src).toContain('runWithUser(userId, apply)');
+    expect(src).toContain("transitionAttempt(db, userId, attemptId, 'SUBMISSION_OBSERVED')");
+  });
 });
 
 describe('Parallel orchestrator — concurrency limit + pre-authorization', () => {

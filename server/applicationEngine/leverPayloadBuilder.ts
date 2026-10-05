@@ -80,12 +80,23 @@ function optionValid(selected: string, options: string[] | undefined): boolean {
 /** Resolve a typed value to the provider's EXACT option text (case/whitespace
  *  insensitive). Free-text fields (no options) pass through unchanged.
  *  Returns null when the value genuinely matches no option. */
-function canonicalOption(value: string, options: string[] | undefined): string | null {
+/** Normalized key variants for tolerant option matching: exact, parenthetical
+ *  stripped, and veteran-label synonym ("protected veteran" → "veteran"). */
+function optionKeys(value: string): string[] {
+  const norm = String(value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const stripped = norm.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+  const vet = stripped.replace(/protected\s+veteran/g, 'veteran').replace(/\s+/g, ' ').trim();
+  return [norm, stripped, vet].filter((k, i, a) => k && a.indexOf(k) === i);
+}
+
+export function canonicalOption(value: string, options: string[] | undefined): string | null {
   if (!options || options.length === 0) return value;
-  const norm = (v: string) => v.trim().replace(/\s+/g, ' ').toLowerCase();
-  const target = norm(value);
-  const hit = options.find((o) => norm(String(o)) === target);
-  return hit !== undefined ? String(hit) : null;
+  const keys = optionKeys(value);
+  for (const option of options) {
+    const oks = optionKeys(String(option));
+    if (oks.some((k) => keys.includes(k))) return String(option);
+  }
+  return null;
 }
 
 /** Builds the LOCAL normalized payload. Throws PayloadBuildError on any

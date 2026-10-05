@@ -5,10 +5,10 @@
 
 import type { ApplicantProfile, MasterCv, Job } from '../../src/types.js';
 import type { FitResult } from '../fit/fitEngine.js';
-import type { TailorDraft } from '../tailorV2/drafter.js';
+import type { TailorDraft } from '../tailor/tailorTypes.js';
 import { ask } from '../llm/llmAdapter.js';
-import { checkGeneratedTextSafety } from '../tailorV2/verifier.js';
-import { parseDraftJson } from '../tailorV2/drafter.js';
+import { checkGeneratedTextSafety } from '../tailor/generatedTextSafety.js';
+import { parseDraftJson } from '../tailor/tailorTypes.js';
 
 export interface GeneratedAnswerResult {
   questionId: string;

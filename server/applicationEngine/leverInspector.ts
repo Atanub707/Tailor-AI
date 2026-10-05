@@ -203,6 +203,7 @@ const STANDARD_FIELDS: Array<{ name: string; label: string; canonical: string }>
   { name: 'email', label: 'Email', canonical: 'email' },
   { name: 'phone', label: 'Phone', canonical: 'phone' },
   { name: 'location', label: 'Location', canonical: 'currentCity' },
+  { name: 'org', label: 'Current company', canonical: 'currentCompany' },
   { name: 'urls[LinkedIn]', label: 'LinkedIn URL', canonical: 'linkedinUrl' },
   { name: 'urls[GitHub]', label: 'GitHub URL', canonical: 'githubUrl' },
   { name: 'urls[Portfolio]', label: 'Portfolio URL', canonical: 'portfolioUrl' },
@@ -309,6 +310,33 @@ export function parseLeverForm(html: string): { fields: ApplicationField[]; prov
       return;
     }
     fields.push({ providerFieldId: name, label, type, required, category, options: type === 'SINGLE_SELECT' || type === 'MULTI_SELECT' ? [] : undefined });
+  });
+
+  // EEO section: Lever renders voluntary demographic selects OUTSIDE the
+  // question cards (name="eeo[gender]", name="eeo[race]", name="eeo[veteran]").
+  // Parsed as optional EEO fields so the user's OWN saved, verified answers can
+  // fill them — they are never inferred and never required.
+  form.find('select[name^="eeo["]').each((_, el) => {
+    const $el = $(el);
+    const name = $el.attr('name') || '';
+    if (!name || fields.some((f) => f.providerFieldId === name)) return;
+    const label = cleanLabel(
+      $el.closest('label').find('.application-label').first().text() || name.replace(/^eeo\[|\]$/g, ''),
+    ).slice(0, MAX_LABEL_CHARS);
+    const options = $el
+      .find('option')
+      .toArray()
+      .map((o) => cleanLabel($(o).text()))
+      .filter((t) => t && !/^select/i.test(t));
+    fields.push({
+      providerFieldId: name,
+      normalizedKey: normalizeFieldLabel(label) || undefined,
+      label: label || 'Voluntary demographic',
+      type: 'SINGLE_SELECT',
+      required: false,
+      options,
+      category: 'EEO',
+    });
   });
 
   // Consent section: only a generic field when it contains no parseable

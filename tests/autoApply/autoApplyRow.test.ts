@@ -161,9 +161,12 @@ describe('AA click never leaves the job list', () => {
     }
   });
 
-  it('the preview opens ONLY from the attention button (one control, no clutter)', () => {
+  it('the CHAT opens only when required answers are missing (no dry-run panel exists)', () => {
     expect(button).toContain("onClick={() => void (attention ? handleAttentionClick() : handleAaClick())}");
-    expect(button).toContain('{open && (');
+    expect(button).toContain('{open && chatQuestions.length > 0 && (');
+    // The dry-run preview panel was removed entirely.
+    expect(button).not.toContain('AutoApplyDryRunPreview');
+    expect(button).not.toContain('chatQuestions.length === 0');
     expect(button).not.toContain('reviewAvailable');
   });
 
@@ -247,17 +250,16 @@ describe('Chrome → Tailor Browser handoff (execution ownership: desktop)', () 
   });
 });
 
-describe('AA applies with a VERIFIED tailored CV (tailor-first pipeline)', () => {
+describe('AA applies with the job\'s TAILORED CV (V1 tailor-first pipeline)', () => {
   const button = read('src/components/AutoApplyButton.tsx');
-  it('checks the verified V2 store first and tailors via V2 before any handoff', () => {
-    const checkAt = button.indexOf('`/api/jobs/${job.id}/tailor-v2/latest`');
-    const tailorAt = button.indexOf('`/api/jobs/${job.id}/tailor-v2`');
+  it('triggers the V1 tailor when the job has no tailored CV, before any handoff', () => {
+    const guardAt = button.indexOf('if (!job.tailoredCv)');
+    const tailorAt = button.indexOf('`/api/jobs/${job.id}/tailor`');
     const mintAt = button.indexOf('createDesktopHandoff(job.id)');
-    expect(checkAt).toBeGreaterThan(-1);
-    expect(tailorAt).toBeGreaterThan(checkAt);
+    expect(guardAt).toBeGreaterThan(-1);
+    expect(tailorAt).toBeGreaterThan(guardAt);
     expect(mintAt).toBeGreaterThan(tailorAt); // tailor completes before the handoff is minted
-    // The V1 job-record tailor must never drive AA again.
-    expect(button).not.toContain('`/api/jobs/${job.id}/tailor`');
+    expect(button).not.toContain('tailor-v2');
     expect(button).toContain("setMessage('Tailoring your CV…')");
   });
   it('a tailoring failure stops AA with the real error (no blind fill)', () => {
@@ -274,6 +276,11 @@ describe('Bank-resolved readiness + run phase animation', () => {
     expect(svc).toContain('plan.unresolvedDetails.filter((u) => u.required && !bankCleanIds.has(u.providerFieldId)).length');
     expect(svc).toContain('unresolvedFields: plan.unresolvedDetails.filter((u) => !bankCleanIds.has(u.providerFieldId)).map');
   });
+  it('only REQUIRED review-required answers gate readiness (optional ones are skipped, never blocking)', () => {
+    const svc = read('server/autoApply/autoApplyService.ts');
+    expect(svc).toContain('m.requiresReview && requiredById.get(m.providerFieldId) === true');
+    expect(svc).toContain('optional saved answer(s) need your review and were left unfilled');
+  });
   it('the run shows a 4-phase animated indicator (Tailor → Apply → Fill → Submit)', () => {
     const button = read('src/components/AutoApplyButton.tsx');
     expect(button).toContain("'Tailoring CV…'");
@@ -283,5 +290,28 @@ describe('Bank-resolved readiness + run phase animation', () => {
     expect(button).toContain("setPhase('SUBMIT')");
     expect(button).toContain('block h-1.5 w-1.5 rounded-full');
     expect(button).toContain('animate-pulse');
+  });
+});
+
+describe('Needs-input chat (right-side drawer)', () => {
+  const button = read('src/components/AutoApplyButton.tsx');
+  const chat = read('src/components/AnswerChatPanel.tsx');
+  it('required questions open the chat in the preview slot instead of the dry-run wall', () => {
+    expect(button).toContain('AnswerChatPanel');
+    expect(button).toContain('chatQuestions.length > 0');
+    expect(button).toContain('preflightNeedsInput');
+    // The dry-run preview panel was removed entirely from the codebase.
+    expect(button).not.toContain('AutoApplyDryRunPreview');
+    // Same pop-up slot as the preview: right-side drawer.
+    expect(chat).toContain('flex justify-end');
+    // Option questions render quick-answer chips in the chat.
+    expect(chat).toContain('send(opt)');
+  });
+  it('answers save one at a time through the answer-bank, then Submit runs the apply', () => {
+    expect(button).toContain("fetch('/api/auto-apply/answer-bank/learn'");
+    expect(chat).toContain('onSaveAnswer');
+    expect(chat).toContain('All answers saved');
+    expect(chat).toContain('Submit application');
+    expect(button).toContain('setOpen(false); await handleAaClick();');
   });
 });

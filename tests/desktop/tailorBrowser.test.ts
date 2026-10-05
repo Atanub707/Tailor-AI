@@ -16,8 +16,11 @@ const lever = require('../../desktop/main/leverAdapter.cjs') as {
   buildCheckpointScript: () => string;
   buildFillScript: (p: unknown) => string;
   buildReadBackScript: (p: unknown, w: unknown) => string;
-  buildSubmitScript: () => string;
+  buildSubmitScript: (opts?: { trustedInput?: boolean }) => string;
   buildConfirmationScript: () => string;
+  buildObserveScript: () => string;
+  buildActScript: (a: unknown) => string;
+  validateAgentAction: (a: unknown) => unknown;
 };
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -44,6 +47,14 @@ describe('LeverAdapter — identity & plan validation', () => {
     expect(u?.isApplyPage).toBe(true);
     expect(lever.parseLeverUrl('https://evil.example.com/sfeir/x/apply')).toBeNull();
     expect(lever.parseLeverUrl('http://jobs.lever.co/sfeir/x/apply')).toBeNull();
+  });
+
+  it('post-submit routes (/thanks, /already-received) keep the posting canonical', () => {
+    const thanks = lever.parseLeverUrl('https://jobs.lever.co/patchmypc/abc123/thanks');
+    expect(thanks?.canonical).toBe('https://jobs.lever.co/patchmypc/abc123');
+    expect(thanks?.isApplyPage).toBe(false);
+    const dupe = lever.parseLeverUrl('https://jobs.lever.co/patchmypc/abc123/already-received');
+    expect(dupe?.canonical).toBe('https://jobs.lever.co/patchmypc/abc123');
   });
 
   it('rejects plans for the wrong provider, wrong URL or wrong posting', () => {
@@ -88,6 +99,48 @@ describe('Deterministic scripts — invariants (never submit, never bypass CAPTC
     expect(sessionSrc).not.toMatch(/grecaptcha|hcaptcha\.reset|\bsolve\s*\(/i); // read-only probes use 'resolve' — that's fine
   });
 
+  it('AGENT observe is read-only, ref-tagged, and reports CAPTCHA/errors', () => {
+    const ob = lever.buildObserveScript();
+    expect(ob).toContain('data-ta-ref');
+    expect(ob).toContain('captchaPresent');
+    expect(ob).toContain('submitControl');
+    expect(ob).not.toMatch(/\.click\s*\(|\.value\s*=/); // observation never mutates
+  });
+
+  it('AGENT act refuses submit controls and CAPTCHA; validation whitelists actions', () => {
+    const act = lever.buildActScript({ action: 'click', ref: 'ta1' });
+    expect(act).toContain('SUBMIT_REQUIRES_AUTHORIZED_PATH');
+    expect(act).toContain('CAPTCHA_NEVER_TOUCHED');
+    expect(lever.validateAgentAction({ action: 'type', ref: 'ta1', value: 'x' })).toBeTruthy();
+    expect(lever.validateAgentAction({ action: 'check', ref: 'ta2', option: 'Days' })).toBeTruthy();
+    expect(lever.validateAgentAction({ action: 'upload_resume', ref: 'ta3' })).toBeTruthy();
+    expect(lever.validateAgentAction({ action: 'submit', ref: 'ta1' })).toBeNull();
+    expect(lever.validateAgentAction({ action: 'click', ref: '../etc' })).toBeNull();
+    expect(lever.validateAgentAction({ action: 'click', ref: 'ta1', value: 'x'.repeat(6000) })).toBeTruthy(); // value capped, not rejected
+  });
+
+  it('AGENT primitives are exposed on the bridge (only hands — no decisions)', () => {
+    const bridge = read('desktop/main/desktopBridge.cjs');
+    expect(bridge).toContain("'/agent/observe'");
+    expect(bridge).toContain("'/agent/act'");
+  });
+
+  it('AGENT mode is env-gated and the loop drives observe → decide → act', () => {
+    const s = read('desktop/main/browserSession.cjs');
+    expect(s).toContain("TAILOR_BROWSER_AGENT_MODE === '1'");
+    expect(s).toContain('async agentRun()');
+    expect(s).toContain('async agentLoop()');
+    expect(s).toContain('/api/auto-apply/agent/decide');
+    expect(s).toContain("emit('HUMAN_ACTION_REQUIRED', 'CAPTCHA_REQUIRED')");
+    expect(s).toContain('async agentFinalRevalidation()');
+  });
+
+  it('the bridge passes the execution token to the session for decisions', () => {
+    const b = read('desktop/main/desktopBridge.cjs');
+    expect(b).toContain('statusToken: data.statusToken');
+    expect(b).toContain('backendBase,');
+  });
+
   it('read-back returns value-free statuses only', () => {
     const rb = lever.buildReadBackScript(PLAN, {});
     expect(rb).toContain("statuses.push('N')");
@@ -105,10 +158,42 @@ describe('Deterministic scripts — invariants (never submit, never bypass CAPTC
     expect(sub).not.toMatch(/\.submit\s*\(|SubmitEvent/);
   });
 
-  it('confirmation uses provider evidence (success text / form replacement)', () => {
+  it('trusted-input mode measures the control and does not click programmatically', () => {
+    const sub = lever.buildSubmitScript({ trustedInput: true });
+    expect(sub).toContain('const useTrusted = true');
+    expect(sub).toContain('getBoundingClientRect');
+    expect(sessionSrc).toContain('sendInputEvent');
+    expect(sessionSrc).toContain("lever.buildSubmitScript({ trustedInput: true })");
+  });
+
+  it('location re-asserts the exact JSON shape Lever writes (selectedLocation)', () => {
+    const sub = lever.buildSubmitScript();
+    expect(sub).toContain("form.querySelector('#selected-location')");
+    expect(sub).toContain('JSON.stringify({ name:');
+  });
+
+  it('late human CAPTCHA solves are captured (loop top + continue re-check confirmation)', () => {
+    expect(sessionSrc).toContain("'AGENT_CONFIRMED'");
+    const loop = sessionSrc.slice(sessionSrc.indexOf('async agentLoop()'), sessionSrc.indexOf('async agentFinalRevalidation()'));
+    expect(loop.indexOf('buildConfirmationScript')).toBeGreaterThan(-1);
+    const cont = sessionSrc.slice(sessionSrc.indexOf('async continueCheckpoint()'), sessionSrc.indexOf('async continueCheckpoint()') + 1500);
+    expect(cont).toContain('buildConfirmationScript');
+  });
+
+  it('submit brings the view visible + window to front so the challenge can render', () => {
+    const perf = sessionSrc.slice(sessionSrc.indexOf('async performSubmit()'), sessionSrc.indexOf('getState()'));
+    expect(perf).toContain('setVisibleSession(this.executionId)');
+    expect(lever.buildObserveScript()).toContain('visibility: String(document.visibilityState');
+  });
+
+  it('confirmation uses Lever\'s REAL success markers (never formGone alone)', () => {
     const conf = lever.buildConfirmationScript();
-    expect(conf).toContain('application.?submitted');
-    expect(conf).toContain('formGone');
+    expect(conf).toContain('application submitted');
+    expect(conf).toContain('/thanks');
+    expect(conf).toContain('already-received');
+    expect(conf).toContain('confirmation-message');
+    expect(sessionSrc).toContain('if (c.confirmed || c.duplicate)');
+    expect(sessionSrc).not.toContain('if (c.confirmed || c.formGone)');
   });
 });
 
@@ -119,11 +204,14 @@ describe('BrowserSessionManager — lifecycle, checkpoints, crash-safety', () =>
     }
   });
 
-  it('resume uses the EXACT frozen artifact: hash checked before attach', () => {
+  it('resume uses the EXACT frozen artifact: hash checked before attach, file kept until dispose', () => {
     expect(sessionSrc).toContain('RESUME_HASH_MISMATCH');
     expect(sessionSrc).toContain("crypto.createHash('sha256')");
     expect(sessionSrc).toContain("dbg.sendCommand('DOM.setFileInputFiles'");
-    expect(sessionSrc).toContain('rmSync(tmpDir, { recursive: true, force: true })');
+    // The artifact MUST stay on disk — Chromium reads it at SUBMIT time.
+    expect(sessionSrc).toContain('this.tmpDirs.push(tmpDir)');
+    expect(sessionSrc).not.toContain('rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ } }'); // never deleted in attachResume
+    expect(sessionSrc).toContain('for (const d of this.tmpDirs || [])'); // cleaned on dispose only
     expect(sessionSrc).toContain('0o600');
   });
 
@@ -419,7 +507,12 @@ describe('Human-checkpoint resume + per-job browser lifecycle (this phase)', () 
   it('checkpoint clear-detection probes BOTH token locations + explicit cleared flag', () => {
     expect(leverSrc).toContain('textarea[name="h-captcha-response"]');
     expect(leverSrc).toContain('input[name="h-captcha-response"]');
-    expect(leverSrc).toContain('cleared: token.length > 0');
+    expect(leverSrc).toContain('captchaFieldFilled');
+    expect(leverSrc).toContain('cleared: captchaFieldFilled || !captchaPresent');
+    // A passive (invisible) hCaptcha widget is NOT a checkpoint: pause only on
+    // a visible widget/challenge so a silent widget can never dead-lock a run.
+    expect(leverSrc).toContain('getBoundingClientRect');
+    expect(leverSrc).toContain('iframe[title*="hCaptcha" i]');
   });
 
   it('post-checkpoint resume RE-FILLS wiped values, re-attaches the resume, then read-backs', () => {
@@ -451,7 +544,7 @@ describe('Human-checkpoint resume + per-job browser lifecycle (this phase)', () 
   });
 
   it('the browser closes itself when the operation is done — never while waiting for you', () => {
-    expect(session).toContain('AUTO_CLOSE_READY_MS = 120_000'); // explicit-review window
+    expect(session).toContain('AUTO_CLOSE_READY_MS = 10 * 60 * 1000'); // explicit-review window stays open
     expect(session).toContain('AUTO_CLOSE_FAILED_MS = 20_000');
     expect(session).toContain('scheduleAutoClose(AUTO_CLOSE_READY_MS)');
     expect(read('desktop/main/desktopBridge.cjs')).toContain("destroySession(executionId, 'APPLIED'), 3000"); // receipt persisted → grace → close
@@ -489,7 +582,8 @@ describe('Explicit submission wiring — Chrome → bridge → desktop, exactly 
 
   it('the control-check script validates but never clicks', () => {
     const start = adapterSource.indexOf('function buildSubmitControlCheckScript()');
-    const block = adapterSource.slice(start, adapterSource.indexOf('module.exports ='));
+    const nextFn = adapterSource.indexOf('\nfunction ', start + 1);
+    const block = adapterSource.slice(start, nextFn > start ? nextFn : adapterSource.indexOf('module.exports ='));
     expect(block).toContain("form.querySelector('#btn-submit')");
     expect(block).not.toContain('.click(');
   });

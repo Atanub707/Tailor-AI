@@ -41,18 +41,17 @@ const profile = () => {
 };
 const cv = (): MasterCv => ({ fullName: 'Ravi Kumar', email: 'ravi@example.com', phone: '+91 90000 00000', location: 'B', summary: 'DevOps', experiences: [], education: [], skills: [{ category: 'skills', items: ['Kubernetes'] }], certifications: [] });
 
-const tailoredVersion = (id: string) => ({
-  id: `t-${id}`, userId: USER, jobId: id, version: 1, masterCvUpdatedAt: 'c', profileUpdatedAt: 'p', jdHash: 'j', fitEngineVersion: 3, tailorEngineVersion: 1,
-  content: { summary: 'x', skills: [], experience: [], education: [], certifications: [], projects: [] } as any,
-  verification: { passed: true, issues: [], supportedJdTermsBefore: [], supportedJdTermsAfter: [], unsupportedInserted: [] } as any,
-  stale: false, createdAt: new Date().toISOString(),
-});
+const tailoredCv = () => ({
+  candidateName: 'Ravi Kumar', targetRole: 'Platform Engineer', professionalSummary: 'DevOps.',
+  coreCompetencies: ['Kubernetes'], workExperience: [], education: [],
+  technicalSkills: [{ category: 'Skills', skills: ['Kubernetes'] }], certifications: [], projects: [],
+} as any);
 
 const makePackage = async (j: Job) => {
   const p = profile();
   const masterCv = cv();
   const fit = computeFit(p, masterCv, j, j.description || '');
-  const pkg = await buildPackage({ userId: USER, job: j, jd: j.description || '', profile: p, masterCv, fit, tailoredVersion: tailoredVersion(j.id) }, 'c');
+  const pkg = await buildPackage({ userId: USER, job: j, jd: j.description || '', profile: p, masterCv, fit, tailoredCv: tailoredCv() }, 'c');
   storePackage(pkg);
   return { pkg, p, masterCv };
 };
@@ -122,7 +121,7 @@ describe('Application Detail — plan-less packages appear as Preparing', () => 
     await makePackage(j);
     const p = profile();
     const fit = computeFit(p, cv(), j, j.description || '');
-    const again = await preparePackage({ userId: USER, job: j, jd: j.description || '', profile: p, masterCv: cv(), fit, tailoredVersion: tailoredVersion(j.id) }, 'c');
+    const again = await preparePackage({ userId: USER, job: j, jd: j.description || '', profile: p, masterCv: cv(), fit, tailoredCv: tailoredCv() }, 'c');
     const latest = getLatestPackage(USER, j.id)!;
     expect(latest.inputFingerprint).toBe(again.inputFingerprint);
     const rows = applicationSummaries(getDb(), USER).filter((r) => r.jobId === 'ej-idem');
@@ -192,7 +191,7 @@ describe('Easy Flow — auto-tailor on Apply, deterministic CV attachment', () =
   it('a package with a job-specific tailored version attaches THAT version', async () => {
     const { pkg } = await makePackage(job('ej-auto-1'));
     expect(pkg.resumeSnapshot?.source).toBe('TAILORED');
-    expect(pkg.resumeSnapshot?.tailoredResumeVersionId).toBe('t-ej-auto-1');
+    expect(pkg.resumeSnapshot?.tailoredResumeVersionId).toBeTruthy();
     expect(pkg.resumeSnapshot?.pdfOk).toBe(true);
   });
 
@@ -201,22 +200,16 @@ describe('Easy Flow — auto-tailor on Apply, deterministic CV attachment', () =
     const p = profile();
     const masterCv = cv();
     const fit = computeFit(p, masterCv, j, j.description || '');
-    const pkg = await buildPackage({ userId: USER, job: j, jd: j.description || '', profile: p, masterCv, fit, tailoredVersion: undefined }, 'c');
+    const pkg = await buildPackage({ userId: USER, job: j, jd: j.description || '', profile: p, masterCv, fit }, 'c');
     expect(pkg.resumeSnapshot?.source).toBe('MASTER_CV');
     expect(pkg.resumeSnapshot?.pdfOk).toBe(true);
   });
 
-  it('auto-tailor runs ONLY when no version exists — existing versions are reused', async () => {
-    const { getLatestTailorVersion } = await import('../../server/tailorV2/versionStore.js');
-    // fresh job → no version → auto-tailor would trigger (guard = !version)
-    expect(getLatestTailorVersion(USER, 'ej-auto-fresh')).toBeUndefined();
-    // job with a stored version → guard false → no new LLM call
-    const { ensureTailorV2Schema, storeTailorVersion } = await import('../../server/tailorV2/versionStore.js');
-    ensureTailorV2Schema();
-    storeTailorVersion(USER, 'ej-auto-3', { summary: 'x', skills: [], experience: [], education: [], certifications: [], projects: [] } as any,
-      { passed: true, issues: [], supportedJdTermsBefore: [], supportedJdTermsAfter: [], unsupportedInserted: [] } as any,
-      { masterCvUpdatedAt: 'c', profileUpdatedAt: 'p', jdHash: 'j', fitEngineVersion: 3 });
-    expect(getLatestTailorVersion(USER, 'ej-auto-3')).toBeDefined();
+  it('auto-tailor guard — a tailored CV on the job is reused, never regenerated', () => {
+    const src = fs.readFileSync(path.join(process.cwd(), 'src/components/AutoApplyButton.tsx'), 'utf8');
+    expect(src).toContain('if (!job.tailoredCv)');
+    expect(src).toContain('`/api/jobs/${job.id}/tailor`');
+    expect(src).not.toContain('tailor-v2');
   });
 
   it('UI wiring — auto-apply is paused at the card level (server endpoints intact)', () => {
@@ -240,7 +233,7 @@ describe('Attached CV transparency — the drawer names the exact resume', () =>
     expect(pkg.resumeSnapshot?.source).toBe('TAILORED');
     const details = applicationDetails(getDb(), USER, pkg.id)!;
     expect(details.resumeSource).toBe('TAILORED');
-    expect(details.resumeVersion).toBe(1);
+    expect(details.resumeVersion).toBe(0);
   });
   it('details expose the attached CV source + version for the badge', () => {
     const detailsSrc = fs.readFileSync(path.join(process.cwd(), 'server/applicationExperience/applicationDetails.ts'), 'utf8');

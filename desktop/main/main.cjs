@@ -12,6 +12,14 @@ const crypto = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 
 const BOOT_ID = crypto.randomBytes(6).toString('hex');
+
+// Dev-only: expose the DevTools protocol so an external agent harness (e.g.
+// chrome-devtools MCP) can attach to THIS Chromium over CDP. Env-gated and off
+// by default — never part of normal product runs.
+const DEBUG_PORT = process.env.TAILOR_BROWSER_DEBUG_PORT;
+if (DEBUG_PORT && /^[0-9]{2,5}$/.test(String(DEBUG_PORT))) {
+  app.commandLine.appendSwitch('remote-debugging-port', String(DEBUG_PORT));
+}
 const BOOT_LOG = path.join(os.homedir(), '.tailor-browser', 'boot.log');
 function blog(line) {
   const entry = `${new Date().toISOString()} [${BOOT_ID}] ${line}`;

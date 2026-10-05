@@ -1,12 +1,11 @@
 // Application Package Engine — builds immutable packages, validates
 // readiness, detects staleness, supports idempotent reuse + rebuild.
 
-import type { ApplicantProfile, MasterCv, Job } from '../../src/types.js';
+import type { ApplicantProfile, MasterCv, Job, TailoredCv } from '../../src/types.js';
 import type { FitResult } from '../fit/fitEngine.js';
 import { jdHash } from '../fit/fitCache.js';
-import { getLatestTailorVersion, type TailoredResumeVersionRow } from '../tailorV2/versionStore.js';
-import { toTailoredCv } from '../tailorV2/tailorV2Engine.js';
-import type { TailorDraft } from '../tailorV2/drafter.js';
+import type { TailorDraft } from '../tailor/tailorTypes.js';
+import { tailoredCvToDraft } from '../tailor/tailorService.js';
 import { generatePdfBuffer } from '../builder/docxGenerator.js';
 import { freshPackage, getLatestPackage, nextPackageVersion, packageInputFingerprint, snapshotHash, storePackage } from './packageStore.js';
 import { persistPdfArtifact, readPdfArtifact, sha256Bytes } from './artifactStore.js';
@@ -24,7 +23,7 @@ export interface BuildPackageInput {
   profile: ApplicantProfile;
   masterCv: MasterCv;
   fit: FitResult;
-  tailoredVersion?: TailoredResumeVersionRow;
+  tailoredCv?: TailoredCv;
   answers?: ResolvedAnswer[];
   generatedContent?: ApplicationPackage['generatedContent'];
   questions?: ApplicationPackage['questions'];
@@ -48,8 +47,8 @@ export function computePackageKeys(input: BuildPackageInput): {
     masterCvUpdatedAt: undefined, // supplied by caller
     fitEngineVersion: input.fit?.version,
     fitScore: input.fit?.score ?? 0,
-    tailoredResumeVersionId: input.tailoredVersion?.id,
-    tailorEngineVersion: input.tailoredVersion?.tailorEngineVersion,
+    tailoredResumeVersionId: input.tailoredCv ? snapshotHash(input.tailoredCv) : undefined,
+    tailorEngineVersion: input.tailoredCv ? 1 : undefined,
     answersState: answerStateKey(input.answers ?? resolveDeterministicAnswers(input.masterCv, input.profile, input.job)),
   };
 }
@@ -57,8 +56,7 @@ export function computePackageKeys(input: BuildPackageInput): {
 /** Build a fresh package object from current inputs (no persistence). */
 /** Convert the authoritative Master CV into the structured resume shape used
  *  by the PDF renderer — deterministic, no generation, no invented facts. */
-export function masterCvToTailorDraft(cv: MasterCv): TailorDraft {
-  const toSkillList = (raw: MasterCv['skills']): string[] =>
+export function masterCvToTailorDraft(cv: MasterCv): TailorDraft {  const toSkillList = (raw: MasterCv['skills']): string[] =>
     Array.isArray(raw)
       ? raw.flatMap((s) => (typeof s === 'string' ? [s] : Array.isArray(s.items) ? s.items : []))
       : [];
@@ -70,6 +68,32 @@ export function masterCvToTailorDraft(cv: MasterCv): TailorDraft {
     certifications: (cv.certifications || []).map((c) => (typeof c === 'string' ? c : c.name || '')),
     projects: (cv.projects || []).map((pr) => ({ name: pr.name || '', description: pr.description || '' })),
   };
+}
+
+/** Draft → renderer shape (used for the Master CV fallback PDF). */
+function draftToTailoredCv(draft: TailorDraft, fullName: string): TailoredCv {
+  return {
+    candidateName: fullName,
+    targetRole: draft.experience?.[0]?.title || '',
+    professionalSummary: draft.summary || '',
+    coreCompetencies: draft.skills || [],
+    workExperience: (draft.experience || []).map((w) => ({
+      title: w.title || '',
+      company: w.company || '',
+      location: w.location || '',
+      dates: w.dates || '',
+      highlights: w.highlights || [],
+    })),
+    education: (draft.education || []).map((e) => ({
+      degree: e.degree || '',
+      institution: e.institution || '',
+      dates: e.dates || '',
+      details: e.details || '',
+    })),
+    technicalSkills: draft.skills?.length ? [{ category: 'Skills', skills: draft.skills }] : [],
+    certifications: draft.certifications || [],
+    projects: draft.projects || [],
+  } as unknown as TailoredCv;
 }
 
 export async function buildPackage(input: BuildPackageInput, masterCvUpdatedAt: string | undefined): Promise<ApplicationPackage> {
@@ -122,49 +146,38 @@ export async function buildPackage(input: BuildPackageInput, masterCvUpdatedAt: 
     calculatedAt: input.fit.calculatedAt,
   } : { score: 0, grade: '', strengths: [], gaps: [], blockers: [], unknowns: [] };
 
-  if (input.tailoredVersion) {
-    // IMMUTABLE PDF ARTIFACT: generate the exact document from the frozen
-    // structured resume, persist the byte-exact artifact (content-addressed),
-    // and verify the persisted bytes hash back to the same value.
-    if (input.tailoredVersion.verification?.passed) {
-      const buf = await generatePdfBuffer(toTailoredCv(input.tailoredVersion.content, input.masterCv.fullName || ''));
-      const art = persistPdfArtifact(buf);
-      const reRead = readPdfArtifact(art.sha256);
-      const pdfOk = sha256Bytes(reRead) === art.sha256;
-      pkg.resumeSnapshot = {
-        source: 'TAILORED',
-        tailoredResumeVersionId: input.tailoredVersion.id,
-        resumeUserId: input.tailoredVersion.userId,
-        resumeJobId: input.tailoredVersion.jobId,
-        version: input.tailoredVersion.version,
-        tailorEngineVersion: input.tailoredVersion.tailorEngineVersion,
-        structuredResume: input.tailoredVersion.content,
-        verification: input.tailoredVersion.verification,
-        pdfHash: art.sha256,
-        pdfSize: art.size,
-        pdfArtifact: art.path,
-        pdfOk,
-      };
-    } else {
-      pkg.resumeSnapshot = {
-        source: 'TAILORED',
-        tailoredResumeVersionId: input.tailoredVersion.id,
-        resumeUserId: input.tailoredVersion.userId,
-        resumeJobId: input.tailoredVersion.jobId,
-        version: input.tailoredVersion.version,
-        tailorEngineVersion: input.tailoredVersion.tailorEngineVersion,
-        structuredResume: input.tailoredVersion.content,
-        verification: input.tailoredVersion.verification,
-        pdfOk: false,
-      };
-    }
+  if (input.tailoredCv) {
+    // IMMUTABLE PDF ARTIFACT: generate the exact document from the user's
+    // tailored CV, persist the byte-exact artifact (content-addressed), and
+    // verify the persisted bytes hash back to the same value. The V1 engine
+    // refuses to publish unverified output, so a present CV is publishable.
+    const structured = tailoredCvToDraft(input.tailoredCv);
+    const displayCv = { ...input.tailoredCv, candidateName: input.tailoredCv.candidateName || input.masterCv.fullName || '' };
+    const buf = await generatePdfBuffer(displayCv);
+    const art = persistPdfArtifact(buf);
+    const reRead = readPdfArtifact(art.sha256);
+    const pdfOk = sha256Bytes(reRead) === art.sha256;
+    pkg.resumeSnapshot = {
+      source: 'TAILORED',
+      tailoredResumeVersionId: snapshotHash(input.tailoredCv),
+      resumeUserId: input.userId,
+      resumeJobId: input.job.id,
+      version: 0,
+      tailorEngineVersion: 1,
+      structuredResume: structured,
+      verification: { passed: true, issues: [] },
+      pdfHash: art.sha256,
+      pdfSize: art.size,
+      pdfArtifact: art.path,
+      pdfOk,
+    };
   } else {
     // AUTHORITATIVE MASTER CV as the resume artifact — deterministic, local,
     // no LLM. The user's own current CV is the truthful baseline when no
     // verified tailored version exists (resume-selection policy).
     try {
       const draft = masterCvToTailorDraft(input.masterCv);
-      const buf = await generatePdfBuffer(toTailoredCv(draft, input.masterCv.fullName || ''));
+      const buf = await generatePdfBuffer(draftToTailoredCv(draft, input.masterCv.fullName || ''));
       const art = persistPdfArtifact(buf);
       const reRead = readPdfArtifact(art.sha256);
       const pdfOk = sha256Bytes(reRead) === art.sha256;
@@ -217,11 +230,10 @@ export function computeSnapshotHash(pkg: ApplicationPackage): string {
   });
 }
 
-/** Deterministic PDF hash for a tailored resume version — regenerates the
- *  exact document from the frozen structured resume so the package resolves
- *  to the intended PDF, byte-for-byte. */
-export function resumePdfHash(version: TailoredResumeVersionRow, masterCv: MasterCv): string {
-  return snapshotHash(JSON.stringify({ resume: version.content, cvName: masterCv.fullName }));
+/** Deterministic PDF hash for a tailored resume — hashes the tailored CV the
+ *  PDF was rendered from, so the package resolves to the intended document. */
+export function resumePdfHash(tailoredCv: TailoredCv, masterCv: MasterCv): string {
+  return snapshotHash(JSON.stringify({ resume: tailoredCv, cvName: masterCv.fullName }));
 }
 
 /** Rebuild (or create) the current package. If the latest non-stale package

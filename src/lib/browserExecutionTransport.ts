@@ -62,14 +62,26 @@ export interface DesktopHealth {
   /** Something answered on the port but is NOT Tailor Browser (Phase 18). */
   appMismatch?: boolean;
   bootId?: string;
+  /** Live desktop sessions (executionId + state) for liveness checks. */
+  sessions?: Array<{ executionId: string; state: string; pageUrl?: string; crashed?: boolean }>;
 }
 
 /** PURE: only the real Tailor Browser identity counts as available (Phase 17). */
 export function interpretHealth(data: unknown, httpOk: boolean): DesktopHealth {
-  const d = data as { available?: unknown; app?: unknown; bootId?: unknown } | null;
+  const d = data as { available?: unknown; app?: unknown; bootId?: unknown; sessions?: unknown } | null;
   if (!httpOk || !d || d.available !== true) return { available: false };
   if (d.app !== 'tailor-browser') return { available: false, appMismatch: true };
-  return { available: true, bootId: typeof d.bootId === 'string' ? d.bootId : '' };
+  const sessions = Array.isArray(d.sessions)
+    ? (d.sessions as Array<{ executionId?: unknown; state?: unknown; pageUrl?: unknown; crashed?: unknown }>)
+        .map((s) => ({
+          executionId: String(s?.executionId || ''),
+          state: String(s?.state || ''),
+          pageUrl: String(s?.pageUrl || ''),
+          crashed: s?.crashed === true,
+        }))
+        .filter((s) => s.executionId)
+    : undefined;
+  return { available: true, bootId: typeof d.bootId === 'string' ? d.bootId : '', sessions };
 }
 
 export async function desktopHealth(timeoutMs = 1500): Promise<DesktopHealth> {
