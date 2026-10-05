@@ -233,9 +233,11 @@ describe('Lever inspector — engine integration (fixture injection)', () => {
     expect(adapter.constructor.name).toBe('LeverInspectionAdapter');
     // Fixture mode requires explicit injection.
     expect(() => resolveAdapter('lever', 'fixture', undefined)).toThrow(InspectionFailure);
-    // Non-Lever production target → INSPECTION_NOT_IMPLEMENTED (sync throw).
+    // Greenhouse production target → core-field adapter (not a fixture).
+    expect(resolveAdapter('greenhouse', 'production').constructor.name).toBe('GreenhouseInspectionAdapter');
+    // Ashby production target → INSPECTION_NOT_IMPLEMENTED (sync throw).
     let caught: any;
-    try { resolveAdapter('greenhouse', 'production'); } catch (e) { caught = e; }
+    try { resolveAdapter('ashby', 'production'); } catch (e) { caught = e; }
     expect(caught?.kind).toBe('INSPECTION_NOT_IMPLEMENTED');
   });
 

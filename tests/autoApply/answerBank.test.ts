@@ -329,8 +329,8 @@ describe('SubmissionReadinessEngine', () => {
     expect(evaluateSubmissionReadiness({ ...ready, reviewRequired: [{ label: 'x', reason: 'unapproved' }] }).canSubmit).toBe(false);
   });
 
-  it('non-Lever provider → UNSUPPORTED', () => {
-    expect(evaluateSubmissionReadiness({ ...base(), provider: 'greenhouse' }).status).toBe('UNSUPPORTED');
+  it('non-Lever/Greenhouse provider → UNSUPPORTED', () => {
+    expect(evaluateSubmissionReadiness({ ...base(), provider: 'ashby' }).status).toBe('UNSUPPORTED');
   });
 
   it('consent fields block submission but are reported separately', () => {

@@ -130,7 +130,10 @@ describe('Submission policy — answer hygiene, drift & duplicates', () => {
     blockedWith('APPLICATION_ALREADY_SUBMITTED', { alreadySubmitted: true });
     blockedWith('PRIOR_SUBMISSION_UNVERIFIED', { priorUnverified: true });
   });
-  it('provider scope is Lever only', () => blockedWith('PROVIDER_UNSUPPORTED', { provider: 'greenhouse' }));
+  it('provider scope is Lever + Greenhouse; others blocked', () => {
+    expect(computeSubmissionDecision(clean({ provider: 'greenhouse' })).allowed).toBe(true);
+    blockedWith('PROVIDER_UNSUPPORTED', { provider: 'ashby' });
+  });
   it('collects EVERY blocker (no short-circuit)', () => {
     const d = computeSubmissionDecision(
       clean({ statuses: 'MN', captchaPending: true, resumeVerified: false, alreadySubmitted: true, provider: 'ashby' })

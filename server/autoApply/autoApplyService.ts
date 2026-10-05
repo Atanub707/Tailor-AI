@@ -175,9 +175,9 @@ export async function runAutoApplyDryRun(
   const job = getJobById(jobId);
   if (!job) throw new AutoApplyError('JOB_NOT_FOUND', 'Job not found.');
 
-  // Existing provider detection — Lever only for this iteration.
+  // Existing provider detection — Lever + Greenhouse are live; others stay unsupported.
   const target = targetFromJob(job);
-  if (target.provider !== 'lever') {
+  if (target.provider !== 'lever' && target.provider !== 'greenhouse') {
     return baseResult(job, target.provider, 'UNSUPPORTED_ATS', `Auto Apply is not supported for this ATS yet (${target.provider}).`);
   }
 
@@ -187,7 +187,7 @@ export async function runAutoApplyDryRun(
   try {
     fullJob = await ensureJobDescription(job);
   } catch (err) {
-    if (err instanceof JDResolutionError) return packageNotReady(job, 'lever', err.message);
+    if (err instanceof JDResolutionError) return packageNotReady(job, target.provider, err.message);
     throw err;
   }
 
@@ -433,7 +433,7 @@ export async function runAutoApplyDryRun(
   const eeoFields = plan.manualFields.filter((m) => /EEO/i.test(m.reason || '')).map((m) => m.label);
   const manualNonEeoFields = plan.manualFields.filter((m) => !/EEO/i.test(m.reason || '')).map((m) => m.label);
   const readiness = evaluateSubmissionReadiness({
-    provider: 'lever',
+    provider: target.provider,
     planStatus: effectivePlanStatus,
     totalRequiredFields,
     resolvedRequiredFields: mappedRequired + bankResolvedRequiredClean,
@@ -476,7 +476,7 @@ export async function runAutoApplyDryRun(
   return {
     status: 'DRY_RUN_READY',
     job: { id: job.id, title: job.title, company: job.company },
-    provider: 'lever',
+    provider: target.provider,
     targetUrl: plan.target.applyUrl || null,
     resume: resumePreview(pkg),
     fields: plan.mappedFields.map((m) => ({

@@ -150,12 +150,18 @@ export function confirmDesktopSubmit(
   } catch { /* informational only */ }
 
   const receiptId = `rcpt-${randomToken().slice(0, 24)}`;
+  // Receipts record the REAL provider (Lever or Greenhouse) of the submission.
+  let providerName = 'lever';
+  try {
+    const jobForProvider = (deps.getJobFn ? (deps.getJobFn as (id: string) => unknown)(jobId) : runWithUser(userId, () => (getJobById as (id: string) => unknown)(jobId))) as { atsPlatform?: string } | undefined;
+    providerName = String(jobForProvider?.atsPlatform || 'lever');
+  } catch { /* default to lever when the job can't be read */ }
   saveSubmissionReceipt(db, {
     id: receiptId,
     attemptId,
     userId,
     jobId,
-    provider: 'lever',
+    provider: providerName,
     postingId,
     submittedAt,
     confirmationType,
@@ -406,7 +412,7 @@ export function buildPlanPayload(
   plan: SubmissionPlan,
   pkg: { resumeSnapshot?: { pdfHash?: string } }
 ): {
-  provider: 'lever';
+  provider: 'lever' | 'greenhouse';
   attemptId: string;
   url: string;
   postingId: string;
@@ -417,7 +423,11 @@ export function buildPlanPayload(
   resume: { sha256: string; filename: string; mimeType: string } | null;
 } | null {
   const rawUrl = String((plan as { inspection?: { url?: string } }).inspection?.url || plan.target?.applyUrl || '');
-  const applyUrl = /^https:\/\/jobs\.lever\.co\/.+\/apply$/.test(rawUrl) ? rawUrl : rawUrl.replace(/\/+$/, '') + '/apply';
+  // Lever needs the /apply form route; Greenhouse URLs ARE the application page.
+  const isLever = plan.provider !== 'greenhouse';
+  const applyUrl = isLever
+    ? (/^https:\/\/jobs\.lever\.co\/.+\/apply$/.test(rawUrl) ? rawUrl : rawUrl.replace(/\/+$/, '') + '/apply')
+    : rawUrl.replace(/\/+$/, '');
   const fields = (plan.mappedFields || [])
     .filter((f) => f.value !== undefined && f.value !== null)
     .map((f) => ({
@@ -434,7 +444,7 @@ export function buildPlanPayload(
     ? { sha256: pkg.resumeSnapshot.pdfHash, filename: 'resume.pdf', mimeType: 'application/pdf' }
     : null;
   return {
-    provider: 'lever',
+    provider: isLever ? 'lever' : 'greenhouse',
     attemptId,
     url: applyUrl,
     postingId: String(plan.target?.externalJobId || '').replace(/^lev-/, ''),

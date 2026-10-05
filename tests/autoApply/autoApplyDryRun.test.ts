@@ -158,13 +158,13 @@ describe('Auto Apply — Lever dry run (read-only)', () => {
 
   it('unsupported ATS → safe UNSUPPORTED_ATS result, never inspected', async () => {
     const j = job({
-      id: 'aa-gh', atsPlatform: 'greenhouse', source: 'Greenhouse',
-      applyUrl: 'https://boards.greenhouse.io/acme/jobs/9', url: 'https://boards.greenhouse.io/acme/jobs/9',
+      id: 'aa-gh', atsPlatform: 'ashby', source: 'Ashby',
+      applyUrl: 'https://jobs.ashbyhq.com/acme/9', url: 'https://jobs.ashbyhq.com/acme/9',
     });
     seedJob(j);
     const result = await runWithUser(USER, () => runAutoApplyDryRun(j.id, fixtureOpts()));
     expect(result.status).toBe('UNSUPPORTED_ATS');
-    expect(result.provider).toBe('greenhouse');
+    expect(result.provider).toBe('ashby');
     expect(result.fields).toEqual([]);
     expect(result.submission).toEqual({ enabled: false });
     expect(result.message).toMatch(/not supported/i);

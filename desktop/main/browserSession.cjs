@@ -11,6 +11,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const lever = require('./leverAdapter.cjs');
+const greenhouseAdapter = require('./greenhouseAdapter.cjs');
 
 const STATES = [
   'IDLE', 'STARTING', 'NAVIGATING', 'READY', 'INSPECTING', 'FILLING', 'WAITING_FOR_USER',
@@ -48,6 +49,7 @@ class Session {
     this.statusToken = '';
     this.backendBase = '';
     this.pendingAsks = [];
+    this.actFailures = new Map(); // sig -> consecutive failed attempts
     this.waitReason = null;
     this.tmpDirs = [];
     this.attached = false;
@@ -65,6 +67,15 @@ class Session {
 
   get wc() {
     return this.view ? this.view.webContents : null;
+  }
+
+  /** Provider adapter for THIS session (Lever or Greenhouse), picked from the
+   *  frozen plan URL first, then the live page URL. Same interface for both. */
+  get adapter() {
+    let url = '';
+    try { url = String((this.currentPlan && this.currentPlan.url) || ''); } catch { /* ignore */ }
+    try { const live = this.wc && this.wc.getURL(); if (live) url = String(live); } catch { /* ignore */ }
+    return /greenhouse\.io/i.test(url) ? greenhouseAdapter : lever;
   }
 
   alive() {
@@ -116,7 +127,7 @@ class Session {
       const dbg = wc.debugger;
       if (!dbg.isAttached()) dbg.attach('1.3');
       const { root } = await dbg.sendCommand('DOM.getDocument');
-      const { nodeId } = await dbg.sendCommand('DOM.querySelector', { nodeId: root.nodeId, selector: 'input[type="file"][name="resume"]' });
+      const { nodeId } = await dbg.sendCommand('DOM.querySelector', { nodeId: root.nodeId, selector: 'input[type="file"][name="resume"], input[type="file"]#resume' });
       if (!nodeId) return { ok: false, reason: 'NO_RESUME_CONTROL' };
       tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tailor-resume-'));
       // The file MUST stay on disk until the session closes: Chromium reads it
@@ -128,7 +139,7 @@ class Session {
       fs.writeFileSync(filePath, buf, { mode: 0o600 });
       await dbg.sendCommand('DOM.setFileInputFiles', { files: [filePath], nodeId });
       const check = await wc.executeJavaScript(
-        `(() => { const i = document.querySelector('input[type="file"][name="resume"]'); return i && i.files && i.files.length === 1 ? { name: i.files[0].name, size: i.files[0].size } : null; })()`,
+        `(() => { const i = document.querySelector('input[type="file"][name="resume"], input[type="file"]#resume'); return i && i.files && i.files.length === 1 ? { name: i.files[0].name, size: i.files[0].size } : null; })()`,
         true
       );
       if (!check || check.size !== buf.length) {
@@ -140,7 +151,7 @@ class Session {
       // /parseResume endpoint may decline; our own fills cover that case.
       try {
         await wc.executeJavaScript(
-          `(() => { const i = document.querySelector('input[type="file"][name="resume"]'); if (i) { i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true })); } return true; })()`,
+          `(() => { const i = document.querySelector('input[type="file"][name="resume"], input[type="file"]#resume'); if (i) { i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true })); } return true; })()`,
           true
         );
       } catch { /* parser trigger is best-effort */ }
@@ -156,7 +167,7 @@ class Session {
     if (!this.lastResume) return;
     try {
       const has = await this.wc.executeJavaScript(
-        `(() => { const i = document.querySelector('input[type="file"][name="resume"]'); return !!(i && i.files && i.files.length === 1); })()`,
+        `(() => { const i = document.querySelector('input[type="file"][name="resume"], input[type="file"]#resume'); return !!(i && i.files && i.files.length === 1); })()`,
         true
       );
       if (!has) await this.attachResume(this.lastResume.bytes, this.lastResume.sha256, this.lastResume.filename);
@@ -180,7 +191,7 @@ class Session {
     if (this.agentMode) return this.agentRun();
     const wc = this.wc;
     try {
-      const target = lever.parseLeverUrl(this.currentPlan.url);
+      const target = this.adapter.parseLeverUrl(this.currentPlan.url);
       this.canonical = target ? target.canonical : null;
       this.setState('NAVIGATING');
       const loaded = new Promise((resolve, reject) => {
@@ -192,8 +203,8 @@ class Session {
       await loaded;
       this.emit('BROWSER_OPENED', this.canonical);
 
-      const ident = await wc.executeJavaScript(lever.buildIdentityScript(), true);
-      const herr = lever.parseLeverUrl(ident.href);
+      const ident = await wc.executeJavaScript(this.adapter.buildIdentityScript(), true);
+      const herr = this.adapter.parseLeverUrl(ident.href);
       if (!herr || herr.canonical !== this.canonical) {
         this.setState('FAILED');
         this.emit('JOB_MISMATCH', 'page identity differs from the frozen plan');
@@ -203,7 +214,7 @@ class Session {
       this.emit('LEVER_VERIFIED', `${herr.siteSlug}/${herr.postingId}`);
       this.setState('INSPECTING');
 
-      const fill = await wc.executeJavaScript(lever.buildFillScript(this.currentPlan), true);
+      const fill = await wc.executeJavaScript(this.adapter.buildFillScript(this.currentPlan), true);
       if (!fill.ok) {
         this.setState('FAILED');
         this.emit('FILL_FAILED', `${fill.reason}:${(fill.failures || []).slice(0, 3).join('|')}`);
@@ -222,7 +233,7 @@ class Session {
       }
 
       this.setState('VERIFYING');
-      const rb = await wc.executeJavaScript(lever.buildReadBackScript(this.currentPlan, fill.wasCorrect), true);
+      const rb = await wc.executeJavaScript(this.adapter.buildReadBackScript(this.currentPlan, fill.wasCorrect), true);
       this.emit('FILL_VERIFICATION_COMPLETED', `statuses=${rb.statuses};newRequired=${rb.newRequiredCount}`);
 
       if (fill.captchaPresent) {
@@ -252,7 +263,7 @@ class Session {
       }
       try {
         if (!this.alive()) { clearInterval(this.checkpointTimer); this.checkpointTimer = null; return; }
-        const cp = await this.wc.executeJavaScript(lever.buildCheckpointScript(), true);
+        const cp = await this.wc.executeJavaScript(this.adapter.buildCheckpointScript(), true);
         if (cp.formGone) { clearInterval(this.checkpointTimer); this.checkpointTimer = null; this.emit('FORM_GONE', 'page changed'); return; }
         const cleared = cp.cleared === true || !cp.captchaPresent || cp.captchaFieldFilled;
         if (cleared) {
@@ -274,18 +285,18 @@ class Session {
   /** After a human checkpoint: revalidate identity, RE-FILL wiped values, re-attach resume, read-back. */
   async revalidateAfterCheckpoint() {
     const wc = this.wc;
-    const ident = await wc.executeJavaScript(lever.buildIdentityScript(), true);
-    const herr = lever.parseLeverUrl(ident.href);
+    const ident = await wc.executeJavaScript(this.adapter.buildIdentityScript(), true);
+    const herr = this.adapter.parseLeverUrl(ident.href);
     if (!herr || herr.canonical !== this.canonical) {
       this.setState('FAILED');
       this.emit('JOB_MISMATCH', 'page changed after checkpoint');
       this.scheduleAutoClose(AUTO_CLOSE_FAILED_MS);
       return { ok: false, code: 'JOB_MISMATCH' };
     }
-    const refill = await wc.executeJavaScript(lever.buildFillScript(this.currentPlan), true);
+    const refill = await wc.executeJavaScript(this.adapter.buildFillScript(this.currentPlan), true);
     if (refill.ok) this.emit('FIELDS_FILLED', `count=${refill.filled};refill`);
     await this.reattachResumeIfNeeded();
-    const rb = await wc.executeJavaScript(lever.buildReadBackScript(this.currentPlan, (refill && refill.wasCorrect) || {}), true);
+    const rb = await wc.executeJavaScript(this.adapter.buildReadBackScript(this.currentPlan, (refill && refill.wasCorrect) || {}), true);
     this.emit('FILL_VERIFICATION_COMPLETED', `statuses=${rb.statuses};newRequired=${rb.newRequiredCount};revalidated`);
     return this.finishVerification(rb);
   }
@@ -299,7 +310,7 @@ class Session {
       this.emit('CHECKPOINT_CLEARED', 'USER_CONTINUE');
       // The user may have solved a CAPTCHA after the submit watch expired and
       // the POST already landed on Lever's success page — capture it first.
-      const conf = await this.wc.executeJavaScript(lever.buildConfirmationScript(), true).catch(() => null);
+      const conf = await this.wc.executeJavaScript(this.adapter.buildConfirmationScript(), true).catch(() => null);
       if (conf && (conf.confirmed || conf.duplicate)) {
         this.setState('SUBMITTED');
         this.emit('SUBMISSION_CONFIRMED', conf.duplicate ? 'ALREADY_APPLIED' : (conf.evidence || 'SUCCESS_TEXT'));
@@ -327,7 +338,7 @@ class Session {
   async observe() {
     if (!this.alive()) return { ok: false, code: 'NO_SESSION' };
     try {
-      const state = await this.wc.executeJavaScript(lever.buildObserveScript(), true);
+      const state = await this.wc.executeJavaScript(this.adapter.buildObserveScript(), true);
       return { ok: true, state };
     } catch (e) {
       return { ok: false, code: 'OBSERVE_FAILED', message: String(e && e.message ? e.message : e).slice(0, 160) };
@@ -337,7 +348,7 @@ class Session {
   /** AGENT PRIMITIVE (mutating): ONE validated action. Resume upload uses CDP. */
   async act(action) {
     if (!this.alive()) return { ok: false, code: 'NO_SESSION' };
-    const safe = lever.validateAgentAction(action);
+    const safe = this.adapter.validateAgentAction(action);
     if (!safe) return { ok: false, code: 'BAD_ACTION' };
     if (safe.action === 'upload_resume') {
       if (!this.lastResume) return { ok: false, code: 'NO_RESUME_ARTIFACT' };
@@ -345,7 +356,29 @@ class Session {
       return r.ok ? { ok: true, uploaded: true } : { ok: false, code: r.reason || 'UPLOAD_FAILED' };
     }
     try {
-      return await this.wc.executeJavaScript(lever.buildActScript(safe), true);
+      const r = await this.wc.executeJavaScript(this.adapter.buildActScript(safe), true);
+      // Comboboxes (react-select): the option must be clicked with REAL input —
+      // synthetic clicks can be ignored or destabilize the menu. The act script
+      // measures the matched option; the main process clicks its coordinates
+      // (the same trusted-input path as the submit control).
+      if (
+        r && r.ok !== true && r.code === 'NEEDS_TRUSTED_CLICK' &&
+        r.rect && r.rect.w > 0 &&
+        typeof this.adapter.buildComboboxCheckScript === 'function'
+      ) {
+        const x = Math.round(r.rect.x + r.rect.w / 2);
+        const y = Math.round(r.rect.y + r.rect.h / 2);
+        this.wc.sendInputEvent({ type: 'mouseMove', x, y });
+        await new Promise((res) => setTimeout(res, 80));
+        this.wc.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+        this.wc.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+        await new Promise((res) => setTimeout(res, 250));
+        const check = await this.wc.executeJavaScript(this.adapter.buildComboboxCheckScript(safe.ref), true).catch(() => null);
+        const picked = check && String(check.value || '').trim();
+        if (picked) return { ok: true, value: String(picked).slice(0, 120) };
+        return { ok: false, code: 'OPTION_NOT_SELECTED' };
+      }
+      return r;
     } catch (e) {
       return { ok: false, code: 'ACT_FAILED', message: String(e && e.message ? e.message : e).slice(0, 160) };
     }
@@ -355,27 +388,27 @@ class Session {
   async finalSubmitRevalidation() {
     if (this.agentMode) return this.agentFinalRevalidation();
     const wc = this.wc;
-    const ident = await wc.executeJavaScript(lever.buildIdentityScript(), true);
-    const herr = lever.parseLeverUrl(ident.href);
+    const ident = await wc.executeJavaScript(this.adapter.buildIdentityScript(), true);
+    const herr = this.adapter.parseLeverUrl(ident.href);
     if (!herr || herr.canonical !== this.canonical) {
       this.emit('SUBMISSION_BLOCKED', 'JOB_MISMATCH');
       return { ok: false, code: 'JOB_MISMATCH' };
     }
-    const cp = await wc.executeJavaScript(lever.buildCheckpointScript(), true);
+    const cp = await wc.executeJavaScript(this.adapter.buildCheckpointScript(), true);
     const cleared = cp.cleared === true || cp.captchaPresent === false;
     if (!cleared) {
       this.emit('SUBMISSION_BLOCKED', 'CAPTCHA_REQUIRED');
       return { ok: false, code: 'CAPTCHA_REQUIRED' };
     }
-    const refill = await wc.executeJavaScript(lever.buildFillScript(this.currentPlan), true);
+    const refill = await wc.executeJavaScript(this.adapter.buildFillScript(this.currentPlan), true);
     if (refill.ok) this.emit('FIELDS_FILLED', `count=${refill.filled};presubmit`);
     await this.reattachResumeIfNeeded();
-    const rb = await wc.executeJavaScript(lever.buildReadBackScript(this.currentPlan, (refill && refill.wasCorrect) || {}), true);
+    const rb = await wc.executeJavaScript(this.adapter.buildReadBackScript(this.currentPlan, (refill && refill.wasCorrect) || {}), true);
     if (rb.newRequiredCount > 0 || /[MNBU]/.test(rb.statuses)) {
       this.emit('SUBMISSION_BLOCKED', `VERIFICATION:${rb.statuses}`);
       return { ok: false, code: 'VERIFICATION_FAILED', statuses: rb.statuses };
     }
-    const control = await wc.executeJavaScript(lever.buildSubmitControlCheckScript(), true);
+    const control = await wc.executeJavaScript(this.adapter.buildSubmitControlCheckScript(), true);
     if (!control.ok) {
       this.emit('SUBMISSION_BLOCKED', control.code);
       return { ok: false, code: control.code };
@@ -405,8 +438,9 @@ class Session {
   /** Navigate + identity, then hand over to the loop. */
   async agentRun() {
     const wc = this.wc;
+    this.actFailures = new Map();
     try {
-      const target = lever.parseLeverUrl(this.currentPlan.url);
+      const target = this.adapter.parseLeverUrl(this.currentPlan.url);
       this.canonical = target ? target.canonical : null;
       this.setState('NAVIGATING');
       const loaded = new Promise((resolve, reject) => {
@@ -417,8 +451,8 @@ class Session {
       await wc.loadURL(target.isApplyPage ? this.currentPlan.url : `${this.canonical}/apply`);
       await loaded;
       this.emit('BROWSER_OPENED', this.canonical);
-      const ident = await wc.executeJavaScript(lever.buildIdentityScript(), true);
-      const herr = lever.parseLeverUrl(ident.href);
+      const ident = await wc.executeJavaScript(this.adapter.buildIdentityScript(), true);
+      const herr = this.adapter.parseLeverUrl(ident.href);
       if (!herr || herr.canonical !== this.canonical) {
         this.setState('FAILED');
         this.emit('JOB_MISMATCH', 'page identity differs from the frozen plan');
@@ -457,7 +491,7 @@ class Session {
       // A late human CAPTCHA solve can POST at any moment; if the page already
       // reached Lever's REAL success surface, capture it immediately instead of
       // looping forever on a form that no longer exists.
-      const conf = await wc.executeJavaScript(lever.buildConfirmationScript(), true).catch(() => null);
+      const conf = await wc.executeJavaScript(this.adapter.buildConfirmationScript(), true).catch(() => null);
       if (conf && (conf.confirmed || conf.duplicate)) {
         this.setState('SUBMITTED');
         this.emit('SUBMISSION_CONFIRMED', conf.duplicate ? 'ALREADY_APPLIED' : (conf.evidence || 'SUCCESS_TEXT'));
@@ -465,7 +499,7 @@ class Session {
       }
 
       // Human CAPTCHA checkpoint — never touched; watch until it clears.
-      const cp = await wc.executeJavaScript(lever.buildCheckpointScript(), true).catch(() => null);
+      const cp = await wc.executeJavaScript(this.adapter.buildCheckpointScript(), true).catch(() => null);
       if (cp && cp.captchaPresent) {
         if (!captchaNotified) {
           captchaNotified = true;
@@ -506,11 +540,14 @@ class Session {
         this.setState('FILLING');
         let applied = 0;
         for (const a of decision.actions) {
+          const sig = `${a.action}\u0001${a.ref}\u0001${String(a.value == null ? (a.option || '') : a.value)}`;
           const r = await this.act(a);
           if (!r || r.ok !== true) {
-            this.emit('SUBMISSION_BLOCKED', `act:${a.action}:${(r && r.code) || 'FAILED'}`);
+            this.actFailures.set(sig, (this.actFailures.get(sig) || 0) + 1);
+            this.emit('SUBMISSION_BLOCKED', `act:${a.action}:${(r && r.code) || 'FAILED'}${r && r.message ? ':' + String(r.message).slice(0, 80) : ''}`);
             break; // stale refs self-heal on the next observe/decide cycle
           }
+          this.actFailures.delete(sig);
           applied += 1;
         }
         if (applied > 0) {
@@ -518,6 +555,35 @@ class Session {
           actedThisCycle = true;
           this.emit('FIELDS_FILLED', `count=${fillsEmitted};agent`);
         }
+      }
+
+      // Escalation: a value the form keeps rejecting (kept failing act) must
+      // become a QUESTION instead of an endless retry. The chat answers it; the
+      // loop resumes on the next cycle. Never fires for fields already filled.
+      const stuck = [];
+      for (const [sig, n] of this.actFailures) {
+        if (n < 3) continue;
+        const ref = sig.split('\u0001')[1];
+        const f = (obs.state.fields || []).find((x) => x.ref === ref);
+        if (!f) continue;
+        const hasValue = String(f.value || '').trim() !== '' || (f.options || []).some((o) => o.checked);
+        if (!hasValue) stuck.push(f);
+      }
+      if (stuck.length) {
+        if (!questionsNotified) {
+          questionsNotified = true;
+          this.waitReason = 'QUESTIONS_REQUIRED';
+          this.pendingAsks = stuck.map((f) => ({
+            label: String(f.label || '').slice(0, 140),
+            reason: 'the form did not accept the automatic answer — answer it here (or type it in the browser)',
+            options: (f.options || []).map((o) => String(o.option || '')).filter(Boolean).slice(0, 24),
+            human: false,
+          }));
+          this.setState('WAITING_FOR_USER');
+          this.emit('HUMAN_ACTION_REQUIRED', `QUESTIONS_REQUIRED:${String(stuck[0].label || '').slice(0, 80)}`);
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+        continue;
       }
 
       if (decision.asks.length) {
@@ -565,7 +631,7 @@ class Session {
 
   /** Agent-mode submit revalidation: re-observe, require a clean decision, control check. */
   async agentFinalRevalidation() {
-    const cp = await this.wc.executeJavaScript(lever.buildCheckpointScript(), true).catch(() => null);
+    const cp = await this.wc.executeJavaScript(this.adapter.buildCheckpointScript(), true).catch(() => null);
     if (cp && cp.captchaPresent) {
       this.emit('SUBMISSION_BLOCKED', 'CAPTCHA_REQUIRED');
       return { ok: false, code: 'CAPTCHA_REQUIRED' };
@@ -577,7 +643,7 @@ class Session {
       this.emit('SUBMISSION_BLOCKED', `VERIFICATION:${decision && decision.asks.length ? String(decision.asks[0].label).slice(0, 60) : 'not-clean'}`);
       return { ok: false, code: 'VERIFICATION_FAILED' };
     }
-    const control = await this.wc.executeJavaScript(lever.buildSubmitControlCheckScript(), true);
+    const control = await this.wc.executeJavaScript(this.adapter.buildSubmitControlCheckScript(), true);
     if (!control.ok) {
       this.emit('SUBMISSION_BLOCKED', control.code);
       return { ok: false, code: control.code };
@@ -593,7 +659,7 @@ class Session {
     const wc = this.wc;
     this.submitPerformed = true;
     this.setState('SUBMITTING');
-    this.emit('SUBMIT_CONTROL_ACTIVATED', 'lever:application-submit');
+    this.emit('SUBMIT_CONTROL_ACTIVATED', 'application-submit');
     // Make the session visible + focused: an occluded/backgrounded view cannot
     // render an hCaptcha challenge, and the human must SEE it to solve it.
     try {
@@ -606,7 +672,7 @@ class Session {
     // Trusted input first: a programmatic .click() carries no user activation,
     // and gesture-gated submit handlers (invisible hCaptcha) silently stall on
     // it. Validate + measure in-page, then send REAL mouse events at the control.
-    const r = await wc.executeJavaScript(lever.buildSubmitScript({ trustedInput: true }), true);
+    const r = await wc.executeJavaScript(this.adapter.buildSubmitScript({ trustedInput: true }), true);
     if (!r.ok) {
       this.setState('FAILED');
       this.emit('SUBMISSION_FAILED', r.code);
@@ -621,7 +687,7 @@ class Session {
         wc.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
         wc.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
       } catch (e) {
-        const fallback = await wc.executeJavaScript(lever.buildSubmitScript(), true);
+        const fallback = await wc.executeJavaScript(this.adapter.buildSubmitScript(), true);
         if (!fallback.ok) {
           this.setState('FAILED');
           this.emit('SUBMISSION_FAILED', fallback.code);
@@ -630,7 +696,7 @@ class Session {
       }
     } else {
       // No measurable rect (offscreen/odd layout): programmatic click fallback.
-      const fallback = await wc.executeJavaScript(lever.buildSubmitScript(), true);
+      const fallback = await wc.executeJavaScript(this.adapter.buildSubmitScript(), true);
       if (!fallback.ok) {
         this.setState('FAILED');
         this.emit('SUBMISSION_FAILED', fallback.code);
@@ -650,7 +716,7 @@ class Session {
         this.emit('SUBMISSION_UNCONFIRMED', `page-error:${cur.slice(0, 40)}`);
         return { ok: false, code: 'SUBMITTED_UNVERIFIED' };
       }
-      const c = await wc.executeJavaScript(lever.buildConfirmationScript(), true);
+      const c = await wc.executeJavaScript(this.adapter.buildConfirmationScript(), true);
       if (c.confirmed || c.duplicate) {
         this.setState('SUBMITTED');
         this.emit('SUBMISSION_CONFIRMED', c.duplicate ? 'ALREADY_APPLIED' : (c.evidence || 'SUCCESS_TEXT'));
@@ -660,7 +726,7 @@ class Session {
       // the user ONCE, keep watching while they solve — never interact with it.
       // Checked BEFORE error classification (Lever renders captcha/required
       // text that would otherwise be misread as a rejection).
-      const cp = await wc.executeJavaScript(lever.buildCheckpointScript(), true).catch(() => null);
+      const cp = await wc.executeJavaScript(this.adapter.buildCheckpointScript(), true).catch(() => null);
       if (cp && cp.captchaPresent) {
         if (!captchaNotified) {
           captchaNotified = true;
@@ -708,6 +774,9 @@ class BrowserSessionManager {
   }
 
   emit(session, type, detail = '') {
+    if (process.env.TAILOR_BROWSER_DEBUG === '1') {
+      try { console.log(`TAILOR_EVT ${session ? session.state : 'IDLE'} ${type} ${String(detail).slice(0, 420)}`); } catch { /* debug only */ }
+    }
     try {
       this.onEvent({ executionId: session ? session.executionId : null, type, detail: String(detail).slice(0, 200), state: session ? session.state : 'IDLE', at: new Date().toISOString() });
     } catch { /* telemetry must never break execution */ }
@@ -738,7 +807,7 @@ class BrowserSessionManager {
     });
     const wc = view.webContents;
     wc.setWindowOpenHandler(({ url }) => {
-      this.emit(null, 'EXTERNAL_OPEN_BLOCKED', lever.parseLeverUrl(url) ? 'lever-popup' : 'external');
+      this.emit(null, 'EXTERNAL_OPEN_BLOCKED', this.adapter.parseLeverUrl(url) ? 'lever-popup' : 'external');
       return { action: 'deny' };
     });
     return view;
@@ -764,7 +833,7 @@ class BrowserSessionManager {
       session.scheduleAutoClose(AUTO_CLOSE_FAILED_MS);
     });
     wc.on('will-navigate', (e, url) => {
-      const target = lever.parseLeverUrl(url);
+      const target = this.adapter.parseLeverUrl(url);
       if (!target || (session.canonical && target.canonical !== session.canonical)) {
         e.preventDefault();
         this.emit(session, 'NAVIGATION_BLOCKED', String(url).slice(0, 120));

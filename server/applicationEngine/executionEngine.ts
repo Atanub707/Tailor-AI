@@ -6,7 +6,8 @@ import type { ApplicationPackage } from '../applicationPackage/packageModel.js';
 import { readPdfArtifact, sha256Bytes } from '../applicationPackage/artifactStore.js';
 import type { SubmissionPlan } from './contract.js';
 import { ensureExecutionSchema, executionKey, storeApproval, getApproval, storeAttempt, getAttempt, getAttemptsByExecutionKey, updateAttemptStatus, updateAttemptFailure } from './executionStore.js';
-import { LeverInspectionAdapter } from './leverInspector.js';
+import { resolveAdapter } from './engine.js';
+import { GREENHOUSE_HOSTS } from './greenhouseInspector.js';
 import { buildLeverPayload, payloadFingerprint, PayloadBuildError } from './leverPayloadBuilder.js';
 import type { MultipartPayload } from './executionContract.js';
 import { assertPhase1Transition, canTransition, integrityGate } from './executionContract.js';
@@ -57,14 +58,18 @@ export function gateExecution(input: EligibilityInput): { ok: true } | { ok: fal
   if (!plan) return { ok: false, reason: 'PLAN_NOT_READY' };
   if (plan.userId !== userId) return { ok: false, reason: 'PLAN_NOT_READY' };
   if (plan.status !== 'READY_TO_SUBMIT') return { ok: false, reason: 'PLAN_NOT_READY' };
-  if (plan.provider !== 'lever') return { ok: false, reason: 'PROVIDER_MISMATCH' };
+  if (plan.provider !== 'lever' && plan.provider !== 'greenhouse') return { ok: false, reason: 'PROVIDER_MISMATCH' };
   if (!pkg) return { ok: false, reason: 'PLAN_NOT_READY' };
   if (pkg.userId !== userId) return { ok: false, reason: 'PLAN_NOT_READY' };
   if (pkg.status !== 'READY') return { ok: false, reason: 'PACKAGE_STALE' };
   if (pkg.snapshotHash !== plan.packageSnapshotHash) return { ok: false, reason: 'PACKAGE_HASH_INVALID' };
   if (!plan.planFingerprint || !plan.requirementsFingerprint) return { ok: false, reason: 'PLAN_CHANGED' };
   const t = plan.target;
-  if (!t.applyUrl || !t.applyUrl.startsWith('https://jobs.lever.co/')) return { ok: false, reason: 'TARGET_MISMATCH' };
+  const applyHost = String(t.applyUrl || '').replace(/^https?:\/\//, '').split('/')[0].toLowerCase();
+  const hostOk = plan.provider === 'greenhouse'
+    ? GREENHOUSE_HOSTS.some((h) => applyHost === h || applyHost.endsWith('.' + h))
+    : applyHost === 'jobs.lever.co';
+  if (!t.applyUrl || !hostOk) return { ok: false, reason: 'TARGET_MISMATCH' };
   if (jobExternalId && t.externalJobId && jobExternalId !== t.externalJobId) return { ok: false, reason: 'TARGET_MISMATCH' };
   return { ok: true };
 }
@@ -171,7 +176,7 @@ export async function prepareExecution(input: PrepareExecutionInput): Promise<Dr
   // Fresh read-only GET via the REAL inspector (anti-burst + SSRF-safe).
   let fresh;
   try {
-    fresh = await new LeverInspectionAdapter().inspect(input.plan.target);
+    fresh = await resolveAdapter(input.plan.provider, 'production').inspect(input.plan.target);
   } catch (e: any) {
     if (e?.kind === 'PROVIDER_CHALLENGE' || e?.kind === 'FORM_CHANGED') {
       if (attemptCreated) {

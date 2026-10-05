@@ -7,6 +7,7 @@ import type { ApplicationPackage } from '../applicationPackage/packageModel.js';
 import type { ApplicationInspectionAdapter } from './fixtureAdapter.js';
 import { targetFromJob, FixtureInspectionAdapter } from './fixtureAdapter.js';
 import { LeverInspectionAdapter, InspectionFailure } from './leverInspector.js';
+import { GreenhouseInspectionAdapter } from './greenhouseInspector.js';
 import { consentBlocksExecution } from './executionContract.js';
 import { mapRequirements } from './mapper.js';
 import {
@@ -55,6 +56,7 @@ export function resolveAdapter(targetProvider: string, mode: 'production' | 'fix
     return injected;
   }
   if (targetProvider === 'lever') return new LeverInspectionAdapter();
+  if (targetProvider === 'greenhouse') return new GreenhouseInspectionAdapter();
   throw new InspectionFailure('INSPECTION_NOT_IMPLEMENTED', `Live inspection not implemented for provider: ${targetProvider}`);
 }
 

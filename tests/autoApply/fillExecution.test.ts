@@ -179,11 +179,11 @@ describe('Fill execution — feature gating', () => {
   });
 
   it('unsupported ATS → blocked', async () => {
-    const j = job({ id: 'fill-gh', atsPlatform: 'greenhouse', source: 'Greenhouse', applyUrl: 'https://boards.greenhouse.io/acme/jobs/9', url: 'https://boards.greenhouse.io/acme/jobs/9' });
+    const j = job({ id: 'fill-gh', atsPlatform: 'ashby', source: 'Ashby', applyUrl: 'https://jobs.ashbyhq.com/acme/9', url: 'https://jobs.ashbyhq.com/acme/9' });
     seedJob(j);
     const r = await runWithUser(USER, () => startFillExecution(j.id, { prepareExecutionFn: fakePrepare() as never, dryRunOptions: fixtureOpts() }));
     expect(r.status).toBe('FILL_NOT_ELIGIBLE');
-    expect(r.blockers.join(' ')).toMatch(/lever|unsupported/i);
+    expect(r.blockers.join(' ')).toMatch(/ashby|unsupported/i);
   });
 
   it('unresolved required field → blocked before any session', async () => {

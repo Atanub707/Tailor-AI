@@ -17,6 +17,37 @@ import { answerBankConfigFromEnv, listAnswers } from './answerBank/answerBankSto
 import { layaConfigFromEnv } from './decisionEngine.js';
 import { LayaDecisionEngine } from './layaDecisionEngine.js';
 import { getMasterCv, runWithUser } from '../storage/fileStorage.js';
+import { getApplicantProfile } from '../storage/applicantProfile.js';
+
+/** Deterministic name splitting — "Atanu Biswas" → { first, last }. */
+function splitName(full: string | undefined): { first: string; last: string } {
+  const parts = String(full || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return { first: '', last: '' };
+  if (parts.length === 1) return { first: parts[0], last: '' };
+  return { first: parts[0], last: parts.slice(1).join(' ') };
+}
+
+/** Deterministic concept → bank canonical keys (used when label matching is
+ *  not literal, e.g. "Salary expectations per month?" → expectedSalary). */
+const BANK_KEY_CONCEPTS: Array<{ re: RegExp; keys: string[] }> = [
+  { re: /salary|compensation/i, keys: ['expectedSalary', 'targetSalary', 'minimumSalary', 'currentSalary'] },
+  { re: /notice period|notice/i, keys: ['noticePeriod'] },
+  { re: /earliest start|start date|availability to start/i, keys: ['earliestStartDate'] },
+  { re: /linkedin/i, keys: ['linkedinUrl'] },
+  { re: /github/i, keys: ['githubUrl'] },
+  { re: /portfolio|personal website|website/i, keys: ['portfolioUrl', 'websiteUrl'] },
+  { re: /sponsor/i, keys: ['requiresSponsorship'] },
+  { re: /authoriz|work permit|right to work|legally (allowed|able)/i, keys: ['authorizedToWork'] },
+  { re: /relocat/i, keys: ['willingToRelocate'] },
+  { re: /travel/i, keys: ['willingToTravel'] },
+  { re: /remote|hybrid|on-?site|work (arrangement|model|preference)/i, keys: ['remotePreference'] },
+  { re: /country( of residence|\/region)?\b/i, keys: ['currentCountry'] },
+];
+
+/** Exported for tests: canonical bank keys for a field label (or []). */
+export function bankKeysForLabel(label: string): string[] {
+  return BANK_KEY_CONCEPTS.find((c) => c.re.test(String(label || '')))?.keys ?? [];
+}
 
 export interface ObservedField {
   ref: string;
@@ -146,7 +177,13 @@ export function composeDecision(state: ObservedState, values: Map<string, string
     if (isFilled(f)) continue;
 
     if (f.kind === 'file') {
-      actions.push({ action: 'upload_resume', ref: f.ref });
+      // Only the resume is ever uploaded; optional cover letters are left empty.
+      const idn = `${f.name || ''} ${f.label || ''}`;
+      if (/cover/i.test(idn)) {
+        notes.push('optional cover letter left empty');
+      } else {
+        actions.push({ action: 'upload_resume', ref: f.ref });
+      }
       continue;
     }
     if (isConsentField(f)) {
@@ -176,6 +213,12 @@ export function composeDecision(state: ObservedState, values: Map<string, string
 
     if (f.kind === 'select' || f.kind === 'custom-select') {
       const wanted = value.split(',').map((v) => v.trim()).filter(Boolean);
+      // Option-less comboboxes (Greenhouse): the act script types the value and
+      // picks the matching option live; only KNOWN option lists are matched here.
+      if (f.kind === 'custom-select' && !(f.options || []).length && wanted.length) {
+        actions.push({ action: 'type', ref: f.ref, value: wanted[0] });
+        continue;
+      }
       const m = wanted.length === 1 ? optionMatches(f, wanted[0]) : null;
       if (!m) {
         const allowed = (f.options || []).map((o) => o.option).slice(0, 8).join(' | ');
@@ -237,15 +280,23 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
   const std = runWithUser(userId, () => {
     try { return getMasterCv(); } catch { return null; }
   });
+  const profile = runWithUser(userId, () => {
+    try { return getApplicantProfile(userId); } catch { return null; }
+  }) as { links?: { linkedin?: string; github?: string; website?: string }; contact?: { phone?: string; country?: string }; personal?: { phone?: string } } | null;
   if (std) {
     const stdValue = (f: ObservedField): string | undefined => {
       const s = `${f.label || ''} ${f.name || ''}`;
       if (/e-?mail/i.test(s)) return std.email;
-      if (/phone|mobile/i.test(s)) return std.phone;
-      if (/linkedin/i.test(s)) return std.linkedin;
-      if (/github/i.test(s)) return std.github;
-      if (/website|portfolio/i.test(s)) return std.website;
-      if (/\b(full ?)?name\b/i.test(s) && !/company|file|user/i.test(s)) return std.fullName;
+      if (/phone|mobile/i.test(s)) return std.phone || profile?.personal?.phone || profile?.contact?.phone;
+      if (/linkedin/i.test(s)) return std.linkedin || profile?.links?.linkedin;
+      if (/github/i.test(s)) return std.github || profile?.links?.github;
+      if (/website|portfolio/i.test(s)) return std.website || profile?.links?.website;
+      // Name splitting: "First Name"/"Preferred Name" get the given name only;
+      // "Last/Family/Surname" gets the family name — never the whole full name.
+      if (/first ?name|given ?name|preferred (first )?name|forename/i.test(s)) return splitName(std.fullName).first || undefined;
+      if (/last ?name|family ?name|surname/i.test(s)) return splitName(std.fullName).last || undefined;
+      if (/\b(full ?)?name\b/i.test(s) && !/company|file|user|first|last|preferred|given|family|surname/i.test(s)) return std.fullName;
+      if (/country/i.test(s) && !/country code|dial/i.test(s)) return profile?.contact?.country;
       if (/(current )?(location|city)|where .*based/i.test(s) && !/relocat/i.test(s)) return std.location;
       return undefined;
     };
@@ -255,7 +306,39 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
     }
   }
 
-  const remaining = candidates.filter((f) => !values.has(f.ref));
+  // Deterministic concept fallback: labels that don't match a bank question
+  // literally (e.g. "Salary expectations per month?") resolve by canonical key.
+  const conceptRefs = new Set<string>();
+  const stillUnmatched = candidates.filter((f) => !values.has(f.ref));
+  if (stillUnmatched.length) {
+    try {
+      const records = listAnswers(userId);
+      for (const f of stillUnmatched) {
+        const keys = bankKeysForLabel(`${f.label || ''} ${f.name || ''}`);
+        if (!keys.length) continue;
+        conceptRefs.add(f.ref); // deterministic concept owns this field
+        const isSalary = keys.includes('expectedSalary');
+        const rec = records.find(
+          (r) =>
+            keys.includes(r.canonicalKey) &&
+            r.verificationStatus === 'VERIFIED' &&
+            (r.sensitivity === 'NORMAL' || r.sensitivity === 'PERSONAL' || r.source === 'USER_PROVIDED') &&
+            r.answerValue !== null &&
+            r.answerValue !== undefined &&
+            String(r.answerValue).trim() !== '' &&
+            // A salary answer must look like an amount — guards against
+            // mis-classified yes/no bank rows (a real poison we hit).
+            (!isSalary || /[\d]/.test(String(r.answerValue))),
+        );
+        if (!rec) continue;
+        const v = rec.answerValue as unknown;
+        values.set(f.ref, Array.isArray(v) ? v.join(', ') : String(v));
+      }
+    } catch { /* concept fallback is best-effort; Laya still runs below */ }
+  }
+
+
+  const remaining = candidates.filter((f) => !values.has(f.ref) && !conceptRefs.has(f.ref));
   if (remaining.length && answerBankConfigFromEnv().enabled) {
     const resolved = resolveQuestionsFromBank(
       userId,
@@ -273,7 +356,7 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
     }
   }
 
-  const unmatched = candidates.filter((f) => !values.has(f.ref));
+  const unmatched = candidates.filter((f) => !values.has(f.ref) && !conceptRefs.has(f.ref));
   const layaCfg = layaConfigFromEnv();
   if (unmatched.length && layaCfg.enabled) {
     const engine = new LayaDecisionEngine({ url: layaCfg.url, timeoutMs: layaCfg.timeoutMs });

@@ -1,6 +1,6 @@
 // Phase 2 — agent decision core (pure): observation + resolved values → primitives.
 import { describe, it, expect } from 'vitest';
-import { composeDecision, type ObservedState } from '../../server/autoApply/agentDecision.js';
+import { composeDecision, bankKeysForLabel, type ObservedState } from '../../server/autoApply/agentDecision.js';
 
 const base = (over: Partial<ObservedState> = {}): ObservedState => ({
   url: 'https://jobs.lever.co/x/y/apply',
@@ -24,8 +24,15 @@ describe('Agent decision core (one layer, pure)', () => {
     expect(d.submit).toBe(false);
   });
 
-  it('asks carry the form options so the answer chat can render chips', () => {
-    const d = composeDecision(
+  it('bank concept aliases resolve non-literal labels deterministically', () => {
+    expect(bankKeysForLabel('Salary expectations per month?')).toContain('expectedSalary');
+    expect(bankKeysForLabel('What is your Notice Period?')).toContain('noticePeriod');
+    expect(bankKeysForLabel('LinkedIn Profile')).toContain('linkedinUrl');
+    expect(bankKeysForLabel('Do you require sponsorship?')).toContain('requiresSponsorship');
+    expect(bankKeysForLabel('Favorite color')).toEqual([]);
+  });
+
+  it('asks carry the form options so the answer chat can render chips', () => {    const d = composeDecision(
       base({ fields: [{ ref: 'ta1', kind: 'select', label: 'Notice period', required: true, options: [{ option: 'Immediately' }, { option: '30 days' }] }] }),
       new Map(),
     );

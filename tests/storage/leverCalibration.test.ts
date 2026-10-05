@@ -254,9 +254,9 @@ describe('Provider invariant + fixture isolation', () => {
     }
   });
 
-  it('Greenhouse/Ashby production → durable UNSUPPORTED plan, never fixture, never hard failure', async () => {
-    for (const [i, platform] of ['greenhouse', 'ashby'].entries()) {
-      const url = platform === 'greenhouse' ? `https://job-boards.greenhouse.io/acme/job-${i}` : `https://jobs.ashbyhq.com/acme/job-${i}`;
+  it('Ashby production → durable UNSUPPORTED plan, never fixture, never hard failure', async () => {
+    for (const [i, platform] of ['ashby'].entries()) {
+      const url = `https://jobs.ashbyhq.com/acme/job-${i}`;
       const job = { ...makeJob(url, platform), id: `j-${platform}`, externalId: `e-${platform}` };
       const pkg = await makePackage(job);
       const { plan } = await createPlan({ userId: USER, mode: 'production', pkg, job, artifactOk: true });
@@ -269,6 +269,15 @@ describe('Provider invariant + fixture isolation', () => {
       expect(again.reused).toBe(true);
       expect(again.plan.status).toBe('UNSUPPORTED');
     }
+  });
+
+  it('Greenhouse production → real plan from the core-field adapter (never a fixture)', async () => {
+    const job = { ...makeJob('https://job-boards.greenhouse.io/acme/jobs/1234567', 'greenhouse'), id: 'j-gh', externalId: 'e-gh' };
+    const pkg = await makePackage(job);
+    const { plan } = await createPlan({ userId: USER, mode: 'production', pkg, job, artifactOk: true });
+    expect(plan.provider).toBe('greenhouse');
+    expect(['NEEDS_REVIEW', 'NEEDS_INPUT', 'READY_TO_SUBMIT']).toContain(plan.status);
+    expect(plan.target.hostname).toBe('job-boards.greenhouse.io');
   });
 
   it('fixture injection impossible in production mode', () => {
@@ -327,9 +336,9 @@ describe('Fingerprint semantics', () => {
 });
 
 describe('Lever support capability', () => {
-  it('support matrix: Lever read-only, others not implemented, nothing submission-capable', () => {
+  it('support matrix: Lever + Greenhouse read-only inspection, Ashby not implemented, nothing submission-capable', () => {
     expect(INSPECTION_SUPPORT.lever).toBe('READ_ONLY_INSPECTION_SUPPORTED');
-    expect(INSPECTION_SUPPORT.greenhouse).toBe('INSPECTION_NOT_IMPLEMENTED');
+    expect(INSPECTION_SUPPORT.greenhouse).toBe('CORE_FIELDS_INSPECTION_SUPPORTED');
     expect(INSPECTION_SUPPORT.ashby).toBe('INSPECTION_NOT_IMPLEMENTED');
     expect(Object.values(INSPECTION_SUPPORT)).not.toContain('SUBMISSION_SUPPORTED');
   });

@@ -163,7 +163,7 @@ describe('Deterministic scripts — invariants (never submit, never bypass CAPTC
     expect(sub).toContain('const useTrusted = true');
     expect(sub).toContain('getBoundingClientRect');
     expect(sessionSrc).toContain('sendInputEvent');
-    expect(sessionSrc).toContain("lever.buildSubmitScript({ trustedInput: true })");
+    expect(sessionSrc).toContain("this.adapter.buildSubmitScript({ trustedInput: true })");
   });
 
   it('location re-asserts the exact JSON shape Lever writes (selectedLocation)', () => {

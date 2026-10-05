@@ -119,7 +119,7 @@ const HOST_PROVIDERS: Array<{ host: string; provider: Provider }> = [
 /** Explicit provider capability matrix. NO provider is submission-capable. */
 export const INSPECTION_SUPPORT: Record<string, string> = {
   lever: 'READ_ONLY_INSPECTION_SUPPORTED',
-  greenhouse: 'INSPECTION_NOT_IMPLEMENTED',
+  greenhouse: 'CORE_FIELDS_INSPECTION_SUPPORTED',
   ashby: 'INSPECTION_NOT_IMPLEMENTED',
 };
 
