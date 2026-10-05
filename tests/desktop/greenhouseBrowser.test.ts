@@ -88,8 +88,10 @@ describe('Greenhouse guardrails', () => {
     const conf = gh.buildConfirmationScript();
     expect(conf).toContain('thank you for applying');
     expect(conf).toContain('already (applied|submitted)');
-    expect(conf).toContain('const confirmed = successText');
+    expect(conf).toContain('const confirmed = successUrl || successText');
     expect(conf).not.toContain('confirmed = formGone');
+    expect(conf).toContain('gracias por aplicar'); // multilingual (the Cobre confirmation was Spanish)
+    expect(conf).toContain('confirmation'); // universal /confirmation route
   });
 
   it('observe is read-only and tags fields for the shared decision core', () => {
