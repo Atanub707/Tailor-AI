@@ -207,7 +207,7 @@ describe('Easy Flow — auto-tailor on Apply, deterministic CV attachment', () =
 
   it('auto-tailor guard — a tailored CV on the job is reused, never regenerated', () => {
     const src = fs.readFileSync(path.join(process.cwd(), 'src/components/AutoApplyButton.tsx'), 'utf8');
-    expect(src).toContain('if (!job.tailoredCv)');
+    expect(src).toContain('needsTailoring()');
     expect(src).toContain('`/api/jobs/${job.id}/tailor`');
     expect(src).not.toContain('tailor-v2');
   });

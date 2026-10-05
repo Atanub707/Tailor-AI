@@ -59,6 +59,14 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
   const desktopBridge = tailorBrowserBridge();
   const pollRef = useRef<number | null>(null);
   const askPollRef = useRef<number | null>(null);
+  // Jobs tailored during THIS session — retries (Action Required → full retry)
+  // must never trigger another tailor. The row's job prop is stale: the list
+  // payload may omit tailoredCv and AA's own tailor never writes back to it.
+  const tailoredJobsRef = useRef<Set<string>>(new Set());
+  const needsTailoring = () =>
+    !job.tailoredCv &&
+    !tailoredJobsRef.current.has(job.id) &&
+    !['tailored', 'applied'].includes(String((job as { state?: string }).state || ''));
   const [decision, setDecision] = useState<SubmissionDecisionView | null>(null);
   const [currentExecution, setCurrentExecution] = useState<{ executionId: string; attemptId: string; jobId: string; jobTitle: string; company: string } | null>(null);
   const [desktopUnavailable, setDesktopUnavailable] = useState(false);
@@ -181,7 +189,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     // CV yet, run the V1 tailor first; the server then builds the package and
     // the attached PDF from this exact tailored CV. An existing tailored CV
     // is never regenerated at fill time.
-    if (!job.tailoredCv) {
+    if (needsTailoring()) {
       setPhase('TAILOR');
       setMessage('Tailoring your CV…');
       try {
@@ -201,6 +209,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
           setPhase('IDLE');
           return;
         }
+        tailoredJobsRef.current.add(job.id);
         setMessage('Tailored CV ready — starting Auto Apply…');
       } catch {
         setState('NEEDS_REVIEW');
@@ -385,7 +394,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     // Step 0: apply with the job's TAILORED CV (V1 engine — the same pipeline
     // the manual Tailor button runs). Generate it first when missing; the
     // server builds the package + attached PDF from this exact tailored CV.
-    if (!job.tailoredCv) {
+    if (needsTailoring()) {
       setPhase('TAILOR');
       setMessage('Tailoring your CV…');
       try {
@@ -405,6 +414,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
           setPhase('IDLE');
           return;
         }
+        tailoredJobsRef.current.add(job.id);
         setMessage('Tailored CV ready — starting Auto Apply…');
       } catch {
         setState('NEEDS_REVIEW');

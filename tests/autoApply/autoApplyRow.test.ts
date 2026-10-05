@@ -254,7 +254,7 @@ describe('Chrome → Tailor Browser handoff (execution ownership: desktop)', () 
 describe('AA applies with the job\'s TAILORED CV (V1 tailor-first pipeline)', () => {
   const button = read('src/components/AutoApplyButton.tsx');
   it('triggers the V1 tailor when the job has no tailored CV, before any handoff', () => {
-    const guardAt = button.indexOf('if (!job.tailoredCv)');
+    const guardAt = button.indexOf('needsTailoring()');
     const tailorAt = button.indexOf('`/api/jobs/${job.id}/tailor`');
     const mintAt = button.indexOf('createDesktopHandoff(job.id)');
     expect(guardAt).toBeGreaterThan(-1);
