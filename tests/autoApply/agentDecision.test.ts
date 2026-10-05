@@ -24,8 +24,17 @@ describe('Agent decision core (one layer, pure)', () => {
     expect(d.submit).toBe(false);
   });
 
-  it('resolves a saved text answer into exactly one type action', () => {
+  it('asks carry the form options so the answer chat can render chips', () => {
     const d = composeDecision(
+      base({ fields: [{ ref: 'ta1', kind: 'select', label: 'Notice period', required: true, options: [{ option: 'Immediately' }, { option: '30 days' }] }] }),
+      new Map(),
+    );
+    expect(d.asks).toEqual([
+      expect.objectContaining({ label: 'Notice period', human: false, options: ['Immediately', '30 days'] }),
+    ]);
+  });
+
+  it('resolves a saved text answer into exactly one type action', () => {    const d = composeDecision(
       base({ fields: [{ ref: 'ta1', kind: 'text', label: 'Current company', value: '' }] }),
       new Map([['ta1', 'Human Managed']]),
     );

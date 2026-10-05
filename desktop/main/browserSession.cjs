@@ -527,7 +527,12 @@ class Session {
         if (!questionsNotified) {
           questionsNotified = true;
           this.waitReason = 'QUESTIONS_REQUIRED';
-          this.pendingAsks = decision.asks.map((a) => `${String(a.label).slice(0, 70)} — ${String(a.reason).slice(0, 60)}`);
+          this.pendingAsks = decision.asks.map((a) => ({
+            label: String(a.label || '').slice(0, 140),
+            reason: String(a.reason || '').slice(0, 140),
+            options: Array.isArray(a.options) ? a.options.slice(0, 24).map((o) => String(o).slice(0, 140)) : [],
+            human: a.human === true,
+          }));
           this.setState('WAITING_FOR_USER');
           this.emit('HUMAN_ACTION_REQUIRED', `QUESTIONS_REQUIRED:${String(decision.asks[0].label).slice(0, 80)}`);
         }

@@ -63,7 +63,16 @@ export interface DesktopHealth {
   appMismatch?: boolean;
   bootId?: string;
   /** Live desktop sessions (executionId + state) for liveness checks. */
-  sessions?: Array<{ executionId: string; state: string; pageUrl?: string; crashed?: boolean }>;
+  sessions?: Array<{
+    executionId: string;
+    state: string;
+    pageUrl?: string;
+    crashed?: boolean;
+    /** Agent-loop pause reason ('QUESTIONS_REQUIRED' | 'CAPTCHA_REQUIRED' | …). */
+    waitReason?: string;
+    /** Pending human questions with the form's options (for the answer chat). */
+    asks?: Array<{ label: string; reason: string; options: string[]; human: boolean }>;
+  }>;
 }
 
 /** PURE: only the real Tailor Browser identity counts as available (Phase 17). */
@@ -72,12 +81,23 @@ export function interpretHealth(data: unknown, httpOk: boolean): DesktopHealth {
   if (!httpOk || !d || d.available !== true) return { available: false };
   if (d.app !== 'tailor-browser') return { available: false, appMismatch: true };
   const sessions = Array.isArray(d.sessions)
-    ? (d.sessions as Array<{ executionId?: unknown; state?: unknown; pageUrl?: unknown; crashed?: unknown }>)
+    ? (d.sessions as Array<{ executionId?: unknown; state?: unknown; pageUrl?: unknown; crashed?: unknown; waitReason?: unknown; asks?: unknown }>)
         .map((s) => ({
           executionId: String(s?.executionId || ''),
           state: String(s?.state || ''),
           pageUrl: String(s?.pageUrl || ''),
           crashed: s?.crashed === true,
+          waitReason: typeof s?.waitReason === 'string' ? s.waitReason : undefined,
+          asks: Array.isArray(s?.asks)
+            ? (s.asks as Array<{ label?: unknown; reason?: unknown; options?: unknown; human?: unknown }>)
+                .map((a) => ({
+                  label: String(a?.label || ''),
+                  reason: String(a?.reason || ''),
+                  options: Array.isArray(a?.options) ? (a.options as unknown[]).map((o) => String(o)) : [],
+                  human: a?.human === true,
+                }))
+                .filter((a) => a.label)
+            : undefined,
         }))
         .filter((s) => s.executionId)
     : undefined;

@@ -20,6 +20,9 @@ interface Props {
   onSaveAnswer: (question: string, answer: string, remember: boolean) => Promise<{ ok: boolean; error?: string }>;
   onSubmit: () => void | Promise<void>;
   onClose: () => void;
+  /** Mid-run mode: the loop resumes by itself, so the final button is Continue. */
+  submitLabel?: string;
+  footnote?: string;
 }
 
 interface ChatMessage {
@@ -28,7 +31,7 @@ interface ChatMessage {
   text: string;
 }
 
-export const AnswerChatPanel: React.FC<Props> = ({ jobTitle, company, questions, onSaveAnswer, onSubmit, onClose }) => {
+export const AnswerChatPanel: React.FC<Props> = ({ jobTitle, company, questions, onSaveAnswer, onSubmit, onClose, submitLabel, footnote }) => {
   const [messages, setMessages] = useState<ChatMessage[]>(() => [
     { id: 0, role: 'assistant', text: `${jobTitle} at ${company}` },
     { id: 1, role: 'assistant', text: questions[0]?.label ?? '' },
@@ -192,10 +195,10 @@ export const AnswerChatPanel: React.FC<Props> = ({ jobTitle, company, questions,
                 disabled={submitting}
                 className="w-full h-10 inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--color-brand)] text-white text-[12.5px] font-extrabold disabled:opacity-50 cursor-pointer"
               >
-                {submitting ? 'Starting…' : (<><Check className="w-4 h-4" /> Submit application</>)}
+                {submitting ? 'Starting…' : (<><Check className="w-4 h-4" /> {submitLabel ?? 'Submit application'}</>)}
               </button>
               <p className="text-[10.5px] text-[var(--color-faint)] text-center">
-                I'll tailor your CV with these answers, fill the form, and submit.
+                {footnote ?? "I'll tailor your CV with these answers, fill the form, and submit."}
               </p>
             </>
           )}

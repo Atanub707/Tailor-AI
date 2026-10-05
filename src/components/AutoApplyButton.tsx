@@ -40,7 +40,7 @@ import {
   mapDesktopStateToRow,
 } from '../lib/browserExecutionTransport';
 import { pushDesktopEvent, resetDesktopTimeline } from '../lib/desktopTimeline';
-import { AnswerChatPanel } from './AnswerChatPanel';
+import { AnswerChatPanel, type AnswerChatQuestion } from './AnswerChatPanel';
 import type { AutoApplyDryRunResult } from '../../server/autoApply/autoApplyTypes';
 
 interface AutoApplyButtonProps {
@@ -54,8 +54,11 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [result, setResult] = useState<AutoApplyDryRunResult | null>(null);
   const [open, setOpen] = useState(false);
+  const [midRunAsks, setMidRunAsks] = useState<AnswerChatQuestion[] | null>(null);
+  const handledAskSigRef = useRef('');
   const desktopBridge = tailorBrowserBridge();
   const pollRef = useRef<number | null>(null);
+  const askPollRef = useRef<number | null>(null);
   const [decision, setDecision] = useState<SubmissionDecisionView | null>(null);
   const [currentExecution, setCurrentExecution] = useState<{ executionId: string; attemptId: string; jobId: string; jobTitle: string; company: string } | null>(null);
   const [desktopUnavailable, setDesktopUnavailable] = useState(false);
@@ -69,7 +72,10 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     return () => { alive = false; };
   }, []);
 
-  useEffect(() => () => { if (pollRef.current !== null) window.clearInterval(pollRef.current); }, []);
+  useEffect(() => () => {
+    if (pollRef.current !== null) window.clearInterval(pollRef.current);
+    if (askPollRef.current !== null) window.clearInterval(askPollRef.current);
+  }, []);
 
   useEffect(() => {
     if (!desktopBridge) return;
@@ -94,6 +100,10 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     if (pollRef.current !== null) {
       window.clearInterval(pollRef.current);
       pollRef.current = null;
+    }
+    if (askPollRef.current !== null) {
+      window.clearInterval(askPollRef.current);
+      askPollRef.current = null;
     }
   };
 
@@ -256,6 +266,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
             setAttemptId(retry.attemptId);
             setCurrentExecution({ executionId: String(retry.desktopExecutionId || ''), attemptId: retry.attemptId, jobId: job.id, jobTitle: job.title, company: job.company });
             startDesktopStatusPolling(retry.attemptId);
+            startAskWatcher(String(retry.desktopExecutionId || ''));
             return;
           }
           if (!retry.busy) {
@@ -290,6 +301,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
         company: job.company,
       });
       startDesktopStatusPolling(started.attemptId);
+      startAskWatcher(String(started.desktopExecutionId || ''));
     } catch {
       setState('FAILED');
       setMessage("Auto Apply couldn't start.");
@@ -311,8 +323,44 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
       else if (view.state === 'SUBMITTING') setPhase('SUBMIT');
       if (view.terminal) {
         stopPolling();
+        setMidRunAsks(null);
         if (view.state === 'READY_FOR_REVIEW') {
           void fetchSubmissionDecision(id).then(setDecision).catch(() => {});
+        }
+      }
+    }, AA_POLL_INTERVAL_MS);
+  };
+
+  // Mid-run human questions: watch the loopback bridge while the run is live.
+  // When the agent pauses with QUESTIONS_REQUIRED, the answer chat opens BY
+  // ITSELF with the form's own options; each answer is saved to the Answer
+  // Bank and the agent loop (which keeps watching) resumes on its next cycle.
+  const startAskWatcher = (executionId: string) => {
+    if (askPollRef.current !== null) {
+      window.clearInterval(askPollRef.current);
+      askPollRef.current = null;
+    }
+    if (!executionId) return;
+    askPollRef.current = window.setInterval(async () => {
+      const health = await desktopHealth();
+      const s = (health.sessions || []).find((x) => x.executionId === executionId);
+      if (!s) return;
+      if (s.waitReason === 'QUESTIONS_REQUIRED' && s.asks && s.asks.length) {
+        // Consent asks are human-in-browser by design (never auto-filled from
+        // the bank) — only answerable questions open the chat.
+        const qs: AnswerChatQuestion[] = s.asks
+          .filter((a) => !a.human)
+          .map((a, i) => ({
+            providerFieldId: `ask-${i}`,
+            label: a.label,
+            options: a.options,
+          }));
+        if (!qs.length) return;
+        const sig = `${executionId}|${qs.map((q) => q.label).join('|')}`;
+        if (sig !== handledAskSigRef.current) {
+          handledAskSigRef.current = sig;
+          setMidRunAsks(qs);
+          setOpen(true);
         }
       }
     }, AA_POLL_INTERVAL_MS);
@@ -330,6 +378,8 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
   const runDesktopFlow = async () => {
     if (!desktopBridge) return;
     stopPolling();
+    handledAskSigRef.current = '';
+    setMidRunAsks(null);
     setMessage(null);
     setState('STARTING');
     // Step 0: apply with the job's TAILORED CV (V1 engine — the same pipeline
@@ -520,9 +570,11 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     }
   };
 
-  const chatQuestions = (result?.unresolvedFields ?? [])
-    .filter((f) => f.requiresUser)
-    .map((f) => ({ providerFieldId: f.providerFieldId, label: f.label, options: f.options }));
+  const chatQuestions = midRunAsks && midRunAsks.length
+    ? midRunAsks
+    : (result?.unresolvedFields ?? [])
+        .filter((f) => f.requiresUser)
+        .map((f) => ({ providerFieldId: f.providerFieldId, label: f.label, options: f.options }));
 
   const phaseLabel =
     phase === 'TAILOR' ? 'Tailoring CV…'
@@ -625,8 +677,19 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
           company={job.company}
           questions={chatQuestions}
           onSaveAnswer={handleSaveAnswer}
-          onSubmit={async () => { setOpen(false); await handleAaClick(); }}
-          onClose={() => setOpen(false)}
+          onSubmit={async () => {
+            if (midRunAsks) {
+              setOpen(false);
+              setMidRunAsks(null);
+              setMessage('Answers saved — the run will continue automatically.');
+              return;
+            }
+            setOpen(false);
+            await handleAaClick();
+          }}
+          submitLabel={midRunAsks ? 'Continue' : undefined}
+          footnote={midRunAsks ? 'Saved to your Answer Bank — the run resumes by itself.' : undefined}
+          onClose={() => { setOpen(false); setMidRunAsks(null); }}
         />
       )}
     </>

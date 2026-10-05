@@ -53,6 +53,8 @@ export interface AgentAsk {
   reason: string;
   /** true → the loop must pause for the human (consent/EEO/CAPTCHA), not chat. */
   human: boolean;
+  /** Select/radio options PARSED FROM THE FORM — the chat renders them as chips. */
+  options?: string[];
 }
 
 export interface AgentDecision {
@@ -112,7 +114,6 @@ function optionKeys(value: string): string[] {
   const vet = stripped.replace(/protected\s+veteran/g, 'veteran').replace(/\s+/g, ' ').trim();
   return [norm, stripped, vet].filter((k, i, a) => k && a.indexOf(k) === i);
 }
-
 function optionMatches(f: ObservedField, wanted: string): string | null {
   const want = optionKeys(wanted);
   if (!want.length) return null;
@@ -121,6 +122,11 @@ function optionMatches(f: ObservedField, wanted: string): string | null {
     if (keys.some((k) => want.includes(k))) return String(o.option);
   }
   return null;
+}
+
+/** Chat-visible options for a question (form truth, capped). */
+function askOptions(f: ObservedField): string[] {
+  return (f.options || []).map((o) => String(o.option || '')).filter(Boolean).slice(0, 24);
 }
 
 /** PURE decision core — state + resolved values → the next primitives. */
@@ -145,7 +151,7 @@ export function composeDecision(state: ObservedState, values: Map<string, string
     }
     if (isConsentField(f)) {
       if (isBlockingConsent(f)) {
-        asks.push({ ref: f.ref, label: f.label, reason: 'consent — never auto-accepted; confirm it yourself in the browser', human: true });
+        asks.push({ ref: f.ref, label: f.label, reason: 'consent — never auto-accepted; confirm it yourself in the browser', human: true, options: askOptions(f) });
       } else {
         notes.push(`optional opt-in left untouched: ${String(f.label).slice(0, 60)}`);
       }
@@ -161,7 +167,7 @@ export function composeDecision(state: ObservedState, values: Map<string, string
     const value = values.get(f.ref);
     if (!value) {
       if (f.required) {
-        asks.push({ ref: f.ref, label: f.label, reason: 'no saved answer for this required question', human: false });
+        asks.push({ ref: f.ref, label: f.label, reason: 'no saved answer for this required question', human: false, options: askOptions(f) });
       } else {
         notes.push(`optional question left unanswered: ${String(f.label).slice(0, 60)}`);
       }
@@ -173,7 +179,7 @@ export function composeDecision(state: ObservedState, values: Map<string, string
       const m = wanted.length === 1 ? optionMatches(f, wanted[0]) : null;
       if (!m) {
         const allowed = (f.options || []).map((o) => o.option).slice(0, 8).join(' | ');
-        asks.push({ ref: f.ref, label: f.label, reason: `saved answer is not one of the form options${allowed ? ` — allowed: ${allowed}` : ''}`, human: false });
+        asks.push({ ref: f.ref, label: f.label, reason: `saved answer is not one of the form options${allowed ? ` — allowed: ${allowed}` : ''}`, human: false, options: askOptions(f) });
         continue;
       }
       // Native selects use selectedIndex; custom dropdowns post the option
@@ -186,7 +192,7 @@ export function composeDecision(state: ObservedState, values: Map<string, string
       const matched = wanted.map((w) => optionMatches(f, w)).filter((m): m is string => !!m);
       if (!matched.length) {
         const allowed = (f.options || []).map((o) => o.option).slice(0, 8).join(' | ');
-        asks.push({ ref: f.ref, label: f.label, reason: `saved answer is not one of the form options${allowed ? ` — allowed: ${allowed}` : ''}`, human: false });
+        asks.push({ ref: f.ref, label: f.label, reason: `saved answer is not one of the form options${allowed ? ` — allowed: ${allowed}` : ''}`, human: false, options: askOptions(f) });
         continue;
       }
       for (const m of matched) {

@@ -312,6 +312,7 @@ describe('Needs-input chat (right-side drawer)', () => {
     expect(chat).toContain('onSaveAnswer');
     expect(chat).toContain('All answers saved');
     expect(chat).toContain('Submit application');
-    expect(button).toContain('setOpen(false); await handleAaClick();');
+    expect(button).toContain('await handleAaClick();');
+    expect(button).toContain('if (midRunAsks)'); // mid-run: loop resumes by itself
   });
 });
