@@ -33,7 +33,7 @@ const button = read('src/components/AutoApplyButton.tsx');
 
 describe('Submission execution — one action, provable', () => {
   it('24. double click impossible: UI busy-gate + server CAS', () => {
-    expect(button).toContain('if (busy || !lever) return;'); // AA click-level guard
+    expect(button).toContain('if (busy || !autoApplyable) return;'); // AA click-level guard
     expect(engine).toContain("'READY_FOR_USER_SUBMISSION'");
     expect(engine).toMatch(/UPDATE application_attempts SET status = 'SUBMITTING'[\s\S]{0,120}AND status = 'READY_FOR_USER_SUBMISSION'/);
   });

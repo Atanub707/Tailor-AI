@@ -34,6 +34,20 @@ export function isLeverJob(job: Pick<Job, 'atsPlatform' | 'applyUrl' | 'url'>): 
   return [job.applyUrl, job.url].some((u) => hostOf(u) === 'jobs.lever.co');
 }
 
+/** Greenhouse hosted application boards — the second live provider. */
+export function isGreenhouseJob(job: Pick<Job, 'atsPlatform' | 'applyUrl' | 'url'>): boolean {
+  if (String(job.atsPlatform || '').toLowerCase() === 'greenhouse') return true;
+  return [job.applyUrl, job.url].some((u) => {
+    const h = hostOf(u);
+    return h === 'job-boards.greenhouse.io' || h === 'boards.greenhouse.io' || h.endsWith('.greenhouse.io');
+  });
+}
+
+/** Providers Auto Apply can actually run end-to-end (mirrors server gates). */
+export function isAutoApplyJob(job: Pick<Job, 'atsPlatform' | 'applyUrl' | 'url'>): boolean {
+  return isLeverJob(job) || isGreenhouseJob(job);
+}
+
 export function hasHttpApplyUrl(job: Pick<Job, 'applyUrl' | 'url'>): boolean {
   return /^https?:\/\//.test(String(job.applyUrl || job.url || ''));
 }

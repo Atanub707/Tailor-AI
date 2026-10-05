@@ -2,7 +2,7 @@ import React from 'react';
 import { Job, JobState, JobSource } from '../types';
 import { formatTimeAgoSemantic } from '../lib/dateUtils';
 import { getValidJobUrl } from '../lib/jobUrlUtils';
-import { isLeverJob, hasHttpApplyUrl } from '../lib/autoApply';
+import { isAutoApplyJob, hasHttpApplyUrl } from '../lib/autoApply';
 import { applicantCountLabel } from '../lib/applicantInfo';
 import { DownloadCvDropdown } from './DownloadCvDropdown';
 import { AutoApplyButton } from './AutoApplyButton';
@@ -371,7 +371,7 @@ const JobCard = React.memo(function JobCard({
         {/* Apply — direct link to the job post (auto-apply paused); the
             application is completed manually on the employer's site. */}
         {/* Manual Apply stays for non-auto-apply portals; on Lever the Auto Apply button is the apply action (badge link still opens the posting). */}
-        {!(isLeverJob(job) && hasHttpApplyUrl(job)) && (
+        {!(isAutoApplyJob(job) && hasHttpApplyUrl(job)) && (
         <a
           href={getValidJobUrl(job)}
           target="_blank"

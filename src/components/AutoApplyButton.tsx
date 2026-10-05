@@ -12,7 +12,7 @@ import { AlertTriangle, Loader2, Sparkles } from 'lucide-react';
 import type { Job } from '../types';
 import {
   fetchAutoApplyStatus,
-  isLeverJob,
+  isAutoApplyJob,
   hasHttpApplyUrl,
   aaStateFromFillResult,
   isTerminalFillStatus,
@@ -90,8 +90,8 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
 
   if (!enabled) return null;
 
-  const lever = isLeverJob(job) && hasHttpApplyUrl(job);
-  if (!lever) return null; // Auto Apply renders ONLY where it can actually run (Lever)
+  const autoApplyable = isAutoApplyJob(job) && hasHttpApplyUrl(job);
+  if (!autoApplyable) return null; // Auto Apply renders ONLY where it can actually run (Lever + Greenhouse)
   const busy = state === 'STARTING' || state === 'FILLING' || state === 'VERIFYING' || state === 'WAITING_FOR_BROWSER' || state === 'SUBMITTING';
   const succeeded = state === 'READY_FOR_REVIEW' || state === 'APPLIED';
   const attention = state === 'FAILED' || state === 'FORM_CHANGED' || state === 'USER_ACTION_REQUIRED' || state === 'NEEDS_REVIEW';
@@ -156,7 +156,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
   };
 
   const handleAaClick = async () => {
-    if (busy || !lever) return;
+    if (busy || !autoApplyable) return;
     // Pre-flight: when required questions are still missing, ask them in the
     // left-side chat BEFORE starting any browser work.
     if (!(await preflightNeedsInput())) return;

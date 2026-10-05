@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import {
   aaStateFromFillResult, resolveApplicationUrl, isTerminalFillStatus,
   summarizeFillStatus, aaReasonFromBlockers, AA_POLL_INTERVAL_MS, AA_POLL_TIMEOUT_MS,
+  isAutoApplyJob,
 } from '../../src/lib/autoApply.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -98,15 +99,15 @@ describe('Job row wiring — source guarantees', () => {
 
   it('AA is per-job (rendered inside JobCard) and has a double-click guard', () => {
     expect(matrix).toContain('<AutoApplyButton job={job} />');
-    expect(button).toContain('if (busy || !lever) return;');
+    expect(button).toContain('if (busy || !autoApplyable) return;');
   });
 
-  it('Auto Apply button is properly designed: real label, phases, Lever-only rendering', () => {
+  it('Auto Apply button is properly designed: real label, phases, supported-provider rendering', () => {
     expect(button).toContain("aria-label=\"Auto Apply\"");
     expect(button).toContain("'Auto Apply'");
     expect(button).toContain("'Starting…'"); // phase labels, not cryptic 'AA…'
     expect(button).toContain("'Action needed'");
-    expect(button).toContain('if (!lever) return null;'); // never rendered where it cannot work
+    expect(button).toContain('if (!autoApplyable) return null;'); // never rendered where it cannot work
     expect(button).not.toContain('AA…');
     expect(button).not.toContain('supports Lever jobs');
   });
@@ -116,7 +117,7 @@ describe('Job row wiring — source guarantees', () => {
     expect(button).not.toContain('useCompanionState');
     expect(button).not.toContain('BrowserCompanionPanel');
     const matrix = read('src/components/JobMatrix.tsx');
-    expect(matrix).toContain('!(isLeverJob(job) && hasHttpApplyUrl(job))'); // no duplicate Apply on Lever
+    expect(matrix).toContain('!(isAutoApplyJob(job) && hasHttpApplyUrl(job))'); // no duplicate Apply on auto-apply providers
   });
 
   it('AA never opens a Chrome tab or navigates the current page (handoff only)', () => {
@@ -314,5 +315,18 @@ describe('Needs-input chat (right-side drawer)', () => {
     expect(chat).toContain('Submit application');
     expect(button).toContain('await handleAaClick();');
     expect(button).toContain('if (midRunAsks)'); // mid-run: loop resumes by itself
+  });
+});
+
+describe('Auto Apply visibility — Lever + Greenhouse', () => {
+  it('renders for Lever and Greenhouse jobs, not for unsupported providers', () => {
+    const j = (over: { atsPlatform?: string; applyUrl?: string; url?: string }) => ({ url: '', applyUrl: '', ...over });
+    expect(isAutoApplyJob(j({ atsPlatform: 'lever' }))).toBe(true);
+    expect(isAutoApplyJob(j({ atsPlatform: 'greenhouse' }))).toBe(true);
+    expect(isAutoApplyJob(j({ atsPlatform: 'ashby' }))).toBe(false);
+    expect(isAutoApplyJob(j({ applyUrl: 'https://jobs.lever.co/acme/1' }))).toBe(true);
+    expect(isAutoApplyJob(j({ applyUrl: 'https://job-boards.greenhouse.io/acme/jobs/1' }))).toBe(true);
+    expect(isAutoApplyJob(j({ applyUrl: 'https://boards.greenhouse.io/acme/jobs/1' }))).toBe(true);
+    expect(isAutoApplyJob(j({ applyUrl: 'https://jobs.ashbyhq.com/acme/1' }))).toBe(false);
   });
 });
