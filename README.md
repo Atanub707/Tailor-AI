@@ -9,6 +9,7 @@
 </p>
 
 <p align="center">
+  <a href="https://tailor-ai.in"><img src="https://img.shields.io/badge/Website-tailor--ai.in-black?logo=googlechrome&logoColor=white" alt="Website — tailor-ai.in"/></a>
   <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white" alt="React 19"/>
   <img src="https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white" alt="TypeScript"/>
   <img src="https://img.shields.io/badge/Tailwind-4.x-06D6D4?logo=tailwindcss&logoColor=white" alt="Tailwind CSS 4"/>
