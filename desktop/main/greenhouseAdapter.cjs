@@ -202,17 +202,12 @@ function buildActScript(action) {
     const findComboboxOption = async (wanted) => {
       const want = String(wanted || '').trim().toLowerCase();
       const startMs = Date.now();
-      let cleared = false;
-      const clearTo = async () => { setNative(el, ''); fire(el, ['input']); await new Promise((r) => setTimeout(r, 250)); };
-      while (Date.now() < startMs + 6000) {
+      while (Date.now() < startMs + 8000) {
         await new Promise((r) => setTimeout(r, 200));
         const list = findOpenMenu();
         const opts = list ? Array.from(list.querySelectorAll('[role="option"], li, [class*="option"]'))
           .filter((o) => String(o.textContent || '').trim()) : [];
-        if (!opts.length) {
-          if (!cleared && Date.now() > startMs + 1200) { cleared = true; await clearTo(); }
-          continue;
-        }
+        if (!opts.length) continue;
         // Option text can carry a dial code ("India +91") — strip it, then
         // prefer EXACT matches so "India" never loses to "British Indian Ocean
         // Territory" (which merely contains the word).
@@ -220,9 +215,9 @@ function buildActScript(action) {
         const hit = opts.find((o) => clean(o) === want)
           || opts.find((o) => clean(o).startsWith(want + ' '))
           || opts.slice().sort((a, b) => clean(a).length - clean(b).length).find((o) => clean(o).includes(want) || want.includes(clean(o)));
-        if (!hit) { if (!cleared && Date.now() > startMs + 1200) { cleared = true; await clearTo(); } continue; }
-        // The trusted click lands on VIEWPORT coordinates. Scroll ONLY when
-        // the control is out of view (scrolling closes the open menu).
+        if (!hit) continue;
+        // Trusted click lands on VIEWPORT coordinates: bring the control (and
+        // its portaled menu) into view ONLY when out of sight.
         const cr0 = el.getBoundingClientRect();
         if (cr0.top < 60 || cr0.bottom > window.innerHeight - 60) {
           await instantScroll(el, 'center');
@@ -234,44 +229,53 @@ function buildActScript(action) {
           for (let i = 0; i < 15; i++) { await new Promise((r2) => setTimeout(r2, 60)); if (Math.abs(window.scrollY - last) < 1) break; last = window.scrollY; }
           r = hit.getBoundingClientRect();
         }
-        return { rect: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }, text: String(hit.textContent || '').trim().slice(0, 80) };
+        return { rect: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }, text: String(hit.textContent || '').trim().slice(0, 80), index: opts.indexOf(hit) };
       }
       const menu = findOpenMenu();
       const sample = menu ? Array.from(menu.querySelectorAll('[role="option"], li, [class*="option"]')).slice(0, 4).map((o) => String(o.textContent || '').trim().slice(0, 24)) : [];
-      return { rect: null, diag: { want: want.slice(0, 40), menu: !!menu, opts: menu ? menu.querySelectorAll('[role="option"]').length : 0, sample, input: String(el.value || '').slice(0, 30) } };
+      return { rect: null, diag: { want: want.slice(0, 40), menu: !!menu, opts: menu ? menu.querySelectorAll('[role="option"]').length : 0, sample } };
     };
     if (a.action === 'type') {
       const textValue = String(a.value == null ? '' : a.value);
       const isCombobox = !!(el.classList && el.classList.contains('select__input'));
       if (isCombobox) {
-        // react-select ignores synthetic open attempts in some environments
-        // (passive-listener handler failures) — the menu is opened by a REAL
-        // click on the control (session sends trusted input), then typing
-        // filters and the matched option is measured for a trusted click.
-        // CRITICAL: scrolling closes react-select's menu — only scroll when
-        // the menu is CLOSED (i.e., before the trusted open click).
-        let menuOpen = !!findOpenMenu();
-        if (!menuOpen) {
-          await instantScroll(el, 'center');
-          menuOpen = !!findOpenMenu();
-          if (!menuOpen) {
+        // FULLY-TRUSTED combobox protocol — synthetic events on react-select
+        // throw React passive-listener errors and permanently lock the widget.
+        // Phase 1: menu closed → measure the control for a trusted open click.
+        // Phase 2: menu open → READ the options and measure the match.
+        const menuNow = !!findOpenMenu();
+        if (!menuNow) {
+          const cr0 = el.getBoundingClientRect();
+          if (cr0.top < 60 || cr0.bottom > window.innerHeight - 60) {
+            await instantScroll(el, 'center');
+          }
+          const ctl = el.closest('.select__control') || el;
+          const cr = ctl.getBoundingClientRect();
+          return { ok: false, code: 'NEEDS_TRUSTED_OPEN', rect: { x: Math.round(cr.left + cr.width / 2), y: Math.round(cr.top + cr.height / 2), w: 2, h: 2 } };
+        }
+        const opt = await findComboboxOption(textValue);
+        if (!opt || !opt.rect) {
+          if (!findOpenMenu()) {
             const ctl = el.closest('.select__control') || el;
             const cr = ctl.getBoundingClientRect();
             return { ok: false, code: 'NEEDS_TRUSTED_OPEN', rect: { x: Math.round(cr.left + cr.width / 2), y: Math.round(cr.top + cr.height / 2), w: 2, h: 2 } };
           }
+          return { ok: false, code: 'OPTION_NOT_FOUND', message: JSON.stringify((opt && opt.diag) || {}) };
         }
-        setNative(el, '');
-        fire(el, ['input']);
-        await new Promise((r0) => setTimeout(r0, 120));
-        setNative(el, textValue);
-        fire(el, ['input', 'change']);
-        const opt = await findComboboxOption(textValue);
-        if (!opt || !opt.rect) return { ok: false, code: 'OPTION_NOT_FOUND', message: JSON.stringify((opt && opt.diag) || {}) };
-        return { ok: false, code: 'NEEDS_TRUSTED_CLICK', rect: opt.rect, option: opt.text };
+        return { ok: false, code: 'NEEDS_TRUSTED_CLICK', rect: opt.rect, option: opt.text, index: typeof opt.index === 'number' ? opt.index : 0 };
       }
-      if (!setNative(el, textValue)) return { ok: false, code: 'SET_FAILED' };
-      fire(el, ['input', 'change']);
-      return { ok: true, value: String(el.value || '').slice(0, 300) };
+      // Text fields: TRUSTED input only. Synthetic input events trip the
+      // page's passive-listener React errors (#426/#345) which break the
+      // whole form — including the react-select widgets. Measure the field and
+      // let the session click + Input.insertText it.
+      {
+        const rr0 = el.getBoundingClientRect();
+        if (rr0.top < 60 || rr0.bottom > window.innerHeight - 60) {
+          await instantScroll(el, 'center');
+        }
+        const r = el.getBoundingClientRect();
+        return { ok: false, code: 'NEEDS_TRUSTED_TYPE', rect: { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), w: 2, h: 2 } };
+      }
     }
     if (a.action === 'select') {
       const want = String(a.value == null ? (a.option || '') : a.value).trim().toLowerCase();
@@ -371,12 +375,15 @@ function buildConfirmationScript() {
   return `(() => {
     const url = location.href;
     const text = document.body ? (document.body.innerText || '') : '';
-    const successText = /thank you for applying|application (has been|was) (submitted|received)|we('ve| have) received your application|successfully submitted|thanks for applying/i.test(text);
+    // Greenhouse serves a universal /confirmation route (any language) and
+    // localized thank-you copy — English, Spanish, Portuguese, French, German.
+    const successUrl = /\\/confirmation(?:[?#]|$)/i.test(url);
+    const successText = /thank you for applying|application (has been|was) (submitted|received)|we('ve| have) received your application|successfully submitted|thanks for applying|gracias por aplicar|hemos recibido (tu|su) (aplicaci|solicitud)|gracias por postularte|obrigado por se candidatar|recebemos sua candidatura|merci (d'avoir|pour avoir) postul|nous avons (bien )?re[cç]u votre candidature|vielen dank f(ü|u)r (ihre|deine) bewerbung|wir haben (ihre|deine) bewerbung erhalten/i.test(text);
     const formGone = !document.getElementById('application-form');
-    const duplicate = /already (applied|submitted)|you('ve| have) already applied/i.test(text);
-    const error = !successText && (/please (complete|fill|correct|enter|select)/i.test(text) || /captcha/i.test(text) || !!document.querySelector('[aria-invalid="true"]'));
-    const confirmed = successText;
-    const m = text.match(/thank you for applying|application (has been|was) (submitted|received)|we('ve| have) received your application|successfully submitted|already (applied|submitted)/i);
+    const duplicate = /already (applied|submitted)|you('ve| have) already applied|ya (te|se) (has|ha) (postulado|aplicado)|ya has enviado|j(á|a) (se )?candidatou|vous avez d(é|e)j(à|a) postul|bereits beworben/i.test(text);
+    const error = !successText && !successUrl && (/please (complete|fill|correct|enter|select)/i.test(text) || /captcha/i.test(text) || !!document.querySelector('[aria-invalid="true"]'));
+    const confirmed = successUrl || successText;
+    const m = (text.match(/thank you for applying|gracias por aplicar|hemos recibido|already (applied|submitted)|ya (te|se)/i) || url.match(/\\/confirmation|already-received|LeverAppId=[^&]+/i));
     return { confirmed, duplicate, error, evidence: m ? String(m[0]).slice(0, 60) : null, formGone };
   })()`;
 }

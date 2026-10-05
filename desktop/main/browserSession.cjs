@@ -137,24 +137,36 @@ class Session {
       const safeName = String(filename || 'resume.pdf').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
       const filePath = path.join(tmpDir, safeName);
       fs.writeFileSync(filePath, buf, { mode: 0o600 });
-      await dbg.sendCommand('DOM.setFileInputFiles', { files: [filePath], nodeId });
-      const check = await wc.executeJavaScript(
+      // React re-renders can swap the input node between the query and the
+      // set — retry with a FRESH node each attempt and reset the input first
+      // so a stale file list can never masquerade as 'attached'.
+      const verify = () => wc.executeJavaScript(
         `(() => { const i = document.querySelector('input[type="file"][name="resume"], input[type="file"]#resume'); return i && i.files && i.files.length === 1 ? { name: i.files[0].name, size: i.files[0].size } : null; })()`,
         true
       );
-      if (!check || check.size !== buf.length) {
+      let attached = false;
+      for (let attempt = 0; attempt < 3 && !attached; attempt++) {
+        await wc.executeJavaScript(
+          `(() => { const i = document.querySelector('input[type="file"][name="resume"], input[type="file"]#resume'); if (i) { try { i.value = ''; } catch (e) {} } return true; })()`,
+          true
+        ).catch(() => {});
+        const doc = await dbg.sendCommand('DOM.getDocument');
+        const found = await dbg.sendCommand('DOM.querySelector', { nodeId: doc.root.nodeId, selector: 'input[type="file"][name="resume"], input[type="file"]#resume' });
+        if (!found.nodeId) { await new Promise((r) => setTimeout(r, 300)); continue; }
+        await dbg.sendCommand('DOM.setFileInputFiles', { files: [filePath], nodeId: found.nodeId });
+        await new Promise((r) => setTimeout(r, 250));
+        const check = await verify();
+        if (check && check.size === buf.length) attached = true;
+        else await new Promise((r) => setTimeout(r, 300));
+      }
+      if (!attached) {
         this.emit('RESUME_ATTACHMENT_FAILED', 'verify-failed');
         return { ok: false, reason: 'RESUME_VERIFY_FAILED' };
       }
-      // Fire change so Lever's own resume parser runs (it may auto-fill
-      // name/email/location + selectedLocation). Best-effort: the captcha-gated
-      // /parseResume endpoint may decline; our own fills cover that case.
-      try {
-        await wc.executeJavaScript(
-          `(() => { const i = document.querySelector('input[type="file"][name="resume"], input[type="file"]#resume'); if (i) { i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true })); } return true; })()`,
-          true
-        );
-      } catch { /* parser trigger is best-effort */ }
+      // NOTE: DOM.setFileInputFiles already fires native input/change events
+      // (trusted) — extra SYNTHETIC events are deliberately NOT dispatched:
+      // they trip the passive-listener React errors that break the form's
+      // widgets on Greenhouse boards.
       this.emit('RESUME_ATTACHED', `bytes=${buf.length}`);
       return { ok: true };
     } catch (e) {
@@ -361,6 +373,41 @@ class Session {
     await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: cx, y: cy, button: 'left', clickCount: 1, buttons: 1 });
   }
 
+  /** Trusted keyboard typing: select-all (replace prior search text) then
+   *  Input.insertText — real keyboard input, safe for react-select. */
+  async trustedType(text) {
+    const wc = this.wc;
+    const dbg = wc.debugger;
+    try { if (!dbg.isAttached()) dbg.attach('1.3'); } catch { /* already attached */ }
+    const value = String(text || '').slice(0, 200);
+    if (!value) return;
+    await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA', modifiers: 4, windowsVirtualKeyCode: 65 });
+    await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA', modifiers: 4, windowsVirtualKeyCode: 65 });
+    await dbg.sendCommand('Input.insertText', { text: value });
+  }
+
+  /** Focus a tagged element via the DOM domain — no coordinates, immune to
+   *  layout shifts (the page settles late and moves fields between measure
+   *  and click). */
+  async trustedFocus(ref) {
+    const dbg = this.wc.debugger;
+    try { if (!dbg.isAttached()) dbg.attach('1.3'); } catch { /* already attached */ }
+    const { root } = await dbg.sendCommand('DOM.getDocument');
+    const { nodeId } = await dbg.sendCommand('DOM.querySelector', { nodeId: root.nodeId, selector: `[data-ta-ref="${String(ref)}"]` });
+    if (!nodeId) return false;
+    await dbg.sendCommand('DOM.focus', { nodeId });
+    return true;
+  }
+
+  /** Trusted key press (no coordinates). */
+  async trustedKey(key, code, keyCode) {
+    const dbg = this.wc.debugger;
+    try { if (!dbg.isAttached()) dbg.attach('1.3'); } catch { /* already attached */ }
+    const base = { key, code, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode };
+    await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', ...base });
+    await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+  }
+
   async act(action) {
     if (!this.alive()) return { ok: false, code: 'NO_SESSION' };
     const safe = this.adapter.validateAgentAction(action);
@@ -375,24 +422,65 @@ class Session {
       // Combobox phase 1: synthetic events cannot open react-select menus in
       // this environment (passive-listener handler failures) — open with a
       // REAL click on the measured control, then re-run the same action.
-      if (r && r.ok !== true && r.code === 'NEEDS_TRUSTED_OPEN' && r.rect) {
-        await this.trustedClick(r.rect.x, r.rect.y);
-        await new Promise((res) => setTimeout(res, 350));
+      if (r && r.ok !== true && r.code === 'NEEDS_TRUSTED_OPEN') {
+        let opened = false;
+        for (let attempt = 0; attempt < 3 && !opened; attempt++) {
+          const ok = await this.trustedFocus(safe.ref).catch(() => false);
+          if (ok) {
+            await new Promise((res) => setTimeout(res, 80));
+            await this.trustedKey('ArrowDown', 'ArrowDown', 40);
+            await new Promise((res) => setTimeout(res, 320));
+          }
+          opened = await this.wc.executeJavaScript(`(() => !!document.querySelector('[role="listbox"]'))()`, true).catch(() => false);
+        }
+        // Filter with trusted typing so the option list is deterministic.
+        if (opened && safe.action === 'type' && safe.value) {
+          await this.trustedType(safe.value);
+          await new Promise((res) => setTimeout(res, 400));
+        }
         r = await this.wc.executeJavaScript(this.adapter.buildActScript(safe), true);
+      }
+      // Trusted typing: click the field, Input.insertText, read back. No
+      // synthetic events (they break the form's React widgets on this page).
+      if (r && r.ok !== true && r.code === 'NEEDS_TRUSTED_TYPE' && safe.action === 'type') {
+        const want = String(safe.value == null ? '' : safe.value);
+        const readBack = () => this.wc.executeJavaScript(
+          `(() => { const el = document.querySelector('[data-ta-ref="${safe.ref}"]'); return el ? String(el.value || '') : ''; })()`, true
+        ).catch(() => '');
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const ok = await this.trustedFocus(safe.ref).catch(() => false);
+          if (!ok) { await new Promise((res) => setTimeout(res, 250)); continue; }
+          await new Promise((res) => setTimeout(res, 80));
+          await this.trustedType(want);
+          await new Promise((res) => setTimeout(res, 150));
+          const got = String(await readBack()).trim();
+          if (got === want.trim()) return { ok: true, value: got.slice(0, 120) };
+        }
+        return { ok: false, code: 'TYPE_VERIFY_FAILED' };
       }
       // Combobox phase 2: the option must be clicked with REAL input too (the
       // act script measured it); synthetic clicks can be ignored. Verify the
       // selection through react-select's .select__single-value.
-      if (
-        r && r.ok !== true && r.code === 'NEEDS_TRUSTED_CLICK' &&
-        r.rect && r.rect.w > 0 &&
-        typeof this.adapter.buildComboboxCheckScript === 'function'
-      ) {
-        await this.trustedClick(r.rect.x + r.rect.w / 2, r.rect.y + r.rect.h / 2);
-        await new Promise((res) => setTimeout(res, 250));
-        const check = await this.wc.executeJavaScript(this.adapter.buildComboboxCheckScript(safe.ref), true).catch(() => null);
-        const picked = check && String(check.value || '').trim();
-        if (picked) return { ok: true, value: String(picked).slice(0, 120) };
+      if (r && r.ok !== true && r.code === 'NEEDS_TRUSTED_CLICK' && typeof this.adapter.buildComboboxCheckScript === 'function') {
+        const want = String(safe.value == null ? '' : safe.value);
+        const index = Number.isFinite(r.index) && r.index >= 0 ? r.index : 0;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const ok = await this.trustedFocus(safe.ref).catch(() => false);
+          if (ok) {
+            await new Promise((res) => setTimeout(res, 80));
+            await this.trustedType(want); // trusted filter (replaces any prior text)
+            await new Promise((res) => setTimeout(res, 350));
+            for (let i = 0; i <= index; i++) {
+              await this.trustedKey('ArrowDown', 'ArrowDown', 40);
+              await new Promise((res) => setTimeout(res, 60));
+            }
+            await this.trustedKey('Enter', 'Enter', 13);
+            await new Promise((res) => setTimeout(res, 250));
+          }
+          const check = await this.wc.executeJavaScript(this.adapter.buildComboboxCheckScript(safe.ref), true).catch(() => null);
+          const picked = check && String(check.value || '').trim();
+          if (picked) return { ok: true, value: String(picked).slice(0, 120) };
+        }
         return { ok: false, code: 'OPTION_NOT_SELECTED' };
       }
       return r;
@@ -770,7 +858,7 @@ class Session {
       if (netConfirmed && netConfirmed.requestId) {
         let body = '';
         try { const r = await this.wc.debugger.sendCommand('Network.getResponseBody', { requestId: netConfirmed.requestId }); body = String((r && r.body) || ''); } catch { /* body may be unavailable */ }
-        if (/thank you for applying|application (has been|was) (submitted|received)|we('ve| have) received your application|already (applied|received)/i.test(body)) {
+        if (/thank you for applying|application (has been|was) (submitted|received)|we('ve| have) received your application|already (applied|received)|gracias por aplicar|hemos recibido|obrigado por se candidatar|vielen dank|merci|\/confirmation/i.test(body)) {
           this.setState('SUBMITTED');
           this.emit('SUBMISSION_CONFIRMED', /already/i.test(body) ? 'ALREADY_APPLIED' : `POST_${netConfirmed.status}_SUCCESS`);
           return { ok: true, verified: true };
