@@ -15,6 +15,8 @@ const gh = require('../../desktop/main/greenhouseAdapter.cjs') as {
   buildSubmitControlCheckScript: () => string;
   buildCheckpointScript: () => string;
   buildConfirmationScript: () => string;
+  buildComboboxCheckScript: (ref: string) => string;
+  buildMenuCheckScript: (ref: string) => string;
   validateAgentAction: (a: unknown) => unknown;
 };
 const sessionSrc = read('desktop/main/browserSession.cjs');
@@ -114,6 +116,20 @@ describe('Greenhouse guardrails', () => {
     expect(sessionSrc).toContain("code === 'NEEDS_TRUSTED_OPEN'");
     expect(sessionSrc).toContain("code === 'NEEDS_TRUSTED_CLICK'");
     expect(sessionSrc).toContain('buildComboboxCheckScript');
+  });
+
+  it('menu lookup is SCOPED to the field — a stale foreign listbox never poisons other comboboxes', () => {
+    const act = gh.buildActScript({ action: 'type', ref: 'ta1', value: 'x' });
+    expect(act).toContain("el.getAttribute('aria-controls')");
+    expect(act).not.toContain("document.querySelector('[role=\"listbox\"]')");
+    // The intl-tel-input widget keeps a PERMANENT 244-option listbox in the
+    // DOM — it must never be read as an open menu.
+    expect(act).toContain('iti__country-list');
+    const check = gh.buildMenuCheckScript('ta1');
+    expect(check).toContain('aria-controls');
+    expect(check).toContain('iti__country-list');
+    expect(check).toContain('[data-ta-ref="ta1"]');
+    expect(sessionSrc).toContain('buildMenuCheckScript');
   });
 });
 

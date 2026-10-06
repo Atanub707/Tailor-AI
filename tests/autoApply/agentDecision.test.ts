@@ -39,6 +39,10 @@ describe('Agent decision core (one layer, pure)', () => {
     expect(bankKeysForLabel('LinkedIn Profile')).toContain('linkedinUrl');
     expect(bankKeysForLabel('Do you require sponsorship?')).toContain('requiresSponsorship');
     expect(bankKeysForLabel('Favorite color')).toEqual([]);
+    // Phone country-code pickers are NOT country questions (real mis-fill: a
+    // residence value was typed into the dial-code combobox).
+    expect(bankKeysForLabel('Please select your Country Phone Code*')).toEqual([]);
+    expect(bankKeysForLabel('Dial code')).toEqual([]);
   });
 
   it('asks carry the form options so the answer chat can render chips', () => {    const d = composeDecision(
@@ -90,6 +94,28 @@ describe('Agent decision core (one layer, pure)', () => {
     expect(d.actions).toEqual([]);
     expect(d.submit).toBe(true);
     expect(d.notes.join(' ')).toContain('optional question left unanswered');
+  });
+
+  it('an OPTIONAL field with a stale saved answer never becomes a blocking question', () => {
+    const field = { ref: 'ta1', kind: 'select' as const, label: 'Other', value: '', required: false, options: [{ option: 'Yes' }] };
+    const d = composeDecision(base({ fields: [field] }), new Map([['ta1', 'StaleValue']]));
+    expect(d.asks).toEqual([]);
+    expect(d.actions).toEqual([]);
+    expect(d.notes.join(' ')).toContain('optional select left unanswered');
+    const group = { ref: 'ta2', kind: 'checkbox-group' as const, label: 'Other', value: '', required: false, options: [{ option: 'X' }] };
+    const g = composeDecision(base({ fields: [group] }), new Map([['ta2', 'StaleValue']]));
+    expect(g.asks).toEqual([]);
+    expect(g.notes.join(' ')).toContain('optional group left unanswered');
+  });
+
+  it('option-less comboboxes reduce sentence answers to their yes/no vocabulary', () => {
+    const field = { ref: 'ta1', kind: 'custom-select' as const, label: 'Sponsorship?', value: '', required: true, options: [] as Array<{ option: string }> };
+    const d = composeDecision(base({ fields: [field] }), new Map([['ta1', 'Yes I require sponsorship from Zopa']]));
+    expect(d.actions).toEqual([{ action: 'type', ref: 'ta1', value: 'Yes' }]);
+    const n = composeDecision(base({ fields: [field] }), new Map([['ta1', 'No, I am authorized to work']]));
+    expect(n.actions).toEqual([{ action: 'type', ref: 'ta1', value: 'No' }]);
+    const keep = composeDecision(base({ fields: [field] }), new Map([['ta1', 'Kolkata, India']]));
+    expect(keep.actions).toEqual([{ action: 'type', ref: 'ta1', value: 'Kolkata' }]);
   });
 
   it('a clean form submits', () => {

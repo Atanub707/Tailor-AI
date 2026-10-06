@@ -46,7 +46,11 @@ const BANK_KEY_CONCEPTS: Array<{ re: RegExp; keys: string[] }> = [
 
 /** Exported for tests: canonical bank keys for a field label (or []). */
 export function bankKeysForLabel(label: string): string[] {
-  return BANK_KEY_CONCEPTS.find((c) => c.re.test(String(label || '')))?.keys ?? [];
+  const text = String(label || '');
+  // Phone country-code pickers mention "country" but are NOT a country
+  // question — typing a residence value into them produced real mis-fills.
+  if (/phone\s*(country\s*)?code|dial\s*code|country\s*phone/i.test(text)) return [];
+  return BANK_KEY_CONCEPTS.find((c) => c.re.test(text))?.keys ?? [];
 }
 
 export interface ObservedField {
@@ -160,6 +164,14 @@ function askOptions(f: ObservedField): string[] {
   return (f.options || []).map((o) => String(o.option || '')).filter(Boolean).slice(0, 24);
 }
 
+/** Conditional follow-ups ("If not, please describe…", "Other, please
+ *  specify") must never be concept-filled from a DIFFERENT question's value —
+ *  a real misfill typed "Yes" into a free-text describe field. */
+function isConditionalFreeText(f: ObservedField): boolean {
+  if (f.kind !== 'text' && f.kind !== 'textarea') return false;
+  return /^\s*if\s+(not|other|you|selected)|please\s+(specify|describe|explain)|describe\s+(below|the|which)|other,?\s+please/i.test(String(f.label || ''));
+}
+
 /** PURE decision core — state + resolved values → the next primitives. */
 export function composeDecision(state: ObservedState, values: Map<string, string>): AgentDecision {
   const notes: string[] = [];
@@ -222,11 +234,22 @@ export function composeDecision(state: ObservedState, values: Map<string, string
       // Option-less comboboxes (Greenhouse): the act script types the value and
       // picks the matching option live; only KNOWN option lists are matched here.
       if (f.kind === 'custom-select' && !(f.options || []).length && wanted.length) {
-        actions.push({ action: 'type', ref: f.ref, value: wanted[0] });
+        // Long bank answers ("Yes I require sponsorship from Zopa") must reduce
+        // to the widget's yes/no vocabulary — the live filter matches it then.
+        const yn = /^\s*(yes|no)\b/i.exec(wanted[0]);
+        actions.push({ action: 'type', ref: f.ref, value: yn ? yn[1] : wanted[0] });
         continue;
       }
       const m = wanted.length === 1 ? optionMatches(f, wanted[0]) : null;
       if (!m) {
+        // OPTIONAL fields never become questions — a stale saved answer that
+        // no longer fits the options must not block the run (real case: an
+        // optional "Other" checkbox member with an old bank answer turned the
+        // questions-first gate into a full stop).
+        if (!f.required) {
+          notes.push(`optional select left unanswered: ${String(f.label).slice(0, 60)}`);
+          continue;
+        }
         const allowed = (f.options || []).map((o) => o.option).slice(0, 8).join(' | ');
         asks.push({ ref: f.ref, label: f.label, reason: `saved answer is not one of the form options${allowed ? ` — allowed: ${allowed}` : ''}`, human: false, options: askOptions(f) });
         continue;
@@ -240,6 +263,11 @@ export function composeDecision(state: ObservedState, values: Map<string, string
       const wanted = value.split(',').map((v) => v.trim()).filter(Boolean);
       const matched = wanted.map((w) => optionMatches(f, w)).filter((m): m is string => !!m);
       if (!matched.length) {
+        // Same rule as selects: optional groups never block with an ask.
+        if (!f.required) {
+          notes.push(`optional group left unanswered: ${String(f.label).slice(0, 60)}`);
+          continue;
+        }
         const allowed = (f.options || []).map((o) => o.option).slice(0, 8).join(' | ');
         asks.push({ ref: f.ref, label: f.label, reason: `saved answer is not one of the form options${allowed ? ` — allowed: ${allowed}` : ''}`, human: false, options: askOptions(f) });
         continue;
@@ -305,7 +333,7 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
       if (/first ?name|given ?name|preferred (first )?name|forename/i.test(s)) return splitName(std.fullName).first || undefined;
       if (/last ?name|family ?name|surname/i.test(s)) return splitName(std.fullName).last || undefined;
       if (/\b(full ?)?name\b/i.test(s) && !/company|file|user|first|last|preferred|given|family|surname/i.test(s)) return std.fullName;
-      if (/country/i.test(s) && !/country code|dial/i.test(s)) return profile?.contact?.country;
+      if (/country/i.test(s) && !/country code|phone code|dial/i.test(s)) return profile?.contact?.country;
       if (/(current )?(location|city)|where .*based/i.test(s) && !/relocat/i.test(s)) return std.location;
       return undefined;
     };
@@ -323,6 +351,7 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
     try {
       const records = allRecords();
       for (const f of stillUnmatched) {
+        if (isConditionalFreeText(f)) continue; // conditional follow-ups stay empty
         const keys = bankKeysForLabel(`${f.label || ''} ${f.name || ''}`);
         if (!keys.length) continue;
         conceptRefs.add(f.ref); // deterministic concept owns this field
@@ -357,6 +386,7 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
       const records = allRecords();
       const norm = (t: string) => String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
       for (const f of prefixUnmatched) {
+        if (isConditionalFreeText(f)) continue; // conditional follow-ups stay empty
         const label = norm(f.label);
         if (label.length < 12) continue; // short labels: exact/alias logic owns them
         const rec = records.find((r) => {

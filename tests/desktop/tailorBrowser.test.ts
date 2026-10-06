@@ -143,6 +143,18 @@ describe('Deterministic scripts — invariants (never submit, never bypass CAPTC
     expect(loop).toContain('if (!chatAsks.length && decision.actions.length) {');
   });
 
+  it('the ask-wait deadline is MUTABLE (const crashed the loop on the first question)', () => {
+    const loop = sessionSrc.slice(sessionSrc.indexOf('async agentLoop()'), sessionSrc.indexOf('async agentFinalRevalidation()'));
+    expect(loop).toContain('let deadline = Date.now()');
+    expect(loop).toContain('deadline = Math.min(hardDeadline');
+  });
+
+  it('a transient decision outage retries instead of killing the run', () => {
+    const loop = sessionSrc.slice(sessionSrc.indexOf('async agentLoop()'), sessionSrc.indexOf('async agentFinalRevalidation()'));
+    expect(loop).toContain('decideFailures += 1');
+    expect(loop).toContain('decide unavailable');
+  });
+
   it('the bridge passes the execution token to the session for decisions', () => {
     const b = read('desktop/main/desktopBridge.cjs');
     expect(b).toContain('statusToken: data.statusToken');

@@ -427,17 +427,32 @@ class Session {
       let r = await this.wc.executeJavaScript(this.adapter.buildActScript(safe), true);
       // Combobox phase 1: synthetic events cannot open react-select menus in
       // this environment (passive-listener handler failures) — open with a
-      // REAL click on the measured control, then re-run the same action.
+      // REAL mouse click on the measured control. (Trusted ArrowDown is
+      // ignored by this widget: verified via CDP that aria-expanded stays
+      // false, so the click is the opener; ArrowDown remains a fallback.)
       if (r && r.ok !== true && r.code === 'NEEDS_TRUSTED_OPEN') {
         let opened = false;
-        for (let attempt = 0; attempt < 3 && !opened; attempt++) {
+        const menuOpen = () => this.wc.executeJavaScript(
+          typeof this.adapter.buildMenuCheckScript === 'function'
+            ? this.adapter.buildMenuCheckScript(safe.ref)
+            : `(() => !!document.querySelector('[role="listbox"]'))()`,
+          true
+        ).catch(() => false);
+        if (r.rect && r.rect.w > 0) {
+          try {
+            await this.trustedClick(r.rect.x, r.rect.y);
+          } catch { /* fall through to the keyboard opener */ }
+          await new Promise((res) => setTimeout(res, 380));
+          opened = !!(await menuOpen());
+        }
+        for (let attempt = 0; attempt < 2 && !opened; attempt++) {
           const ok = await this.trustedFocus(safe.ref).catch(() => false);
           if (ok) {
             await new Promise((res) => setTimeout(res, 80));
             await this.trustedKey('ArrowDown', 'ArrowDown', 40);
             await new Promise((res) => setTimeout(res, 320));
           }
-          opened = await this.wc.executeJavaScript(`(() => !!document.querySelector('[role="listbox"]'))()`, true).catch(() => false);
+          opened = !!(await menuOpen());
         }
         // Filter with trusted typing so the option list is deterministic.
         if (opened && safe.action === 'type' && safe.value) {
@@ -464,11 +479,29 @@ class Session {
         }
         return { ok: false, code: 'TYPE_VERIFY_FAILED' };
       }
-      // Combobox phase 2: the option must be clicked with REAL input too (the
-      // act script measured it); synthetic clicks can be ignored. Verify the
-      // selection through react-select's .select__single-value.
+      // Combobox phase 2: the option is clicked with REAL input at the rect
+      // the act script measured (keyboard navigation is unreliable in this
+      // widget — keep it only as fallback). Verify through .select__single-value.
       if (r && r.ok !== true && r.code === 'NEEDS_TRUSTED_CLICK' && typeof this.adapter.buildComboboxCheckScript === 'function') {
         const want = String(safe.value == null ? '' : safe.value);
+        const readPick = async () => {
+          const check = await this.wc.executeJavaScript(this.adapter.buildComboboxCheckScript(safe.ref), true).catch(() => null);
+          return check && String(check.value || '').trim();
+        };
+        for (let attempt = 0; attempt < 2; attempt++) {
+          if (r.rect && r.rect.w > 0) {
+            try {
+              await this.trustedClick(r.rect.x + r.rect.w / 2, r.rect.y + r.rect.h / 2);
+            } catch { /* fall through to the keyboard path */ }
+            await new Promise((res) => setTimeout(res, 320));
+            const picked = await readPick();
+            if (picked) return { ok: true, value: String(picked).slice(0, 120) };
+          }
+          // Re-measure: the menu may have re-rendered (or reopened) after the click.
+          r = await this.wc.executeJavaScript(this.adapter.buildActScript(safe), true).catch(() => r);
+          if (!r || r.code !== 'NEEDS_TRUSTED_CLICK' || !r.rect) break;
+        }
+        // Fallback: keyboard selection (focus + filter + arrows + Enter).
         const index = Number.isFinite(r.index) && r.index >= 0 ? r.index : 0;
         for (let attempt = 0; attempt < 2; attempt++) {
           const ok = await this.trustedFocus(safe.ref).catch(() => false);
@@ -483,8 +516,7 @@ class Session {
             await this.trustedKey('Enter', 'Enter', 13);
             await new Promise((res) => setTimeout(res, 250));
           }
-          const check = await this.wc.executeJavaScript(this.adapter.buildComboboxCheckScript(safe.ref), true).catch(() => null);
-          const picked = check && String(check.value || '').trim();
+          const picked = await readPick();
           if (picked) return { ok: true, value: String(picked).slice(0, 120) };
         }
         return { ok: false, code: 'OPTION_NOT_SELECTED' };
@@ -587,10 +619,11 @@ class Session {
     if (this.loopRunning) return { ok: true, statuses: 'ALREADY_RUNNING' };
     this.loopRunning = true;
     try {
-    const deadline = Date.now() + 10 * 60 * 1000;
+    let deadline = Date.now() + 10 * 60 * 1000;
     const hardDeadline = Date.now() + 60 * 60 * 1000; // answers can take a while
     let captchaNotified = false;
     let questionsNotified = false;
+    let decideFailures = 0;
     let fillsEmitted = 0;
     for (let cycle = 0; cycle < 80 && Date.now() < deadline; cycle++) {
       if (!this.alive()) return { ok: false, code: 'SESSION_GONE' };
@@ -642,11 +675,21 @@ class Session {
       }
       const decision = await this.decideRemote(obs.state);
       if (!decision) {
+        // A transient server hiccup (deploy, restart, overloaded GPU) must
+        // never kill a live run — retry with backoff before giving up.
+        decideFailures += 1;
+        if (decideFailures < 8) {
+          this.emit('SUBMISSION_BLOCKED', `decide unavailable (${decideFailures}/8) — retrying`);
+          await new Promise((r) => setTimeout(r, 3000));
+          cycle = Math.max(-1, cycle - 1);
+          continue;
+        }
         this.setState('FAILED');
         this.emit('RUN_FAILED', 'DECISION_UNAVAILABLE');
         this.scheduleAutoClose(AUTO_CLOSE_FAILED_MS);
         return { ok: false, code: 'DECISION_UNAVAILABLE' };
       }
+      decideFailures = 0;
       this.emit('FORM_DISCOVERED', `agent cycle=${cycle} actions=${decision.actions.length} asks=${decision.asks.length}`);
 
       // QUESTIONS FIRST (user requirement): when the form has questions the
@@ -668,7 +711,7 @@ class Session {
           if (!r || r.ok !== true) {
             this.actFailures.set(sig, (this.actFailures.get(sig) || 0) + 1);
             this.emit('SUBMISSION_BLOCKED', `act:${a.action}:${(r && r.code) || 'FAILED'}${r && r.message ? ':' + String(r.message).slice(0, 80) : ''}`);
-            break; // stale refs self-heal on the next observe/decide cycle
+            continue; // keep filling the OTHER fields — this one retries/escalates
           }
           this.actFailures.delete(sig);
           applied += 1;
@@ -680,9 +723,9 @@ class Session {
         }
       }
 
-      // Escalation: a value the form keeps rejecting (kept failing act) must
-      // become a QUESTION instead of an endless retry. The chat answers it; the
-      // loop resumes on the next cycle. Never fires for fields already filled.
+      // Escalation: an action the form keeps rejecting (3+ failures) becomes a
+      // BROWSER ask instead of an endless retry. Merged with the composer's
+      // asks into ONE live list — a chat ask must never be hidden behind it.
       const stuck = [];
       for (const [sig, n] of this.actFailures) {
         if (n < 3) continue;
@@ -692,39 +735,30 @@ class Session {
         const hasValue = String(f.value || '').trim() !== '' || (f.options || []).some((o) => o.checked);
         if (!hasValue) stuck.push(f);
       }
-      if (stuck.length) {
-        const stuckList = stuck.map((f) => ({
-          label: String(f.label || '').slice(0, 500),
-          reason: 'the form did not accept the automatic answer — fix or pick the value in the Tailor Browser window (the run continues by itself)',
-          options: (f.options || []).map((o) => String(o.option || '')).filter(Boolean).slice(0, 24),
-          human: false,
-        }));
-        const stuckSig = stuckList.map((a) => a.label).join('|');
-        if (!questionsNotified || this.asksSig !== stuckSig) {
-          questionsNotified = true;
-          this.asksSig = stuckSig;
-          this.waitReason = 'QUESTIONS_REQUIRED';
-          this.pendingAsks = stuckList;
-          this.setState('WAITING_FOR_USER');
-          this.emit('HUMAN_ACTION_REQUIRED', `QUESTIONS_REQUIRED:${String(stuck[0].label || '').slice(0, 80)}`);
-        }
-        cycle = Math.max(-1, cycle - 1);
-        deadline = Math.min(hardDeadline, Date.now() + 10 * 60 * 1000);
-        await new Promise((r) => setTimeout(r, 2000));
-        continue;
-      }
 
-      if (decision.asks.length) {
-        // Human/chat edge: notify ONCE per DISTINCT ask set, then KEEP WATCHING
-        // — the user resolves in the visible browser (or the chat in the full
-        // UI) and the loop resumes by itself. Refresh pendingAsks whenever the
-        // set CHANGES so the chat never shows a stale question list.
-        const askList = decision.asks.map((a) => ({
+      const askList = [
+        ...(decision.asks || []).map((a) => ({
           label: String(a.label || '').slice(0, 500),
           reason: String(a.reason || '').slice(0, 240),
           options: Array.isArray(a.options) ? a.options.slice(0, 24).map((o) => String(o).slice(0, 240)) : [],
           human: a.human === true,
-        }));
+        })),
+        ...stuck.map((f) => ({
+          label: String(f.label || '').slice(0, 500),
+          reason: 'the form did not accept the automatic value — pick it once in the Tailor Browser window; the rest of the form keeps filling and the run continues by itself',
+          options: (f.options || []).map((o) => String(o.option || '')).filter(Boolean).slice(0, 24),
+          // Human-in-browser by design: typeahead/widget failures are fixed in
+          // the real window — a chat answer cannot operate the widget, and a
+          // chat ask here would HALT every other fill under the questions gate.
+          human: true,
+        })),
+      ].filter((a, i, arr) => a.label && arr.findIndex((b) => b.label === a.label) === i);
+
+      if (askList.length) {
+        // Notify ONCE per DISTINCT set, then KEEP WATCHING — the user resolves
+        // in the visible browser (or the chat in the full UI) and the loop
+        // resumes by itself. Refresh pendingAsks whenever the set CHANGES so
+        // the chat never shows a stale question list.
         const askSig = askList.map((a) => a.label).join('|');
         if (!questionsNotified || this.asksSig !== askSig) {
           questionsNotified = true;
@@ -732,7 +766,7 @@ class Session {
           this.waitReason = 'QUESTIONS_REQUIRED';
           this.pendingAsks = askList;
           this.setState('WAITING_FOR_USER');
-          this.emit('HUMAN_ACTION_REQUIRED', `QUESTIONS_REQUIRED:${String(decision.asks[0].label).slice(0, 80)}`);
+          this.emit('HUMAN_ACTION_REQUIRED', `QUESTIONS_REQUIRED:${String(askList[0].label || '').slice(0, 80)}`);
         }
         // Waiting on the human must not consume the loop budget: the run can
         // sit here for as long as the user needs (bounded to 1 hour total)

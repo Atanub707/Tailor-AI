@@ -199,7 +199,28 @@ function buildActScript(action) {
         return true;
       } catch (e) { try { node.value = value; return true; } catch (e2) { return false; } }
     };
-    const findOpenMenu = () => document.querySelector('[role="listbox"]') || document.querySelector('[class*="listbox"], [class*="menu"], [class*="popover"], [class*="dropdown"]');
+    // SCOPED menu lookup: only THIS field's react-select menu counts. The
+    // intl-tel-input widget keeps a PERMANENT 244-option [role="listbox"]
+    // (iti__country-list) in the DOM — reading it poisoned every combobox.
+    const findOpenMenu = () => {
+      try {
+        const own = document.querySelector('.select__menu');
+        if (own) return own;
+        const id = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
+        if (id) { const m = document.getElementById(id); if (m && !m.classList.contains('iti__country-list')) return m; }
+        const cont = el.closest('.select__container') || el.closest('.select__control');
+        const local = cont ? cont.querySelector('.select__menu') : null;
+        if (local) return local;
+        // Portaled react-select menus: react-select keeps focus on THIS input
+        // while its own menu is open — only then read a NON-iti listbox.
+        const active = document.activeElement;
+        const ctl = el.closest('.select__control');
+        if (active && ctl && (ctl.contains(active) || active === el)) {
+          return document.querySelector('[role="listbox"]:not(.iti__country-list):not([class*="iti__"])');
+        }
+        return null;
+      } catch (e) { return null; }
+    };
     const findComboboxOption = async (wanted) => {
       const want = String(wanted || '').trim().toLowerCase();
       const startMs = Date.now();
@@ -402,6 +423,26 @@ function buildComboboxCheckScript(ref) {
   })()`;
 }
 
+/** Is THIS field's combobox menu open? Scoped to the field — the permanent
+ *  iti__country-list (intl-tel-input) must NEVER count as an open menu. */
+function buildMenuCheckScript(ref) {
+  const safeRef = String(ref || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  return `(() => {
+    const el = document.querySelector('[data-ta-ref="${safeRef}"]');
+    if (!el) return false;
+    if (document.querySelector('.select__menu')) return true;
+    const id = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
+    if (id) { const m = document.getElementById(id); if (m && !m.classList.contains('iti__country-list')) return true; }
+    const cont = el.closest('.select__container') || el.closest('.select__control');
+    if (cont && cont.querySelector('.select__menu')) return true;
+    const active = document.activeElement;
+    if (cont && active && (cont.contains(active) || active === el)) {
+      return !!document.querySelector('[role="listbox"]:not(.iti__country-list):not([class*="iti__"])');
+    }
+    return false;
+  })()`;
+}
+
 // ── Legacy scripted-mode helpers (agent mode is required for Greenhouse) ──
 function unsupported() {
   return `(() => ({ ok: false, code: 'AGENT_MODE_REQUIRED' }))()`;
@@ -420,6 +461,7 @@ module.exports = {
   buildCheckpointScript,
   buildConfirmationScript,
   buildComboboxCheckScript,
+  buildMenuCheckScript,
   buildFillScript: unsupported,
   buildReadBackScript: unsupported,
   buildPlanScript: unsupported,
