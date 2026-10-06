@@ -270,6 +270,46 @@ export async function fetchDesktopExecutionStatus(attemptId: string): Promise<{ 
   }
 }
 
+export interface ActiveDesktopExecution {
+  executionId: string;
+  attemptId: string;
+  jobId: string;
+  state: string;
+  lastEvent?: string;
+  updatedAt?: string;
+}
+
+// Shared short cache: every job row adopts live executions on mount — one
+// fetch answers them all within the TTL window.
+let activeExecCache: { at: number; promise: Promise<ActiveDesktopExecution[]> } | null = null;
+
+export async function fetchActiveExecutions(maxAgeMs = 10_000): Promise<ActiveDesktopExecution[]> {
+  const now = Date.now();
+  if (activeExecCache && now - activeExecCache.at < maxAgeMs) return activeExecCache.promise;
+  const promise = (async () => {
+    try {
+      const res = await fetch('/api/auto-apply/active-executions');
+      if (!res.ok) return [];
+      const data = await res.json().catch(() => null);
+      const list = Array.isArray(data?.executions) ? (data.executions as Array<Record<string, unknown>>) : [];
+      return list
+        .map((e) => ({
+          executionId: String(e?.executionId || ''),
+          attemptId: String(e?.attemptId || ''),
+          jobId: String(e?.jobId || ''),
+          state: String(e?.state || ''),
+          lastEvent: typeof e?.lastEvent === 'string' ? e.lastEvent : undefined,
+          updatedAt: typeof e?.updatedAt === 'string' ? e.updatedAt : undefined,
+        }))
+        .filter((e) => e.executionId && e.jobId);
+    } catch {
+      return [];
+    }
+  })();
+  activeExecCache = { at: now, promise };
+  return promise;
+}
+
 export interface DesktopRowView {
   state: import('./autoApply').AaRowState;
   message: string;

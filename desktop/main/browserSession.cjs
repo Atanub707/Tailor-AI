@@ -20,11 +20,13 @@ const STATES = [
 const CHECKPOINT_POLL_MS = 2000;
 const CHECKPOINT_TIMEOUT_MS = 15 * 60 * 1000;
 const NAV_TIMEOUT_MS = 30_000;
-// AGENT MODE (Phase 2): when enabled, the session is driven by the decision
-// loop (observe → server decide → act) instead of the per-field scripts.
-// Env-gated so normal runs keep the scripted path until this is proven.
-const AGENT_MODE_ENABLED = process.env.TAILOR_BROWSER_AGENT_MODE === '1';
+// AGENT MODE (Phase 2): the session is driven by the decision loop
+// (observe → server decide → act) instead of the per-field scripts. Default
+// ON (both providers need it: Greenhouse has no scripted path); set
+// TAILOR_BROWSER_AGENT_MODE=0 to fall back to the scripted Lever path.
+const AGENT_MODE_ENABLED = process.env.TAILOR_BROWSER_AGENT_MODE !== '0';
 const AUTO_CLOSE_FAILED_MS = 20_000;
+const AUTO_CLOSE_SUBMITTED_MS = 12_000; // let the confirmation page render, then close
 const AUTO_CLOSE_READY_MS = 10 * 60 * 1000; // explicit-review window stays open (10 min)
 
 class Session {
@@ -329,6 +331,7 @@ class Session {
       if (conf && (conf.confirmed || conf.duplicate)) {
         this.setState('SUBMITTED');
         this.emit('SUBMISSION_CONFIRMED', conf.duplicate ? 'ALREADY_APPLIED' : (conf.evidence || 'SUCCESS_TEXT'));
+        this.scheduleAutoClose(AUTO_CLOSE_SUBMITTED_MS);
         return { ok: true, result: { ok: true, code: 'AGENT_CONFIRMED' } };
       }
       this.setState('INSPECTING');
@@ -607,6 +610,7 @@ class Session {
       if (conf && (conf.confirmed || conf.duplicate)) {
         this.setState('SUBMITTED');
         this.emit('SUBMISSION_CONFIRMED', conf.duplicate ? 'ALREADY_APPLIED' : (conf.evidence || 'SUCCESS_TEXT'));
+        this.scheduleAutoClose(AUTO_CLOSE_SUBMITTED_MS);
         return { ok: true, statuses: 'AGENT_CONFIRMED' };
       }
 
@@ -645,14 +649,17 @@ class Session {
       }
       this.emit('FORM_DISCOVERED', `agent cycle=${cycle} actions=${decision.actions.length} asks=${decision.asks.length}`);
 
-      // Apply answerable actions FIRST so filling proceeds even while a
-      // question is pending; submission stays gated on the ask clearing below.
+      // QUESTIONS FIRST (user requirement): when the form has questions the
+      // chat can answer, ASK before touching any input — the user's answers
+      // drive the fills. Only browser-only asks (consent/EEO/CAPTCHA) do not
+      // hold the fills. Filling first guessed values and produced re-asks.
+      const chatAsks = (decision.asks || []).filter((a) => a.human !== true);
       let actedThisCycle = false;
-      if (decision.actions.length) {
-        // While a question is pending the visible state must STAY on
-        // 'Action needed' — background fills keep running, but flipping the
-        // state to FILLING every cycle made the button thrash (real progress
-        // looked like an infinite loop).
+      if (!chatAsks.length && decision.actions.length) {
+        // Human-only asks (consent) do not hold fills, but the visible state
+        // must STAY on 'Action needed' while they are pending — flipping to
+        // FILLING every cycle made the button thrash (real progress looked
+        // like an infinite loop).
         if (!decision.asks.length) this.setState('FILLING');
         let applied = 0;
         for (const a of decision.actions) {
@@ -810,6 +817,7 @@ class Session {
     if (!r.ok) {
       this.setState('FAILED');
       this.emit('SUBMISSION_FAILED', r.code);
+      this.scheduleAutoClose(AUTO_CLOSE_FAILED_MS);
       return r;
     }
     if (r.rect && r.rect.w > 0 && r.rect.h > 0) {
@@ -820,6 +828,7 @@ class Session {
         if (!fallback.ok) {
           this.setState('FAILED');
           this.emit('SUBMISSION_FAILED', fallback.code);
+          this.scheduleAutoClose(AUTO_CLOSE_FAILED_MS);
           return fallback;
         }
       }
@@ -1080,6 +1089,11 @@ class BrowserSessionManager {
     }
     try { console.log('TAILOR_BROWSER_SESSION_CLOSED', session.executionId, reason); } catch { /* ignore */ }
     this.emit(session, 'SESSION_CLOSED', reason);
+    // The agent owns the window lifecycle: when the LAST session ends, the
+    // window hides itself (no lingering empty shell after a finished run).
+    if (this.sessions.size === 0 && this.parentWindow && !this.parentWindow.isDestroyed()) {
+      try { this.parentWindow.hide(); } catch { /* window already gone */ }
+    }
     return { ok: true };
   }
 

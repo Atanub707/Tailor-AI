@@ -6,7 +6,7 @@
 //   deterministic → VERIFIED ANSWER BANK → Laya → generative → user.
 
 import { getDb } from '../../storage/fileStorage.js';
-import { listAnswers, upsertAnswer, recordUsage, getAnswerById } from './answerBankStore.js';
+import { listAnswers, upsertAnswer, recordUsage, getAnswerById, upsertRunAnswer } from './answerBankStore.js';
 import { AnswerBankMatcher } from './answerMatcher.js';
 import { answerBankConfigFromEnv } from './answerBankTypes.js';
 import { canonicalKeyForQuestion } from './answerCanonicalizer.js';
@@ -33,10 +33,11 @@ export interface BankQuestionResolution {
 }
 
 /** Resolve a set of questions against the user's Answer Bank. Pure reads —
- *  usage is recorded by the caller for clean (non-review) matches only. */
-export function resolveQuestionsFromBank(userId: string, questions: BankQuestionInput[]): BankQuestionResolution[] {
+ *  usage is recorded by the caller for clean (non-review) matches only.
+ *  `extraRecords` lets a run merge its RUN-SCOPED one-shot answers in. */
+export function resolveQuestionsFromBank(userId: string, questions: BankQuestionInput[], extraRecords: AnswerBankRecord[] = []): BankQuestionResolution[] {
   const cfg = answerBankConfigFromEnv();
-  const records = listAnswers(userId);
+  const records = [...extraRecords, ...listAnswers(userId)];
   const matcher = new AnswerBankMatcher(cfg);
   return questions.map((q) => {
     const match = matcher.match(
@@ -82,16 +83,23 @@ export interface LearnAnswerResult {
   answer?: AnswerBankRecord;
 }
 
-/** Question-learning: the user answers a missing question once; when they
- *  approve reuse, it enters the bank as VERIFIED USER_PROVIDED. Ownership of
- *  the job is validated (the job must belong to this user). */
+/** Question-learning: the user answers a missing question once. Remembered
+ *  answers enter the reusable bank; "remember OFF" answers are stored
+ *  RUN-SCOPED — used by THIS job's agent loop, never reused elsewhere. */
 export function answerQuestionForJob(userId: string, input: LearnAnswerInput): LearnAnswerResult {
   const job = getJobByIdForUser(userId, input.jobId);
   if (!job) return { stored: false, reason: 'JOB_NOT_FOUND' };
   const question = String(input.question || '').trim();
   const answer = String(input.answer || '').trim();
   if (!question || !answer) return { stored: false, reason: 'INVALID_INPUT' };
-  if (!input.remember) return { stored: false, reason: 'NOT_REMEMBERED' };
+  if (!input.remember) {
+    const record = upsertRunAnswer(userId, input.jobId, {
+      canonicalQuestion: question,
+      answerType: input.answerType ?? 'TEXTAREA',
+      answerValue: answer,
+    });
+    return { stored: true, reason: 'RUN_ONLY', answer: record };
+  }
   const record = upsertAnswer(userId, {
     canonicalQuestion: question,
     canonicalKey: canonicalKeyForQuestion(question),

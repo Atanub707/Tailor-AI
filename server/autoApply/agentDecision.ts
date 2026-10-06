@@ -13,7 +13,7 @@
 // state (async only to consult the local Laya sidecar).
 
 import { resolveQuestionsFromBank } from './answerBank/answerBankService.js';
-import { answerBankConfigFromEnv, listAnswers } from './answerBank/answerBankStore.js';
+import { answerBankConfigFromEnv, listAnswers, listRunAnswers } from './answerBank/answerBankStore.js';
 import { layaConfigFromEnv } from './decisionEngine.js';
 import { LayaDecisionEngine } from './layaDecisionEngine.js';
 import { getMasterCv, runWithUser } from '../storage/fileStorage.js';
@@ -276,10 +276,13 @@ export function composeDecision(state: ObservedState, values: Map<string, string
 }
 
 /** DB-backed value resolution: profile/CV identity → bank label match → Laya. */
-export async function resolveAgentValues(userId: string, fields: ObservedField[]): Promise<Map<string, string>> {
+export async function resolveAgentValues(userId: string, fields: ObservedField[], jobId?: string): Promise<Map<string, string>> {
   const values = new Map<string, string>();
   const candidates = fields.filter((f) => !isConsentField(f) && f.kind !== 'file');
   if (!candidates.length) return values;
+  // RUN-SCOPED answers ("Remember" OFF) resolve first — this job only.
+  const runRecords = jobId ? listRunAnswers(userId, jobId) : [];
+  const allRecords = () => [...runRecords, ...listAnswers(userId)];
 
   // Identity/contact fields come from the Master CV FIRST — the bank must
   // never override canonical identity values (e.g., email) via fuzzy matches.
@@ -318,7 +321,7 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
   const stillUnmatched = candidates.filter((f) => !values.has(f.ref));
   if (stillUnmatched.length) {
     try {
-      const records = listAnswers(userId);
+      const records = allRecords();
       for (const f of stillUnmatched) {
         const keys = bankKeysForLabel(`${f.label || ''} ${f.name || ''}`);
         if (!keys.length) continue;
@@ -351,7 +354,7 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
   const prefixUnmatched = candidates.filter((f) => !values.has(f.ref) && !conceptRefs.has(f.ref));
   if (prefixUnmatched.length) {
     try {
-      const records = listAnswers(userId);
+      const records = allRecords();
       const norm = (t: string) => String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
       for (const f of prefixUnmatched) {
         const label = norm(f.label);
@@ -381,6 +384,7 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
         fieldType: kindToBankType(f.kind),
         options: (f.options || []).map((o) => o.option),
       })),
+      runRecords,
     );
     for (const r of resolved) {
       if (r.matchStatus === 'NONE' || r.value === null || r.value === undefined) continue;
@@ -393,7 +397,7 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
   const layaCfg = layaConfigFromEnv();
   if (unmatched.length && layaCfg.enabled) {
     const engine = new LayaDecisionEngine({ url: layaCfg.url, timeoutMs: layaCfg.timeoutMs });
-    const records = listAnswers(userId);
+    const records = allRecords();
     for (const f of unmatched.slice(0, layaCfg.maxFields)) {
       const result = await engine.classifyField({
         label: f.label,
@@ -418,9 +422,9 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
 }
 
 /** The loop's single entry point: observe → decide. */
-export async function agentDecide(input: { userId: string; state: ObservedState }): Promise<AgentDecision> {
+export async function agentDecide(input: { userId: string; state: ObservedState; jobId?: string }): Promise<AgentDecision> {
   const state = input.state;
   if (state.captchaPresent || !state.formPresent) return composeDecision(state, new Map());
-  const values = await resolveAgentValues(input.userId, state.fields || []);
+  const values = await resolveAgentValues(input.userId, state.fields || [], input.jobId);
   return composeDecision(state, values);
 }

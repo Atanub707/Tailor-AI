@@ -2819,7 +2819,7 @@ const sanitizeAttemptDryRun = (a: any) => ({
       const exec = getExecutionByStatusToken(getDb(), statusToken);
       if (!exec) return res.status(401).json({ error: 'UNKNOWN_EXECUTION' });
       const { agentDecide } = await import('./server/autoApply/agentDecision.js');
-      const decision = await agentDecide({ userId: exec.userId, state: state as never });
+      const decision = await agentDecide({ userId: exec.userId, state: state as never, jobId: exec.jobId });
       return res.json({ ok: true, decision });
     } catch { return res.status(500).json({ error: 'AGENT_DECIDE_ERROR' }); }
   });
@@ -2861,6 +2861,23 @@ const sanitizeAttemptDryRun = (a: any) => ({
       if (!exec) return res.status(404).json({ error: 'NO_EXECUTION' });
       return res.json({ state: exec.state, event: exec.lastEvent, updatedAt: exec.updatedAt, executionId: exec.executionId, jobId: exec.jobId });
     } catch { return res.status(500).json({ error: 'STATUS_ERROR' }); }
+  });
+
+  // Reload amnesia fix: rows ADOPT live executions after a page refresh —
+  // the browser reconnects to sessions that are still running.
+  app.get('/api/auto-apply/active-executions', async (req, res) => {
+    try {
+      const userId = getCurrentUserId() || String((req.body && req.body.userId) || (req.query && req.query.userId) || '');
+      if (!userId) return res.status(400).json({ error: 'MISSING_USER' });
+      const { getActiveExecutionsForUser } = await import('./server/autoApply/desktopHandoff.js');
+      const actives = getActiveExecutionsForUser(getDb(), userId);
+      return res.json({
+        executions: actives.map((e) => ({
+          executionId: e.executionId, attemptId: e.attemptId, jobId: e.jobId,
+          state: e.state, lastEvent: e.lastEvent, updatedAt: e.updatedAt,
+        })),
+      });
+    } catch { return res.status(500).json({ error: 'ACTIVE_EXECUTIONS_ERROR' }); }
   });
 
   // ---------------- Auto Apply Phase 5: Controlled Auto Submit (Lever only) ----------------

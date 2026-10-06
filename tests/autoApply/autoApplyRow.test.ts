@@ -171,10 +171,11 @@ describe('AA click never leaves the job list', () => {
     expect(button).not.toContain('reviewAvailable');
   });
 
-  it('desktop unavailable → explicit error + launch affordances, never an ATS fallback', () => {
+  it('desktop unavailable → one explicit action (launch), never an ATS fallback', () => {
     expect(button).toContain('Tailor Browser is not running.');
     expect(button).toContain('Launch Tailor Browser');
-    expect(button).toContain('Try again');
+    // Single affordance: the amber button itself retries after launch.
+    expect(button).not.toContain('Try again');
     expect(button).toContain('launchTailorBrowser()');
   });
 

@@ -40,6 +40,17 @@ export function ensureAnswerBankSchema(): void {
       ON auto_apply_answer_bank (user_id, canonical_key) WHERE canonical_key IS NOT NULL;
     CREATE UNIQUE INDEX IF NOT EXISTS idx_aab_user_norm
       ON auto_apply_answer_bank (user_id, normalized_question);
+    CREATE TABLE IF NOT EXISTS auto_apply_run_answers (
+      user_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      canonical_key TEXT,
+      canonical_question TEXT NOT NULL,
+      normalized_question TEXT NOT NULL,
+      answer_type TEXT NOT NULL,
+      answer_value TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, job_id, normalized_question)
+    );
   `);
   const cols = getDb().prepare('PRAGMA table_info(auto_apply_answer_bank)').all() as Array<{ name: string }>;
   if (!cols.some((c) => c.name === 'options')) {
@@ -229,4 +240,89 @@ export function recordUsage(userId: string, id: string): void {
   ensureAnswerBankSchema();
   getDb().prepare('UPDATE auto_apply_answer_bank SET usage_count = usage_count + 1, last_used_at = ? WHERE user_id = ? AND id = ?')
     .run(new Date().toISOString(), userId, id);
+}
+
+// ── RUN-SCOPED one-shot answers ("Remember" OFF) ─────────────────────────
+// Used for THIS job's run only: never written to the reusable bank, never
+// visible to other applications, never overwriting a remembered answer.
+
+const RUN_ANSWER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+export function upsertRunAnswer(
+  userId: string,
+  jobId: string,
+  input: { canonicalQuestion: string; answerType?: AnswerType; answerValue: AnswerValue }
+): AnswerBankRecord {
+  ensureAnswerBankSchema();
+  const now = new Date().toISOString();
+  const normalized = normalizeQuestion(input.canonicalQuestion);
+  const canonicalKey = canonicalKeyForQuestion(input.canonicalQuestion);
+  getDb().prepare(`
+    INSERT INTO auto_apply_run_answers
+      (user_id, job_id, canonical_key, canonical_question, normalized_question, answer_type, answer_value, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(user_id, job_id, normalized_question) DO UPDATE SET
+      canonical_key = excluded.canonical_key,
+      canonical_question = excluded.canonical_question,
+      answer_type = excluded.answer_type,
+      answer_value = excluded.answer_value,
+      created_at = excluded.created_at
+  `).run(
+    userId, jobId, canonicalKey ?? null, input.canonicalQuestion, normalized,
+    input.answerType ?? 'TEXTAREA', JSON.stringify(input.answerValue ?? null), now
+  );
+  // Opportunistic cleanup — run answers expire by themselves.
+  try {
+    getDb().prepare('DELETE FROM auto_apply_run_answers WHERE user_id = ? AND created_at < ?')
+      .run(userId, new Date(Date.now() - RUN_ANSWER_TTL_MS).toISOString());
+  } catch { /* cleanup is best-effort */ }
+  return {
+    id: `run-${jobId}-${normalized.slice(0, 40)}`,
+    userId,
+    canonicalKey,
+    canonicalQuestion: input.canonicalQuestion,
+    normalizedQuestion: normalized,
+    answerType: input.answerType ?? 'TEXTAREA',
+    answerValue: input.answerValue ?? null,
+    source: 'USER_PROVIDED',
+    verificationStatus: 'VERIFIED',
+    sensitivity: 'NORMAL',
+    reusable: true,
+    aliases: [],
+    createdAt: now,
+    updatedAt: now,
+    usageCount: 0,
+    provenance: `job:${jobId}`,
+  };
+}
+
+/** Run-scoped answers for THIS job, shaped exactly like bank records so every
+ *  resolution path (concept, prefix, bank, Laya) consumes them unchanged. */
+export function listRunAnswers(userId: string, jobId: string): AnswerBankRecord[] {
+  ensureAnswerBankSchema();
+  const rows = getDb()
+    .prepare('SELECT * FROM auto_apply_run_answers WHERE user_id = ? AND job_id = ? AND created_at >= ?')
+    .all(userId, jobId, new Date(Date.now() - RUN_ANSWER_TTL_MS).toISOString()) as Record<string, unknown>[];
+  return rows.map((row) => {
+    let value: AnswerValue = null;
+    try { value = JSON.parse(String(row.answer_value)) as AnswerValue; } catch { value = null; }
+    return {
+      id: `run-${jobId}-${String(row.normalized_question).slice(0, 40)}`,
+      userId,
+      canonicalKey: row.canonical_key ? String(row.canonical_key) : undefined,
+      canonicalQuestion: String(row.canonical_question),
+      normalizedQuestion: String(row.normalized_question),
+      answerType: String(row.answer_type) as AnswerType,
+      answerValue: value,
+      source: 'USER_PROVIDED' as AnswerSourceKind,
+      verificationStatus: 'VERIFIED' as AnswerVerificationStatus,
+      sensitivity: 'NORMAL' as AnswerSensitivity,
+      reusable: true,
+      aliases: [],
+      createdAt: String(row.created_at),
+      updatedAt: String(row.created_at),
+      usageCount: 0,
+      provenance: `job:${jobId}`,
+    };
+  });
 }

@@ -38,6 +38,7 @@ import {
   stopDesktopExecution,
   submitDesktopExecution,
   fetchDesktopExecutionStatus,
+  fetchActiveExecutions,
   mapDesktopStateToRow,
 } from '../lib/browserExecutionTransport';
 import { pushDesktopEvent, resetDesktopTimeline } from '../lib/desktopTimeline';
@@ -57,6 +58,9 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
   const [open, setOpen] = useState(false);
   const [midRunAsks, setMidRunAsks] = useState<AnswerChatQuestion[] | null>(null);
   const handledAskSigRef = useRef('');
+  // When the user answered an ask and it PERSISTS (answer didn't resolve the
+  // field), the chat reopens after this cooldown instead of dead-ending.
+  const answeredAtRef = useRef(0);
   const desktopBridge = tailorBrowserBridge();
   const pollRef = useRef<number | null>(null);
   const askPollRef = useRef<number | null>(null);
@@ -96,6 +100,31 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
       })
       .catch(() => { /* pane state defaults to hidden until a session shows it */ });
   }, [desktopBridge]);
+
+  // RELOAD ADOPTION: after a page refresh the row forgot its live execution —
+  // reconnect to the session that is STILL running (server knows; the bridge
+  // proves it is alive) instead of dead-ending on a stale row.
+  useEffect(() => {
+    if (!desktopBridge) return;
+    let alive = true;
+    void (async () => {
+      try {
+        const [execs, health] = await Promise.all([fetchActiveExecutions(), desktopHealth()]);
+        const exec = execs.find((e) => e.jobId === job.id);
+        if (!exec || !alive) return;
+        const live = (health.sessions || []).find((s) => s.executionId === exec.executionId);
+        if (!live) return;
+        setCurrentExecution({ executionId: exec.executionId, attemptId: exec.attemptId, jobId: job.id, jobTitle: job.title, company: job.company });
+        setAttemptId(exec.attemptId);
+        setState('USER_ACTION_REQUIRED');
+        setMessage('This job is already running in Tailor Browser — the run continues by itself and closes when it finishes.');
+        if (exec.attemptId) startDesktopStatusPolling(exec.attemptId);
+        startAskWatcher(exec.executionId);
+      } catch { /* adoption is best-effort; clicking Auto Apply still recovers */ }
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [desktopBridge, job.id]);
 
   if (!enabled) return null;
 
@@ -395,8 +424,13 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
           }));
         if (!qs.length) return;
         const sig = `${executionId}|${qs.map((q) => q.label).join('|')}`;
-        if (sig !== handledAskSigRef.current) {
+        // A saved answer that did NOT resolve the question (the ask persists)
+        // must not dead-end: reopen the chat after a short cooldown so the
+        // user can retry. Closing the chat manually never triggers this.
+        const unansweredRetry = answeredAtRef.current > 0 && Date.now() - answeredAtRef.current > 15_000;
+        if (sig !== handledAskSigRef.current || unansweredRetry) {
           handledAskSigRef.current = sig;
+          answeredAtRef.current = 0;
           setMidRunAsks(qs);
           setOpen(true);
         }
@@ -408,7 +442,11 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     if (!currentExecution) return;
     await stopDesktopExecution(currentExecution.executionId);
     setCurrentExecution(null);
+    setAttemptId(null);
     stopPolling();
+    setMidRunAsks(null);
+    handledAskSigRef.current = '';
+    answeredAtRef.current = 0;
     setState('IDLE');
     setMessage('Stopped the Tailor Browser session.');
   };
@@ -417,6 +455,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     if (!desktopBridge) return;
     stopPolling();
     handledAskSigRef.current = '';
+    answeredAtRef.current = 0;
     setMidRunAsks(null);
     setMessage(null);
     setState('STARTING');
@@ -631,6 +670,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) return { ok: false, error: (data && data.error) || 'Could not save that answer — try again.' };
+      answeredAtRef.current = Date.now();
       // RESUME NOW: the answer is in the bank — nudge the desktop agent so it
       // stops waiting and continues immediately (idempotent; no-op if it is
       // already running).
@@ -713,31 +753,31 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
           </span>
         )}
       </button>
-      {desktopUnavailable && (
-        <>
-          <button type="button" onClick={() => launchTailorBrowser()} title="Launch the Tailor Browser desktop app" className="text-[10.5px] font-bold text-[var(--color-brand)] underline whitespace-nowrap cursor-pointer">
-            Launch Tailor Browser
-          </button>
-          <button type="button" onClick={() => void handleAaClick()} title="Check again and start execution" className="text-[10.5px] font-bold text-[var(--color-brand)] underline whitespace-nowrap cursor-pointer">
-            Try again
-          </button>
-        </>
+      {currentExecution && (busy || attention || state === 'READY_FOR_REVIEW') && (
+        <button
+          type="button"
+          onClick={() => void stopCurrentExecution()}
+          title="Stop this run in Tailor Browser"
+          className="text-[10.5px] font-bold text-[var(--color-faint)] underline whitespace-nowrap cursor-pointer hover:text-[var(--color-ink)]"
+        >
+          Stop
+        </button>
       )}
-      {state === 'READY_FOR_REVIEW' && !desktopBridge && currentExecution && (
+      {desktopUnavailable && (
+        <button type="button" onClick={() => launchTailorBrowser()} title="Launch the Tailor Browser desktop app" className="text-[10.5px] font-bold text-[var(--color-brand)] underline whitespace-nowrap cursor-pointer">
+          Launch Tailor Browser
+        </button>
+      )}
+      {state === 'READY_FOR_REVIEW' && currentExecution && (
         <button
           type="button"
           onClick={() => void handleSubmitApplication()}
           disabled={submitBusy}
-          title="One server-authorized submission through Tailor Browser — final revalidation runs first, then the real Lever submit is clicked exactly once."
+          title="One server-authorized submission through Tailor Browser — final revalidation runs first, then the real submit is clicked exactly once."
           className="text-[10.5px] font-bold text-emerald-700 underline whitespace-nowrap cursor-pointer disabled:opacity-50"
         >
-          Submit Application
+          {submitBusy ? 'Submitting…' : 'Submit Application'}
         </button>
-      )}
-      {state === 'READY_FOR_REVIEW' && desktopBridge && (
-        <span className="text-[10.5px] text-emerald-700 whitespace-nowrap" title="Explicit submission for Tailor Browser ships after the live fill MVP passes — submit is intentionally OFF.">
-          Ready — submit disabled (MVP)
-        </span>
       )}
       {state === 'READY_FOR_REVIEW' && decision && !decision.allowed && decision.blockerCodes.length > 0 && (
         <span className="text-[10.5px] text-amber-700 whitespace-nowrap" title={decision.blockerCodes.join(', ')}>
@@ -746,6 +786,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
       )}
             {open && chatQuestions.length > 0 && (
         <AnswerChatPanel
+          key={chatQuestions.map((q) => q.label).join('|')}
           jobTitle={job.title}
           company={job.company}
           questions={chatQuestions}

@@ -125,14 +125,22 @@ describe('Deterministic scripts — invariants (never submit, never bypass CAPTC
     expect(bridge).toContain("'/agent/act'");
   });
 
-  it('AGENT mode is env-gated and the loop drives observe → decide → act', () => {
+  it('AGENT mode is ON by default (opt-out) and the loop drives observe → decide → act', () => {
     const s = read('desktop/main/browserSession.cjs');
-    expect(s).toContain("TAILOR_BROWSER_AGENT_MODE === '1'");
+    expect(s).toContain("TAILOR_BROWSER_AGENT_MODE !== '0'");
     expect(s).toContain('async agentRun()');
     expect(s).toContain('async agentLoop()');
     expect(s).toContain('/api/auto-apply/agent/decide');
     expect(s).toContain("emit('HUMAN_ACTION_REQUIRED', 'CAPTCHA_REQUIRED')");
     expect(s).toContain('async agentFinalRevalidation()');
+  });
+
+  it('QUESTIONS FIRST: chat-answerable asks hold every fill until answered', () => {
+    const s = read('desktop/main/browserSession.cjs');
+    const loop = s.slice(s.indexOf('async agentLoop()'), s.indexOf('async agentFinalRevalidation()'));
+    expect(loop).toContain('const chatAsks = (decision.asks || []).filter((a) => a.human !== true)');
+    // Fills run only when NO chat-answerable ask is pending.
+    expect(loop).toContain('if (!chatAsks.length && decision.actions.length) {');
   });
 
   it('the bridge passes the execution token to the session for decisions', () => {

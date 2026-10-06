@@ -25,11 +25,12 @@ const { FixtureInspectionAdapter } = await import('../../server/applicationEngin
 const { resetInspectionState } = await import('../../server/applicationEngine/leverInspector.js');
 const {
   ensureAnswerBankSchema, listAnswers, getAnswerById, upsertAnswer, updateAnswer,
-  deleteAnswer, recordUsage, answerBankConfigFromEnv,
+  deleteAnswer, recordUsage, answerBankConfigFromEnv, listRunAnswers,
 } = await import('../../server/autoApply/answerBank/answerBankStore.js');
 const { normalizeQuestion, canonicalKeyForQuestion } = await import('../../server/autoApply/answerBank/answerCanonicalizer.js');
 const { AnswerBankMatcher } = await import('../../server/autoApply/answerBank/answerMatcher.js');
 const { answerQuestionForJob, resolveQuestionsFromBank } = await import('../../server/autoApply/answerBank/answerBankService.js');
+const { resolveAgentValues } = await import('../../server/autoApply/agentDecision.js');
 const { evaluateSubmissionReadiness } = await import('../../server/autoApply/submissionReadiness.js');
 const { autoApplyEnabled, runAutoApplyDryRun } = await import('../../server/autoApply/autoApplyService.js');
 import type { DecisionEngine, FieldClassificationInput, FieldClassificationResult } from '../../server/autoApply/decisionEngine.js';
@@ -413,7 +414,7 @@ describe('Answer Bank resolution + question learning', () => {
     expect(reused?.value).toBe('I enjoy building reliable developer platforms.');
   });
 
-  it('learning without remember does not store anything', async () => {
+  it('learning without remember stores a RUN-SCOPED answer (never the reusable bank)', async () => {
     const j = job({ id: 'ab-noremember' });
     seedJob(j);
     const before = listAnswers(USER).length;
@@ -424,8 +425,39 @@ describe('Answer Bank resolution + question learning', () => {
       answerType: 'TEXT',
       remember: false,
     }));
-    expect(learned.stored).toBe(false);
+    // Stored for THIS run (the loop must resume), explicitly not reusable.
+    expect(learned.stored).toBe(true);
+    expect(learned.reason).toBe('RUN_ONLY');
     expect(listAnswers(USER).length).toBe(before);
+    const runOnly = listRunAnswers(USER, j.id);
+    expect(runOnly).toHaveLength(1);
+    expect(runOnly[0].answerValue).toBe('Postgres');
+    // Another job never sees it.
+    expect(listRunAnswers(USER, 'some-other-job')).toHaveLength(0);
+    // This job's run resolves it through the exact same matching path.
+    const [res] = resolveQuestionsFromBank(
+      USER,
+      [{ providerFieldId: 'f1', label: 'What is your favorite database?', fieldType: 'TEXT' }],
+      runOnly,
+    );
+    expect(res.matchStatus).not.toBe('NONE');
+    expect(res.value).toBe('Postgres');
+  });
+
+  it('agent value resolution: a RUN-ONLY answer resolves for its job — and only that job', async () => {
+    const j = job({ id: 'ab-runonly-agent' });
+    seedJob(j);
+    await runWithUser(USER, () => answerQuestionForJob(USER, {
+      jobId: j.id,
+      question: 'Describe your ideal work environment.',
+      answer: 'Remote-first with deep focus time.',
+      remember: false,
+    }));
+    const fields = [{ ref: 'f1', kind: 'textarea', label: 'Describe your ideal work environment.' }];
+    const mine = await resolveAgentValues(USER, fields, j.id);
+    expect(mine.get('f1')).toBe('Remote-first with deep focus time.');
+    const other = await resolveAgentValues(USER, fields, 'ab-learn-2');
+    expect(other.get('f1')).toBeUndefined();
   });
 
   it('resolveQuestionsFromBank reports review-required for stale answers', () => {

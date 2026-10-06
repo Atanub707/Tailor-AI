@@ -158,10 +158,10 @@ describe('No-redirect contract (Phases 6/22/29)', () => {
     expect(poll).toBeGreaterThan(start);
   });
 
-  it('6/27. desktop unavailable → explicit error + launch actions, never an ATS tab', () => {
+  it('6/27. desktop unavailable → one explicit launch action, never an ATS tab', () => {
     expect(button).toContain("setMessage('Tailor Browser is not running.')");
     expect(button).toContain('Launch Tailor Browser');
-    expect(button).toContain('Try again');
+    expect(button).not.toContain('Try again');
     expect(button).toContain('launchTailorBrowser()');
   });
 
