@@ -39,10 +39,10 @@ describe('Agent decision core (one layer, pure)', () => {
     expect(bankKeysForLabel('LinkedIn Profile')).toContain('linkedinUrl');
     expect(bankKeysForLabel('Do you require sponsorship?')).toContain('requiresSponsorship');
     expect(bankKeysForLabel('Favorite color')).toEqual([]);
-    // Phone country-code pickers are NOT country questions (real mis-fill: a
-    // residence value was typed into the dial-code combobox).
-    expect(bankKeysForLabel('Please select your Country Phone Code*')).toEqual([]);
-    expect(bankKeysForLabel('Dial code')).toEqual([]);
+    // Phone country-code pickers are NOT phone-number fields: their answer is
+    // the COUNTRY NAME (the widget appends the dial code itself).
+    expect(bankKeysForLabel('Please select your Country Phone Code*')).toContain('currentCountry');
+    expect(bankKeysForLabel('Dial code')).toContain('currentCountry');
   });
 
   it('asks carry the form options so the answer chat can render chips', () => {    const d = composeDecision(
@@ -123,6 +123,30 @@ describe('Agent decision core (one layer, pure)', () => {
     expect(d.submit).toBe(true);
     expect(d.asks).toEqual([]);
     expect(d.actions).toEqual([]);
+  });
+
+  it('multi-value groups: the resolved answer checks the matching member, ONE ask lists the real options', () => {
+    const members = [
+      { ref: 'ta1', kind: 'radio' as const, name: 'g1', label: 'Yes', groupLabel: 'Are you comfortable with the hiring model?', required: true },
+      { ref: 'ta2', kind: 'radio' as const, name: 'g1', label: 'No', groupLabel: 'Are you comfortable with the hiring model?', required: true },
+    ];
+    const filled = composeDecision(base({ fields: members }), new Map([['ta1', 'Yes'], ['ta2', 'Yes']]));
+    expect(filled.actions).toEqual([{ action: 'check', ref: 'ta1', option: 'Yes' }]);
+    expect(filled.asks).toEqual([]);
+    const unanswered = composeDecision(base({ fields: members }), new Map());
+    expect(unanswered.asks).toHaveLength(1);
+    expect(unanswered.asks[0]).toMatchObject({ label: 'Are you comfortable with the hiring model?', human: false, options: ['Yes', 'No'] });
+  });
+
+  it('EEO groups never block: no ask, no action, just a note', () => {
+    const members = [
+      { ref: 'ta1', kind: 'radio' as const, name: 'g2', label: 'Male', groupLabel: 'Which gender do you self-identify?', required: true },
+      { ref: 'ta2', kind: 'radio' as const, name: 'g2', label: 'Female', groupLabel: 'Which gender do you self-identify?', required: true },
+    ];
+    const d = composeDecision(base({ fields: members }), new Map());
+    expect(d.asks).toEqual([]);
+    expect(d.actions).toEqual([]);
+    expect(d.notes.join(' ')).toContain('voluntary EEO group left untouched');
   });
 
   it('the resume upload is an artifact action, never a typed value', () => {

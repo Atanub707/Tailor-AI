@@ -131,6 +131,14 @@ describe('Greenhouse guardrails', () => {
     expect(check).toContain('[data-ta-ref="ta1"]');
     expect(sessionSrc).toContain('buildMenuCheckScript');
   });
+
+  it('observe groups radio/checkbox members under their legend; failures carry the real options', () => {
+    const ob = gh.buildObserveScript();
+    expect(ob).toContain('groupLabel: groupLabelFor(el)');
+    expect(ob).toContain('legend');
+    const act = gh.buildActScript({ action: 'type', ref: 'ta1', value: 'x' });
+    expect(act).toContain('options: all.slice(0, 24)');
+  });
 });
 
 describe('Session provider selection', () => {

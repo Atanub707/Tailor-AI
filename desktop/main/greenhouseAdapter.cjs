@@ -99,19 +99,31 @@ function buildObserveScript() {
       if (type === 'checkbox' || type === 'radio') {
         const groupName = el.getAttribute('name') || '';
         const group = groupName ? Array.from(document.querySelectorAll('[name="' + CSS.escape(groupName) + '"]')) : [el];
+        // Radio/checkbox members: label = the OPTION text, groupLabel = the
+        // question (legend). Multi-value groups resolve from the question and
+        // check the matching member(s).
+        const groupLabelFor = (node) => {
+          const fs = node.closest('fieldset');
+          if (fs) { const lg = fs.querySelector('legend'); if (lg && text(lg.textContent)) return text(lg.textContent).slice(0, 500); }
+          const box = node.closest('[class*="field"], [class*="question"]');
+          if (box) { const lg = box.querySelector('legend'); if (lg && text(lg.textContent)) return text(lg.textContent).slice(0, 500); }
+          return '';
+        };
         fields.push({ ref: ref(el), kind: type === 'radio' ? 'radio' : (group.length > 1 ? 'checkbox-group' : 'checkbox'),
-          name: groupName, label: labelFor(el), required: !!(el.required || el.getAttribute('aria-required') === 'true'), value: String(el.value || '').slice(0, 120), checked: !!el.checked });
+          name: groupName, label: labelFor(el), groupLabel: groupLabelFor(el) || undefined,
+          required: !!(el.required || el.getAttribute('aria-required') === 'true'), value: String(el.value || '').slice(0, 120), checked: !!el.checked });
         continue;
       }
       // Greenhouse "select" combobox: a text input driving a listbox popover.
       if (el.classList && el.classList.contains('select__input')) {
         // react-select: after selection the search input is EMPTY and the
-        // chosen value lives in .select__single-value — read THAT.
+        // chosen value lives in .select__single-value — read THAT. Leftover
+        // filter text is NOT a value (it masked stuck fields as filled).
         const control = el.closest('.select__control') || el.parentElement;
         const single = control ? control.querySelector('.select__single-value') : null;
         const selText = single ? text(single.textContent) : '';
         fields.push({ ref: ref(el), kind: 'custom-select', name: el.id || '', label: labelFor(el), required: !!(el.required || el.getAttribute('aria-required') === 'true'),
-          value: (selText || String(el.value || '')).slice(0, 120), options: [] });
+          value: selText.slice(0, 120), options: [] });
         continue;
       }
       fields.push({ ref: ref(el), kind: el.tagName === 'TEXTAREA' ? 'textarea' : 'text', name: el.id || el.name || '',
@@ -254,8 +266,9 @@ function buildActScript(action) {
         return { rect: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }, text: String(hit.textContent || '').trim().slice(0, 80), index: opts.indexOf(hit) };
       }
       const menu = findOpenMenu();
-      const sample = menu ? Array.from(menu.querySelectorAll('[role="option"], li, [class*="option"]')).slice(0, 4).map((o) => String(o.textContent || '').trim().slice(0, 24)) : [];
-      return { rect: null, diag: { want: want.slice(0, 40), menu: !!menu, opts: menu ? menu.querySelectorAll('[role="option"]').length : 0, sample } };
+      const all = menu ? Array.from(menu.querySelectorAll('[role="option"], li, [class*="option"]')).map((o) => String(o.textContent || '').trim().replace(/\\s*\\+\\d+$/, '').trim()).filter(Boolean) : [];
+      const sample = all.slice(0, 4).map((t) => t.slice(0, 24));
+      return { rect: null, diag: { want: want.slice(0, 40), menu: !!menu, opts: menu ? menu.querySelectorAll('[role="option"]').length : 0, sample, options: all.slice(0, 24).map((t) => t.slice(0, 80)) } };
     };
     if (a.action === 'type') {
       const textValue = String(a.value == null ? '' : a.value);
@@ -443,6 +456,23 @@ function buildMenuCheckScript(ref) {
   })()`;
 }
 
+/** FRESH control center right before a trusted open click: the page re-renders
+ *  and scrolls between cycles — a stale rect makes the click miss the widget. */
+function buildControlRectScript(ref) {
+  const safeRef = String(ref || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  return `(async () => {
+    const el = document.querySelector('[data-ta-ref="${safeRef}"]');
+    if (!el) return null;
+    try { document.documentElement.style.scrollBehavior = 'auto'; document.body.style.scrollBehavior = 'auto'; } catch (e) { /* best-effort */ }
+    const ctl = el.closest('.select__control') || el;
+    try { ctl.scrollIntoView({ block: 'center' }); } catch (e) { /* keep measuring */ }
+    await new Promise((r) => setTimeout(r, 250));
+    const r = ctl.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return null;
+    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+  })()`;
+}
+
 // ── Legacy scripted-mode helpers (agent mode is required for Greenhouse) ──
 function unsupported() {
   return `(() => ({ ok: false, code: 'AGENT_MODE_REQUIRED' }))()`;
@@ -462,6 +492,7 @@ module.exports = {
   buildConfirmationScript,
   buildComboboxCheckScript,
   buildMenuCheckScript,
+  buildControlRectScript,
   buildFillScript: unsupported,
   buildReadBackScript: unsupported,
   buildPlanScript: unsupported,

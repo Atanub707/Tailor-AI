@@ -155,6 +155,16 @@ describe('Deterministic scripts — invariants (never submit, never bypass CAPTC
     expect(loop).toContain('decide unavailable');
   });
 
+  it('OPTION_NOT_FOUND becomes a CHAT ask with the form\'s real options (choice asks)', () => {
+    const loop = sessionSrc.slice(sessionSrc.indexOf('async agentLoop()'), sessionSrc.indexOf('async agentFinalRevalidation()'));
+    expect(loop).toContain('CHOICE ASKS');
+    expect(loop).toContain("entry.code !== 'OPTION_NOT_FOUND'");
+    expect(loop).toContain('options: entry.options.slice(0, 24)');
+    // The failed attempt is not hammered; a CHANGED value unlocks a retry.
+    expect(loop).toContain('if (prevFail.sig === sig) continue;');
+    expect(loop).toContain('this.lastFailures.delete(a.ref)');
+  });
+
   it('the bridge passes the execution token to the session for decisions', () => {
     const b = read('desktop/main/desktopBridge.cjs');
     expect(b).toContain('statusToken: data.statusToken');

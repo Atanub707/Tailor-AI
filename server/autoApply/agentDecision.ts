@@ -47,9 +47,10 @@ const BANK_KEY_CONCEPTS: Array<{ re: RegExp; keys: string[] }> = [
 /** Exported for tests: canonical bank keys for a field label (or []). */
 export function bankKeysForLabel(label: string): string[] {
   const text = String(label || '');
-  // Phone country-code pickers mention "country" but are NOT a country
-  // question — typing a residence value into them produced real mis-fills.
-  if (/phone\s*(country\s*)?code|dial\s*code|country\s*phone/i.test(text)) return [];
+  // Phone country-code pickers are NOT phone-number fields: their answer is
+  // the COUNTRY NAME (the widget appends the dial code itself). Typing the
+  // phone number into them was a real misfill.
+  if (/phone\s*(country\s*)?code|dial\s*code|country\s*phone/i.test(text)) return ['currentCountry'];
   return BANK_KEY_CONCEPTS.find((c) => c.re.test(text))?.keys ?? [];
 }
 
@@ -58,9 +59,12 @@ export interface ObservedField {
   kind: string; // text | textarea | select | radio | checkbox | checkbox-group | file
   name?: string;
   label: string;
+  /** For radio/checkbox members: the question (legend) they belong to. */
+  groupLabel?: string;
   required?: boolean;
   consent?: boolean;
   value?: string;
+  checked?: boolean;
   options?: Array<{ option: string; checked?: boolean }>;
 }
 
@@ -119,6 +123,10 @@ function isEeoField(f: ObservedField): boolean {
   return EEO_RE.test(String(f.label || ''));
 }
 
+function isEeoLabel(text: string): boolean {
+  return EEO_RE.test(String(text || ''));
+}
+
 function kindToBankType(kind: string): string | undefined {
   switch (kind) {
     case 'text': return 'TEXT';
@@ -135,9 +143,17 @@ function kindToBankType(kind: string): string | undefined {
 function isFilled(f: ObservedField): boolean {
   if (f.kind === 'file') return !!String(f.value || '').trim();
   if (f.kind === 'checkbox' || f.kind === 'checkbox-group' || f.kind === 'radio') {
-    return (f.options || []).some((o) => o.checked);
+    return f.checked === true || (f.options || []).some((o) => o.checked);
   }
   return String(f.value || '').trim().length > 0;
+}
+
+/** Label used to RESOLVE a field's value: group members resolve from their
+ *  question (legend), not from the option text ("Male" must not match a bank
+ *  answer for "gender"). */
+function matchText(f: ObservedField): string {
+  const isMember = (f.kind === 'radio' || f.kind === 'checkbox-group') && !!String(f.groupLabel || '').trim();
+  return isMember ? `${f.groupLabel} ${f.name || ''}` : `${f.label || ''} ${f.name || ''}`;
 }
 
 /** Tolerant option keys: exact, parenthetical-stripped, veteran synonym —
@@ -185,6 +201,20 @@ export function composeDecision(state: ObservedState, values: Map<string, string
   const actions: AgentAction[] = [];
   const asks: AgentAsk[] = [];
 
+  // Multi-value members: group radio/checkbox members by their question so
+  // one GROUP ask lists the real option texts, and a resolved group answer
+  // checks the matching member(s).
+  const groupMembers = new Map<string, ObservedField[]>();
+  for (const f of state.fields || []) {
+    if ((f.kind === 'radio' || f.kind === 'checkbox-group') && String(f.groupLabel || '').trim()) {
+      const gk = String(f.name || f.groupLabel);
+      const arr = groupMembers.get(gk) || [];
+      arr.push(f);
+      groupMembers.set(gk, arr);
+    }
+  }
+  const askedGroups = new Set<string>();
+
   for (const f of state.fields || []) {
     if (isFilled(f)) continue;
     // Structural mirrors (react-select search inputs, hidden widgets) carry no
@@ -220,6 +250,31 @@ export function composeDecision(state: ObservedState, values: Map<string, string
     }
 
     const value = values.get(f.ref);
+
+    // Multi-value MEMBER: the group's answer decides which member checks.
+    if ((f.kind === 'radio' || f.kind === 'checkbox-group') && String(f.groupLabel || '').trim()) {
+      if (value) {
+        const wanted = value.split(',').map((v) => v.trim()).filter(Boolean);
+        const hit = wanted.some((w) => optionKeys(w).some((k) => optionKeys(String(f.label || '')).includes(k)));
+        if (hit) actions.push({ action: 'check', ref: f.ref, option: String(f.label || '') });
+        continue;
+      }
+      const gk = String(f.name || f.groupLabel);
+      if (!askedGroups.has(gk)) {
+        askedGroups.add(gk);
+        const gLabel = String(f.groupLabel);
+        if (isEeoLabel(gLabel)) {
+          notes.push(`voluntary EEO group left untouched: ${gLabel.slice(0, 60)}`);
+        } else if (f.required) {
+          const opts = (groupMembers.get(gk) || []).map((m) => String(m.label || '')).filter(Boolean).slice(0, 24);
+          asks.push({ ref: f.ref, label: gLabel.slice(0, 500), reason: 'no saved answer for this required question', human: false, options: opts });
+        } else {
+          notes.push(`optional group left unanswered: ${gLabel.slice(0, 60)}`);
+        }
+      }
+      continue;
+    }
+
     if (!value) {
       if (f.required) {
         asks.push({ ref: f.ref, label: f.label, reason: 'no saved answer for this required question', human: false, options: askOptions(f) });
@@ -323,8 +378,10 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
   if (std) {
     const stdValue = (f: ObservedField): string | undefined => {
       const s = `${f.label || ''} ${f.name || ''}`;
-      if (/e-?mail/i.test(s)) return std.email;
-      if (/phone|mobile/i.test(s)) return std.phone || profile?.personal?.phone || profile?.contact?.phone;
+      if (/\be-?mail\b/i.test(s)) return std.email;
+      // Phone-number fields ONLY — never the dial-code/country-code pickers
+      // (they resolve to the country name, not the number).
+      if (/phone|mobile/i.test(s) && !/code|dial/i.test(s)) return std.phone || profile?.personal?.phone || profile?.contact?.phone;
       if (/linkedin/i.test(s)) return std.linkedin || profile?.links?.linkedin;
       if (/github/i.test(s)) return std.github || profile?.links?.github;
       if (/website|portfolio/i.test(s)) return std.website || profile?.links?.website;
@@ -352,9 +409,8 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
       const records = allRecords();
       for (const f of stillUnmatched) {
         if (isConditionalFreeText(f)) continue; // conditional follow-ups stay empty
-        const keys = bankKeysForLabel(`${f.label || ''} ${f.name || ''}`);
+        const keys = bankKeysForLabel(matchText(f));
         if (!keys.length) continue;
-        conceptRefs.add(f.ref); // deterministic concept owns this field
         const isSalary = keys.includes('expectedSalary');
         const rec = records.find(
           (r) =>
@@ -369,6 +425,9 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
             (!isSalary || /[\d]/.test(String(r.answerValue))),
         );
         if (!rec) continue;
+        // Concept ownership is claimed ONLY when it actually resolves —
+        // otherwise the field is starved from exact/prefix matching.
+        conceptRefs.add(f.ref);
         const v = rec.answerValue as unknown;
         values.set(f.ref, Array.isArray(v) ? v.join(', ') : String(v));
       }
@@ -387,7 +446,7 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
       const norm = (t: string) => String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
       for (const f of prefixUnmatched) {
         if (isConditionalFreeText(f)) continue; // conditional follow-ups stay empty
-        const label = norm(f.label);
+        const label = norm(matchText(f));
         if (label.length < 12) continue; // short labels: exact/alias logic owns them
         const rec = records.find((r) => {
           if (r.verificationStatus !== 'VERIFIED') return false;
@@ -410,7 +469,7 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
       userId,
       remaining.map((f) => ({
         providerFieldId: f.ref,
-        label: f.label,
+        label: matchText(f),
         fieldType: kindToBankType(f.kind),
         options: (f.options || []).map((o) => o.option),
       })),
@@ -430,7 +489,7 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
     const records = allRecords();
     for (const f of unmatched.slice(0, layaCfg.maxFields)) {
       const result = await engine.classifyField({
-        label: f.label,
+        label: matchText(f),
         type: kindToBankType(f.kind),
         required: !!f.required,
         options: (f.options || []).map((o) => o.option),

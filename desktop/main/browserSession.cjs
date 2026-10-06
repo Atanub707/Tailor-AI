@@ -52,6 +52,7 @@ class Session {
     this.backendBase = '';
     this.pendingAsks = [];
     this.actFailures = new Map(); // sig -> consecutive failed attempts
+    this.lastFailures = new Map(); // ref -> { code, sig, options } (choice asks)
     this.asksSig = null; // signature of the currently displayed ask set
     this.loopRunning = false;
     this.waitReason = null;
@@ -392,6 +393,18 @@ class Session {
     await dbg.sendCommand('Input.insertText', { text: value });
   }
 
+  /** Clear a combobox's search text (select-all + delete) so the FULL option
+   *  list can be read — a typed filter that matches nothing must not hide the
+   *  choices the user needs to pick from. */
+  async trustedClear() {
+    const dbg = this.wc.debugger;
+    try { if (!dbg.isAttached()) dbg.attach('1.3'); } catch { /* already attached */ }
+    await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA', modifiers: 4, windowsVirtualKeyCode: 65 });
+    await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA', modifiers: 4, windowsVirtualKeyCode: 65 });
+    await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 });
+    await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 });
+  }
+
   /** Focus a tagged element via the DOM domain — no coordinates, immune to
    *  layout shifts (the page settles late and moves fields between measure
    *  and click). */
@@ -438,14 +451,22 @@ class Session {
             : `(() => !!document.querySelector('[role="listbox"]'))()`,
           true
         ).catch(() => false);
-        if (r.rect && r.rect.w > 0) {
+        // EXACTLY ONE trusted click: a second click TOGGLES the menu closed.
+        // The fresh measurement comes from the page right before the click.
+        let point = r.rect && r.rect.w > 0 ? { x: r.rect.x, y: r.rect.y } : null;
+        if (typeof this.adapter.buildControlRectScript === 'function') {
+          const fresh = await this.wc.executeJavaScript(this.adapter.buildControlRectScript(safe.ref), true).catch(() => null);
+          if (fresh && Number.isFinite(fresh.x) && Number.isFinite(fresh.y)) point = fresh;
+        }
+        if (point) {
           try {
-            await this.trustedClick(r.rect.x, r.rect.y);
+            await this.trustedClick(point.x, point.y);
           } catch { /* fall through to the keyboard opener */ }
-          await new Promise((res) => setTimeout(res, 380));
+          await new Promise((res) => setTimeout(res, 500));
           opened = !!(await menuOpen());
         }
-        for (let attempt = 0; attempt < 2 && !opened; attempt++) {
+        if (!opened) {
+          // Keyboard opener fallback (other react-select builds honor it).
           const ok = await this.trustedFocus(safe.ref).catch(() => false);
           if (ok) {
             await new Promise((res) => setTimeout(res, 80));
@@ -460,6 +481,21 @@ class Session {
           await new Promise((res) => setTimeout(res, 400));
         }
         r = await this.wc.executeJavaScript(this.adapter.buildActScript(safe), true);
+      }
+      // A typed filter that matches NOTHING ("No options") hides the real
+      // choice list. Clear it and read the FULL menu — the user's pick (or a
+      // choice ask carrying the real options) needs the full list.
+      if (r && r.ok !== true && r.code === 'OPTION_NOT_FOUND') {
+        let emptyFilter = false;
+        try {
+          const d = JSON.parse(r.message || '{}');
+          emptyFilter = d.menu === true && (!Array.isArray(d.options) || d.options.length === 0);
+        } catch { /* no diag */ }
+        if (emptyFilter) {
+          try { await this.trustedClear(); } catch { /* best-effort */ }
+          await new Promise((res) => setTimeout(res, 450));
+          r = await this.wc.executeJavaScript(this.adapter.buildActScript(safe), true);
+        }
       }
       // Trusted typing: click the field, Input.insertText, read back. No
       // synthetic events (they break the form's React widgets on this page).
@@ -582,6 +618,7 @@ class Session {
   async agentRun() {
     const wc = this.wc;
     this.actFailures = new Map();
+    this.lastFailures = new Map();
     try {
       const target = this.adapter.parseLeverUrl(this.currentPlan.url);
       this.canonical = target ? target.canonical : null;
@@ -707,13 +744,30 @@ class Session {
         let applied = 0;
         for (const a of decision.actions) {
           const sig = `${a.action}\u0001${a.ref}\u0001${String(a.value == null ? (a.option || '') : a.value)}`;
+          // A stored OPTION_NOT_FOUND failure means the user is being asked to
+          // pick from the form's real options — don't hammer it. A CHANGED
+          // value (their new answer) unlocks a fresh attempt.
+          const prevFail = this.lastFailures.get(a.ref);
+          if (prevFail) {
+            if (prevFail.sig === sig) continue;
+            this.lastFailures.delete(a.ref);
+          }
           const r = await this.act(a);
           if (!r || r.ok !== true) {
             this.actFailures.set(sig, (this.actFailures.get(sig) || 0) + 1);
+            if (r && r.code === 'OPTION_NOT_FOUND') {
+              let opts = [];
+              try {
+                const d = JSON.parse(r.message || '{}');
+                opts = Array.isArray(d.options) ? d.options.slice(0, 24).map(String).filter(Boolean) : [];
+              } catch { /* no diag */ }
+              if (opts.length) this.lastFailures.set(a.ref, { code: 'OPTION_NOT_FOUND', sig, options: opts });
+            }
             this.emit('SUBMISSION_BLOCKED', `act:${a.action}:${(r && r.code) || 'FAILED'}${r && r.message ? ':' + String(r.message).slice(0, 80) : ''}`);
             continue; // keep filling the OTHER fields — this one retries/escalates
           }
           this.actFailures.delete(sig);
+          this.lastFailures.delete(a.ref);
           applied += 1;
         }
         if (applied > 0) {
@@ -736,7 +790,26 @@ class Session {
         if (!hasValue) stuck.push(f);
       }
 
+      // CHOICE ASKS: a value the form's option list rejected (remote city
+      // lists, Yes/No picks) becomes a CHAT ask WITH the real options — the
+      // user picks one chip and the loop fills it on the next cycle.
+      const choiceAsks = [];
+      for (const [ref, entry] of this.lastFailures) {
+        if (entry.code !== 'OPTION_NOT_FOUND' || !entry.options.length) continue;
+        const f = (obs.state.fields || []).find((x) => x.ref === ref);
+        if (!f) continue;
+        const hasValue = String(f.value || '').trim() !== '' || f.checked === true || (f.options || []).some((o) => o.checked);
+        if (hasValue) { this.lastFailures.delete(ref); continue; }
+        choiceAsks.push({
+          label: String(f.label || '').slice(0, 500),
+          reason: "the form's list does not include your saved answer — pick one of its options",
+          options: entry.options.slice(0, 24).map((o) => String(o).slice(0, 240)),
+          human: false,
+        });
+      }
+
       const askList = [
+        ...choiceAsks,
         ...(decision.asks || []).map((a) => ({
           label: String(a.label || '').slice(0, 500),
           reason: String(a.reason || '').slice(0, 240),

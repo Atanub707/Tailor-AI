@@ -460,6 +460,16 @@ describe('Answer Bank resolution + question learning', () => {
     expect(other.get('f1')).toBeUndefined();
   });
 
+  it('phone numbers never land in phone dial-code pickers', async () => {
+    const fields = [
+      { ref: 'p1', kind: 'text', label: 'Phone*', name: 'phone' },
+      { ref: 'p2', kind: 'custom-select', label: 'Please select your Country Phone Code*', name: 'q1' },
+    ];
+    const vals = await resolveAgentValues(USER, fields);
+    expect(String(vals.get('p1') || '')).toMatch(/[0-9]/); // the real phone fills
+    expect(vals.get('p2')).toBeUndefined(); // the dial-code picker never gets the number
+  });
+
   it('resolveQuestionsFromBank reports review-required for stale answers', () => {
     const rec = runWithUser(USER, () => upsertAnswer(USER, {
       canonicalQuestion: 'When can you start?', questionCategory: 'availability',
