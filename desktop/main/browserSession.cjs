@@ -643,7 +643,11 @@ class Session {
       // question is pending; submission stays gated on the ask clearing below.
       let actedThisCycle = false;
       if (decision.actions.length) {
-        this.setState('FILLING');
+        // While a question is pending the visible state must STAY on
+        // 'Action needed' — background fills keep running, but flipping the
+        // state to FILLING every cycle made the button thrash (real progress
+        // looked like an infinite loop).
+        if (!decision.asks.length) this.setState('FILLING');
         let applied = 0;
         for (const a of decision.actions) {
           const sig = `${a.action}\u0001${a.ref}\u0001${String(a.value == null ? (a.option || '') : a.value)}`;
