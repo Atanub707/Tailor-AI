@@ -51,6 +51,7 @@ class Session {
     this.pendingAsks = [];
     this.actFailures = new Map(); // sig -> consecutive failed attempts
     this.asksSig = null; // signature of the currently displayed ask set
+    this.loopRunning = false;
     this.waitReason = null;
     this.tmpDirs = [];
     this.attached = false;
@@ -317,6 +318,7 @@ class Session {
   /** Manual unblock: "I completed the challenge — revalidate now." */
   async continueCheckpoint() {
     if (this.agentMode) {
+      if (this.loopRunning) return { ok: true, result: { ok: true, code: 'ALREADY_RUNNING' } };
       if (this.state !== 'WAITING_FOR_USER') return { ok: false, code: 'NOT_WAITING' };
       clearInterval(this.checkpointTimer);
       this.checkpointTimer = null;
@@ -579,7 +581,11 @@ class Session {
   /** observe → decide → act until clean, asking/pausing on the human edges. */
   async agentLoop() {
     const wc = this.wc;
+    if (this.loopRunning) return { ok: true, statuses: 'ALREADY_RUNNING' };
+    this.loopRunning = true;
+    try {
     const deadline = Date.now() + 10 * 60 * 1000;
+    const hardDeadline = Date.now() + 60 * 60 * 1000; // answers can take a while
     let captchaNotified = false;
     let questionsNotified = false;
     let fillsEmitted = 0;
@@ -695,6 +701,8 @@ class Session {
           this.setState('WAITING_FOR_USER');
           this.emit('HUMAN_ACTION_REQUIRED', `QUESTIONS_REQUIRED:${String(stuck[0].label || '').slice(0, 80)}`);
         }
+        cycle = Math.max(-1, cycle - 1);
+        deadline = Math.min(hardDeadline, Date.now() + 10 * 60 * 1000);
         await new Promise((r) => setTimeout(r, 2000));
         continue;
       }
@@ -719,6 +727,11 @@ class Session {
           this.setState('WAITING_FOR_USER');
           this.emit('HUMAN_ACTION_REQUIRED', `QUESTIONS_REQUIRED:${String(decision.asks[0].label).slice(0, 80)}`);
         }
+        // Waiting on the human must not consume the loop budget: the run can
+        // sit here for as long as the user needs (bounded to 1 hour total)
+        // and resumes the instant the answers resolve.
+        cycle = Math.max(-1, cycle - 1);
+        deadline = Math.min(hardDeadline, Date.now() + 10 * 60 * 1000);
         await new Promise((r) => setTimeout(r, 2000));
         continue;
       }
@@ -745,6 +758,9 @@ class Session {
     this.setState('WAITING_FOR_USER');
     this.emit('SUBMISSION_UNCONFIRMED', 'agent loop exhausted — user reviews');
     return { ok: false, code: 'AGENT_LOOP_EXHAUSTED' };
+    } finally {
+      this.loopRunning = false;
+    }
   }
 
   /** Agent-mode submit revalidation: re-observe, require a clean decision, control check. */

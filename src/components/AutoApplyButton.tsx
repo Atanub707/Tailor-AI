@@ -27,6 +27,7 @@ import {
 import { openInspectorFor } from '../lib/autoApplyInspector';
 import { AutoApplyInspector } from './AutoApplyInspector';
 import {
+  continueDesktopExecution,
   tailorBrowserBridge,
   desktopHealth,
   waitForDesktop,
@@ -630,6 +631,12 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) return { ok: false, error: (data && data.error) || 'Could not save that answer — try again.' };
+      // RESUME NOW: the answer is in the bank — nudge the desktop agent so it
+      // stops waiting and continues immediately (idempotent; no-op if it is
+      // already running).
+      if (currentExecution && currentExecution.executionId) {
+        void continueDesktopExecution(currentExecution.executionId);
+      }
       return { ok: true };
     } catch {
       return { ok: false, error: 'Could not reach the Auto Apply service.' };

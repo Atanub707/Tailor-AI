@@ -532,7 +532,10 @@ describe('Human-checkpoint resume + per-job browser lifecycle (this phase)', () 
     expect(bridge).toContain("'/auto-apply/continue'");
     expect(session).toContain('async continueCheckpoint()');
     expect(session).toContain("this.emit('CHECKPOINT_CLEARED', 'USER_CONTINUE')");
-    expect(button).not.toContain('continueDesktopExecution'); // row is one control now; auto-resume drives Continue
+    // The row is one control: saving a chat answer nudges the agent to resume
+    // immediately (idempotent; the concurrent-loop guard makes it safe).
+    expect(button).toContain('continueDesktopExecution(currentExecution.executionId)');
+    expect(session).toContain('if (this.loopRunning) return { ok: true, result: { ok: true, code: \'ALREADY_RUNNING\' } }');
     expect(read('desktop/main/desktopBridge.cjs')).toContain('/auto-apply/continue');
   });
 
