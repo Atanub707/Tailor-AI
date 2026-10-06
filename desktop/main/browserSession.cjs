@@ -50,6 +50,7 @@ class Session {
     this.backendBase = '';
     this.pendingAsks = [];
     this.actFailures = new Map(); // sig -> consecutive failed attempts
+    this.asksSig = null; // signature of the currently displayed ask set
     this.waitReason = null;
     this.tmpDirs = [];
     this.attached = false;
@@ -675,15 +676,18 @@ class Session {
         if (!hasValue) stuck.push(f);
       }
       if (stuck.length) {
-        if (!questionsNotified) {
+        const stuckList = stuck.map((f) => ({
+          label: String(f.label || '').slice(0, 500),
+          reason: 'the form did not accept the automatic answer — fix or pick the value in the Tailor Browser window (the run continues by itself)',
+          options: (f.options || []).map((o) => String(o.option || '')).filter(Boolean).slice(0, 24),
+          human: false,
+        }));
+        const stuckSig = stuckList.map((a) => a.label).join('|');
+        if (!questionsNotified || this.asksSig !== stuckSig) {
           questionsNotified = true;
+          this.asksSig = stuckSig;
           this.waitReason = 'QUESTIONS_REQUIRED';
-          this.pendingAsks = stuck.map((f) => ({
-            label: String(f.label || '').slice(0, 140),
-            reason: 'the form did not accept the automatic answer — answer it here (or type it in the browser)',
-            options: (f.options || []).map((o) => String(o.option || '')).filter(Boolean).slice(0, 24),
-            human: false,
-          }));
+          this.pendingAsks = stuckList;
           this.setState('WAITING_FOR_USER');
           this.emit('HUMAN_ACTION_REQUIRED', `QUESTIONS_REQUIRED:${String(stuck[0].label || '').slice(0, 80)}`);
         }
@@ -692,24 +696,29 @@ class Session {
       }
 
       if (decision.asks.length) {
-        // Human/chat edge: notify ONCE, then KEEP WATCHING — the user resolves
-        // in the visible browser (or via the chat in the full UI) and the loop
-        // resumes by itself on the next clean observation.
-        if (!questionsNotified) {
+        // Human/chat edge: notify ONCE per DISTINCT ask set, then KEEP WATCHING
+        // — the user resolves in the visible browser (or the chat in the full
+        // UI) and the loop resumes by itself. Refresh pendingAsks whenever the
+        // set CHANGES so the chat never shows a stale question list.
+        const askList = decision.asks.map((a) => ({
+          label: String(a.label || '').slice(0, 500),
+          reason: String(a.reason || '').slice(0, 240),
+          options: Array.isArray(a.options) ? a.options.slice(0, 24).map((o) => String(o).slice(0, 240)) : [],
+          human: a.human === true,
+        }));
+        const askSig = askList.map((a) => a.label).join('|');
+        if (!questionsNotified || this.asksSig !== askSig) {
           questionsNotified = true;
+          this.asksSig = askSig;
           this.waitReason = 'QUESTIONS_REQUIRED';
-          this.pendingAsks = decision.asks.map((a) => ({
-            label: String(a.label || '').slice(0, 500),
-            reason: String(a.reason || '').slice(0, 240),
-            options: Array.isArray(a.options) ? a.options.slice(0, 24).map((o) => String(o).slice(0, 240)) : [],
-            human: a.human === true,
-          }));
+          this.pendingAsks = askList;
           this.setState('WAITING_FOR_USER');
           this.emit('HUMAN_ACTION_REQUIRED', `QUESTIONS_REQUIRED:${String(decision.asks[0].label).slice(0, 80)}`);
         }
         await new Promise((r) => setTimeout(r, 2000));
         continue;
       }
+      this.asksSig = null;
       if (questionsNotified) {
         questionsNotified = false;
         this.waitReason = null;

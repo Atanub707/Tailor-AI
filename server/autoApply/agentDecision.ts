@@ -344,6 +344,33 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
   }
 
 
+  // Long free-text questions repeat across applications with tiny wording
+  // differences (truncation, punctuation, trailing notes). Match by a
+  // normalized PREFIX so a previously answered question RESOLVES instead of
+  // asking the user forever (the observed infinite ask/fill loop).
+  const prefixUnmatched = candidates.filter((f) => !values.has(f.ref) && !conceptRefs.has(f.ref));
+  if (prefixUnmatched.length) {
+    try {
+      const records = listAnswers(userId);
+      const norm = (t: string) => String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      for (const f of prefixUnmatched) {
+        const label = norm(f.label);
+        if (label.length < 12) continue; // short labels: exact/alias logic owns them
+        const rec = records.find((r) => {
+          if (r.verificationStatus !== 'VERIFIED') return false;
+          if (!(r.sensitivity === 'NORMAL' || r.sensitivity === 'PERSONAL' || r.source === 'USER_PROVIDED')) return false;
+          if (r.answerValue === null || r.answerValue === undefined || String(r.answerValue).trim() === '') return false;
+          const q = norm(r.canonicalQuestion);
+          if (q.length < 12) return false;
+          return q.startsWith(label.slice(0, 70)) || label.startsWith(q.slice(0, 70));
+        });
+        if (!rec) continue;
+        const v = rec.answerValue as unknown;
+        values.set(f.ref, Array.isArray(v) ? v.join(', ') : String(v));
+      }
+    } catch { /* prefix fallback is best-effort */ }
+  }
+
   const remaining = candidates.filter((f) => !values.has(f.ref) && !conceptRefs.has(f.ref));
   if (remaining.length && answerBankConfigFromEnv().enabled) {
     const resolved = resolveQuestionsFromBank(
