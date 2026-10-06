@@ -457,7 +457,7 @@ function buildObserveScript() {
     for (const old of document.querySelectorAll('[' + REF + ']')) old.removeAttribute(REF);
     let n = 0;
     const ref = (el) => { const r = 'ta' + (++n); el.setAttribute(REF, r); return r; };
-    const text = (v) => String(v == null ? '' : v).trim().slice(0, 200);
+    const text = (v) => String(v == null ? '' : v).trim().slice(0, 500);
     const labelOf = (el) => {
       try {
         // Prefer the question-scoped label div (EEO selects sit inside a

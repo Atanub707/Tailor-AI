@@ -54,7 +54,7 @@ function buildObserveScript() {
     for (const old of document.querySelectorAll('[' + REF + ']')) old.removeAttribute(REF);
     let n = 0;
     const ref = (el) => { n += 1; const r = 'ta' + n; el.setAttribute(REF, r); return r; };
-    const text = (t) => String(t || '').replace(/\\s+/g, ' ').trim();
+    const text = (t) => String(t || '').replace(/\\s+/g, ' ').trim().slice(0, 500);
     const visible = (el) => {
       try {
         const cs = getComputedStyle(el);
@@ -67,15 +67,15 @@ function buildObserveScript() {
     const labelFor = (el) => {
       if (el.id) {
         const l = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
-        if (l && text(l.textContent)) return text(l.textContent).slice(0, 120);
+        if (l && text(l.textContent)) return text(l.textContent).slice(0, 500);
       }
       const aria = el.getAttribute('aria-label');
-      if (aria && text(aria)) return text(aria).slice(0, 120);
+      if (aria && text(aria)) return text(aria).slice(0, 500);
       const wrap = el.closest('label');
-      if (wrap && text(wrap.textContent)) return text(wrap.textContent).slice(0, 120);
+      if (wrap && text(wrap.textContent)) return text(wrap.textContent).slice(0, 500);
       const box = el.closest('[class*="field"], [class*="question"], [class*="input"]');
       const l2 = box ? box.querySelector('label, legend') : null;
-      return l2 ? text(l2.textContent).slice(0, 120) : (el.placeholder || el.id || '');
+      return l2 ? text(l2.textContent).slice(0, 500) : (el.placeholder || el.id || '');
     };
 
     const fields = [];
