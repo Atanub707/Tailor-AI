@@ -697,7 +697,7 @@ describe('Status telemetry — every state reaches Tailor AI (regression)', () =
     const bridge = read('desktop/main/desktopBridge.cjs');
     expect(bridge).not.toMatch(/\bcurrent\./); // the removed single-session variable must never reappear
     const posts = [...bridge.matchAll(/fetch\(STATUS_ENDPOINT,/g)].length;
-    expect(posts).toBe(3); // terminal + non-terminal + 5s heartbeat safety net
+    expect(posts).toBe(4); // terminal + non-terminal + heartbeat + SESSION_CLOSED self-heal
     expect(bridge).toContain('statusToken: entry.statusToken');
   });
 });

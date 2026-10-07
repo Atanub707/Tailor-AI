@@ -141,6 +141,25 @@ describe('Polling rules (read-only)', () => {
     expect(panel).toContain('Live page');
   });
 
+  it('self-heal: dead sessions leave honest terminal states (no frozen rows)', () => {
+    const bridge = read('desktop/main/desktopBridge.cjs');
+    const server = read('server.ts');
+    const button = read('src/components/AutoApplyButton.tsx');
+    // Bridge posts a terminal state when a session closes (except APPLIED).
+    expect(bridge).toContain("if (ev && ev.type === 'SESSION_CLOSED') {");
+    expect(bridge).toContain("state: 'FAILED', event: `SESSION_CLOSED:${reason}`");
+    expect(bridge).toContain("!reason.includes('APPLIED')");
+    // Server projects silent (60s+) runs as terminal — every frozen row heals.
+    expect(server).toContain("event: 'SESSION_STALE'");
+    expect(server).toContain('STALE_MS = 60_000');
+    expect(server).toContain("String(exec.state) === 'READY_FOR_REVIEW'");
+    // Copy + honest answer-save + launch continuation.
+    expect(read('src/lib/autoApply.ts')).toContain('SESSION_STALE');
+    expect(button).toContain('const cont = await continueDesktopExecution');
+    expect(button).toContain("Tailor Browser isn't running — your answer is saved");
+    expect(button).toContain('const h = await waitForDesktop(8000, 500)');
+  });
+
   it('summarizes verification without leaking values', () => {
     const summary = summarizeFillStatus({ verification: { verified: 8, alreadyCorrect: 2, mismatch: 0, notFound: 0, unverifiable: 0, blocked: 0, newRequiredFields: 0, resumeVerified: true } });
     expect(summary).toBe('Verified 8 · Already correct 2 · Needs review 0 · Resume verified · New required 0');

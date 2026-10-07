@@ -2857,9 +2857,22 @@ const sanitizeAttemptDryRun = (a: any) => ({
     try {
       const userId = getCurrentUserId() || String((req.body && req.body.userId) || (req.query && req.query.userId) || '');
       if (!userId) return res.status(400).json({ error: 'MISSING_USER' });
-      const { getExecutionForAttempt } = await import('./server/autoApply/desktopHandoff.js');
+      const { getExecutionForAttempt, ACTIVE_STATES } = await import('./server/autoApply/desktopHandoff.js');
       const exec = getExecutionForAttempt(getDb(), userId, String(req.params.attemptId));
       if (!exec) return res.status(404).json({ error: 'NO_EXECUTION' });
+      // Freshness reconciliation: the desktop heartbeats every 5s while its
+      // session is alive. A run silent for 60s+ is GONE (app quit/crashed/
+      // restarted) — project it as terminal so rows self-heal instead of
+      // freezing on "Action needed" forever.
+      const STALE_MS = 60_000;
+      const ageMs = Date.now() - Date.parse(exec.updatedAt);
+      const isActiveish = ACTIVE_STATES.has(String(exec.state)) || String(exec.state) === 'READY_FOR_REVIEW';
+      if (isActiveish && Number.isFinite(ageMs) && ageMs > STALE_MS) {
+        return res.json({
+          state: 'FAILED', event: 'SESSION_STALE', stale: true,
+          updatedAt: exec.updatedAt, executionId: exec.executionId, jobId: exec.jobId,
+        });
+      }
       return res.json({ state: exec.state, event: exec.lastEvent, updatedAt: exec.updatedAt, executionId: exec.executionId, jobId: exec.jobId });
     } catch { return res.status(500).json({ error: 'STATUS_ERROR' }); }
   });

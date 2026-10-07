@@ -300,7 +300,7 @@ export function createExecution(db: Database, userId: string, jobId: string, att
   return { executionId, statusToken };
 }
 
-const ACTIVE_STATES = new Set<string>(['DESKTOP_STARTING', 'DESKTOP_CONNECTED', 'NAVIGATING', 'INSPECTING', 'FILLING', 'ATTACHING_RESUME', 'WAITING_FOR_USER', 'VERIFYING', 'SUBMITTING']);
+export const ACTIVE_STATES = new Set<string>(['DESKTOP_STARTING', 'DESKTOP_CONNECTED', 'NAVIGATING', 'INSPECTING', 'FILLING', 'ATTACHING_RESUME', 'WAITING_FOR_USER', 'VERIFYING', 'SUBMITTING']);
 
 export function postExecutionStatus(
   db: Database,

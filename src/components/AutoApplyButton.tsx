@@ -810,7 +810,18 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
       // stops waiting and continues immediately (idempotent; no-op if it is
       // already running).
       if (currentExecution && currentExecution.executionId) {
-        void continueDesktopExecution(currentExecution.executionId);
+        const cont = await continueDesktopExecution(currentExecution.executionId);
+        if (!cont.ok) {
+          // The answer IS saved (server-side) — but the run may be gone.
+          // Say so honestly instead of promising a resume that can't happen.
+          const health = await desktopHealth();
+          if (!health.available) {
+            setMessage("Tailor Browser isn't running — your answer is saved. Restart the run to continue.");
+            setDesktopUnavailable(true);
+          } else {
+            setMessage('Your answer is saved. The run already moved on — check the row.');
+          }
+        }
       }
       return { ok: true };
     } catch {
@@ -899,7 +910,22 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
         </button>
       )}
       {desktopUnavailable && (
-        <button type="button" onClick={() => launchTailorBrowser()} title="Launch the Tailor Browser desktop app" className="text-[10.5px] font-bold text-[var(--color-brand)] underline whitespace-nowrap cursor-pointer">
+        <button
+          type="button"
+          onClick={() => {
+            launchTailorBrowser();
+            void (async () => {
+              const h = await waitForDesktop(8000, 500);
+              if (h.available) {
+                await handleAaClick();
+              } else {
+                setMessage('Tailor Browser still not detected — open it, then click Action needed.');
+              }
+            })();
+          }}
+          title="Launch the Tailor Browser desktop app"
+          className="text-[10.5px] font-bold text-[var(--color-brand)] underline whitespace-nowrap cursor-pointer"
+        >
           Launch Tailor Browser
         </button>
       )}

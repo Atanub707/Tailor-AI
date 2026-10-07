@@ -165,7 +165,22 @@ function createDesktopBridge({ manager, backendBase, onFocus, port = PORT, bootI
 
   const postStatus = (ev) => {
     const executionId = ev && ev.executionId ? String(ev.executionId) : '';
-    if (ev && ev.type === 'SESSION_CLOSED') sessions.delete(executionId);
+    if (ev && ev.type === 'SESSION_CLOSED') {
+      const closing = sessions.get(executionId);
+      const reason = String(ev.detail || 'CLOSED').toUpperCase();
+      // A dead session must leave an HONEST row — never a frozen "Action
+      // needed"/"Filling" forever. APPLIED is excluded (the confirmed-submit
+      // path already posted SUBMITTED_VERIFIED and deleted its entry).
+      if (closing && !reason.includes('APPLIED')) {
+        void fetch(STATUS_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ statusToken: closing.statusToken, state: 'FAILED', event: `SESSION_CLOSED:${reason}`.slice(0, 80) }),
+        }).catch(() => {});
+      }
+      sessions.delete(executionId);
+      return;
+    }
     const entry = sessions.get(executionId);
     if (!entry) return;
     const state = mapEventToState(ev);
