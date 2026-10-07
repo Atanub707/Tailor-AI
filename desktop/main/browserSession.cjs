@@ -741,6 +741,7 @@ class Session {
     let captchaNotified = false;
     let questionsNotified = false;
     let decideFailures = 0;
+    let noFormCycles = 0;
     let fillsEmitted = 0;
     for (let cycle = 0; cycle < 80 && Date.now() < deadline; cycle++) {
       if (!this.alive()) return { ok: false, code: 'SESSION_GONE' };
@@ -792,6 +793,23 @@ class Session {
         this.scheduleAutoClose(AUTO_CLOSE_FAILED_MS);
         return obs;
       }
+      if (!obs.state.formPresent) {
+        // No form after retries = the job is closed/gone — fail honestly
+        // instead of spinning forever ("nothing is happening").
+        noFormCycles += 1;
+        if (noFormCycles >= 3) {
+          // Emit the REASON first: the terminal STATE post deletes the bridge
+          // entry, so a later event would never reach the row.
+          this.emit('RUN_FAILED', 'JOB_UNAVAILABLE');
+          this.setState('FAILED');
+          this.scheduleAutoClose(AUTO_CLOSE_FAILED_MS);
+          return { ok: false, code: 'JOB_UNAVAILABLE' };
+        }
+        await new Promise((r) => setTimeout(r, 1500));
+        cycle = Math.max(-1, cycle - 1);
+        continue;
+      }
+      noFormCycles = 0;
       const decision = await this.decideRemote(obs.state);
       if (!decision) {
         // A transient server hiccup (deploy, restart, overloaded GPU) must

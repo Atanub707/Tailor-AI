@@ -55,7 +55,8 @@ describe('Ashby observe + act', () => {
     expect(ob).not.toContain('.click(');
     expect(ob).toContain("groupLabel: gLabel");
     expect(ob).toContain('submit application');
-    expect(ob).toContain('formPresent: true');
+    expect(ob).toContain('formPresent: !!document.querySelector');
+    expect(ob).toContain('jobClosed'); // removed/closed jobs fail honestly
     // File inputs sit behind custom upload buttons — never visibility-filtered.
     expect(ob.indexOf("type === 'file'")).toBeLessThan(ob.indexOf('if (!visible(el)) continue;'));
     expect(ob).toContain('recaptcha');

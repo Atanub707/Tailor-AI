@@ -152,9 +152,11 @@ function buildObserveScript() {
 
     const submitBtn = Array.from(document.querySelectorAll('button'))
       .find((b) => /submit application/i.test(text(b.textContent)));
+    const bodyText = String(document.body ? document.body.innerText : '');
+    const jobClosed = /job not found|no longer accepting|position (has been |is )?(closed|filled)|this job (is )?closed/i.test(bodyText);
     return {
       url: location.href, title: document.title,
-      formPresent: true,
+      formPresent: !!document.querySelector('input, textarea, select') && !jobClosed,
       captchaPresent: !!challengeIframe, errors, fields,
       buttons: [],
       submitControl: submitBtn ? { ref: ref(submitBtn), label: text(submitBtn.textContent), disabled: !!submitBtn.disabled, visible: visible(submitBtn) } : null,

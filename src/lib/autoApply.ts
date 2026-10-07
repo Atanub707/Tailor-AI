@@ -99,6 +99,7 @@ export function reasonMessage(state: AaRowState, base: string, event?: string): 
   if (e.includes('SUBMISSION_REJECTED')) return 'The form rejected the submission — fix the highlighted fields in Tailor Browser.';
   if (e.includes('VERIFICATION_REQUIRED')) return 'The form needs a quick check in Tailor Browser.';
   if (e.includes('SESSION_STALE') || e.includes('SESSION_CLOSED')) return 'The run stopped — Tailor Browser closed or restarted. Nothing was submitted; click to restart.';
+  if (e.includes('JOB_UNAVAILABLE')) return 'This job is closed — the page no longer accepts applications. Nothing was submitted.';
   return base;
 }
 

@@ -184,6 +184,23 @@ describe('Polling rules (read-only)', () => {
     expect(panel).toContain('timeAgo(e.at)');
   });
 
+  it('P2: closed jobs fail honestly; native notifications for needs-you/applied/stopped', () => {
+    const session = read('desktop/main/browserSession.cjs');
+    const bridge = read('desktop/main/desktopBridge.cjs');
+    const ashby = read('desktop/main/ashbyAdapter.cjs');
+    // No form for 3 cycles → JOB_UNAVAILABLE (not an endless wait).
+    expect(session).toContain("this.emit('RUN_FAILED', 'JOB_UNAVAILABLE')");
+    expect(session).toContain('noFormCycles >= 3');
+    expect(ashby).toContain('jobClosed');
+    expect(reasonMessage('NEEDS_REVIEW', 'base', 'RUN_FAILED:JOB_UNAVAILABLE')).toContain('job is closed');
+    // OS-level notifications from the desktop app (works away from the tab).
+    expect(bridge).toContain('notifyNative(entry');
+    expect(bridge).toContain("'Taylor AI — action needed'");
+    expect(bridge).toContain("'Taylor AI — applied ✓'");
+    expect(bridge).toContain("'Taylor AI — run stopped'");
+    expect(bridge).toContain("!String(ev.detail || '').includes('STOPPED_BY_USER')");
+  });
+
   it('summarizes verification without leaking values', () => {
     const summary = summarizeFillStatus({ verification: { verified: 8, alreadyCorrect: 2, mismatch: 0, notFound: 0, unverifiable: 0, blocked: 0, newRequiredFields: 0, resumeVerified: true } });
     expect(summary).toBe('Verified 8 · Already correct 2 · Needs review 0 · Resume verified · New required 0');

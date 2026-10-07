@@ -10,6 +10,20 @@
 //  - no filesystem access, no arbitrary navigation, no code execution channel
 const http = require('node:http');
 
+let ElectronNotification = null;
+try { ElectronNotification = require('electron').Notification; } catch { /* non-electron context */ }
+
+/** ONE native OS notification per (execution, moment) — never spam. */
+function notifyNative(entry, moment, title, body) {
+  try {
+    if (!ElectronNotification || !ElectronNotification.isSupported || !ElectronNotification.isSupported()) return;
+    entry.notified = entry.notified || {};
+    if (entry.notified[moment]) return;
+    entry.notified[moment] = true;
+    new ElectronNotification({ title, body: String(body || '').slice(0, 160), silent: false }).show();
+  } catch { /* notifications are best-effort */ }
+}
+
 const ALLOWED_ORIGINS = new Set(['http://localhost:3000', 'http://127.0.0.1:3000']);
 const PORT = Number(process.env.TAILOR_BRIDGE_PORT || 45451);
 const MAX_BODY = 64 * 1024;
@@ -199,7 +213,20 @@ function createDesktopBridge({ manager, backendBase, onFocus, port = PORT, bootI
     // so the row can say "2 questions" / "CAPTCHA" instead of a generic line.
     const session = manager.getSession(executionId);
     const reason = session && session.waitReason ? ':' + session.waitReason : '';
-    const eventStr = `${String(ev.type || '')}${reason}`.slice(0, 80);
+    const failureDetail = (ev.type === 'RUN_FAILED' || ev.type === 'JOB_MISMATCH') && ev.detail ? ':' + String(ev.detail).slice(0, 48) : '';
+    const eventStr = `${String(ev.type || '')}${reason}${failureDetail}`.slice(0, 80);
+    // Away-from-screen moments: needs-you and finished (OS-level, once each).
+    try {
+      const title = String((session && session.currentPlan && session.currentPlan.title) || 'Application');
+      const company = String((session && session.currentPlan && session.currentPlan.company) || '');
+      if (ev.type === 'HUMAN_ACTION_REQUIRED') {
+        notifyNative(entry, 'need', 'Taylor AI — action needed', `${title}${company ? ' · ' + company : ''}: the run needs you.`);
+      } else if (ev.type === 'SUBMISSION_CONFIRMED') {
+        notifyNative(entry, 'applied', 'Taylor AI — applied ✓', `${title}${company ? ' · ' + company : ''}: submitted and confirmed.`);
+      } else if (ev.type === 'RUN_FAILED' && !String(ev.detail || '').includes('STOPPED_BY_USER')) {
+        notifyNative(entry, 'stopped', 'Taylor AI — run stopped', `${title}${company ? ' · ' + company : ''}: nothing was submitted unless confirmed. Open Taylor AI to restart.`);
+      }
+    } catch { /* notifications are best-effort */ }
     if (TERMINAL_STATES.has(state)) {
       sessions.delete(executionId);
       void fetch(STATUS_ENDPOINT, {

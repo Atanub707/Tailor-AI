@@ -253,6 +253,13 @@ export function composeDecision(state: ObservedState, values: Map<string, string
       continue;
     }
 
+    // Verification codes (OTP / 2FA) are HUMAN-ONLY: never auto-filled from
+    // any source — the user types them on the page; the run keeps watching.
+    if (/verification code|one-?time (code|password)|security code|\botp\b|two-?factor|authenticator/i.test(`${f.label || ''} ${f.name || ''}`)) {
+      asks.push({ ref: f.ref, label: f.label, reason: 'a verification code only you can enter — type it on the page; the run continues by itself', human: true, options: [] });
+      continue;
+    }
+
     const value = values.get(f.ref);
 
     // Multi-value MEMBER: the group's answer decides which member checks.

@@ -118,6 +118,17 @@ describe('Agent decision core (one layer, pure)', () => {
     expect(keep.actions).toEqual([{ action: 'type', ref: 'ta1', value: 'Kolkata' }]);
   });
 
+  it('verification codes are HUMAN-ONLY — never auto-filled from any source', () => {
+    const field = { ref: 'ta1', kind: 'text' as const, label: 'Verification code', value: '', required: true };
+    const d = composeDecision(base({ fields: [field] }), new Map([['ta1', '123456']])); // even with a bank value
+    expect(d.actions).toEqual([]);
+    expect(d.asks).toHaveLength(1);
+    expect(d.asks[0]).toMatchObject({ human: true });
+    expect(d.asks[0].reason).toContain('only you can enter');
+    const otp = { ref: 'ta2', kind: 'text' as const, label: 'One-time code', value: '', required: true };
+    expect(composeDecision(base({ fields: [otp] }), new Map([['ta2', '999']])).actions).toEqual([]);
+  });
+
   it('a clean form submits', () => {
     const d = composeDecision(base(), new Map());
     expect(d.submit).toBe(true);
