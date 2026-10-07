@@ -12,6 +12,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const lever = require('./leverAdapter.cjs');
 const greenhouseAdapter = require('./greenhouseAdapter.cjs');
+const ashbyAdapter = require('./ashbyAdapter.cjs');
 
 const STATES = [
   'IDLE', 'STARTING', 'NAVIGATING', 'READY', 'INSPECTING', 'FILLING', 'WAITING_FOR_USER',
@@ -74,12 +75,13 @@ class Session {
     return this.view ? this.view.webContents : null;
   }
 
-  /** Provider adapter for THIS session (Lever or Greenhouse), picked from the
-   *  frozen plan URL first, then the live page URL. Same interface for both. */
+  /** Provider adapter for THIS session (Lever/Greenhouse/Ashby), picked from the
+   *  frozen plan URL first, then the live page URL. Same interface for all. */
   get adapter() {
     let url = '';
     try { url = String((this.currentPlan && this.currentPlan.url) || ''); } catch { /* ignore */ }
     try { const live = this.wc && this.wc.getURL(); if (live) url = String(live); } catch { /* ignore */ }
+    if (/ashbyhq\.com/i.test(url)) return ashbyAdapter;
     return /greenhouse\.io/i.test(url) ? greenhouseAdapter : lever;
   }
 
@@ -131,8 +133,11 @@ class Session {
     try {
       const dbg = wc.debugger;
       if (!dbg.isAttached()) dbg.attach('1.3');
+      const resumeSel = typeof this.adapter.resumeSelector === 'function'
+        ? this.adapter.resumeSelector()
+        : 'input[type="file"][name="resume"], input[type="file"]#resume';
       const { root } = await dbg.sendCommand('DOM.getDocument');
-      const { nodeId } = await dbg.sendCommand('DOM.querySelector', { nodeId: root.nodeId, selector: 'input[type="file"][name="resume"], input[type="file"]#resume' });
+      const { nodeId } = await dbg.sendCommand('DOM.querySelector', { nodeId: root.nodeId, selector: resumeSel });
       if (!nodeId) return { ok: false, reason: 'NO_RESUME_CONTROL' };
       tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tailor-resume-'));
       // The file MUST stay on disk until the session closes: Chromium reads it
@@ -145,18 +150,19 @@ class Session {
       // React re-renders can swap the input node between the query and the
       // set — retry with a FRESH node each attempt and reset the input first
       // so a stale file list can never masquerade as 'attached'.
+      const selJson = JSON.stringify(resumeSel);
       const verify = () => wc.executeJavaScript(
-        `(() => { const i = document.querySelector('input[type="file"][name="resume"], input[type="file"]#resume'); return i && i.files && i.files.length === 1 ? { name: i.files[0].name, size: i.files[0].size } : null; })()`,
+        `(() => { const i = document.querySelector(${selJson}); return i && i.files && i.files.length === 1 ? { name: i.files[0].name, size: i.files[0].size } : null; })()`,
         true
       );
       let attached = false;
       for (let attempt = 0; attempt < 3 && !attached; attempt++) {
         await wc.executeJavaScript(
-          `(() => { const i = document.querySelector('input[type="file"][name="resume"], input[type="file"]#resume'); if (i) { try { i.value = ''; } catch (e) {} } return true; })()`,
+          `(() => { const i = document.querySelector(${selJson}); if (i) { try { i.value = ''; } catch (e) {} } return true; })()`,
           true
         ).catch(() => {});
         const doc = await dbg.sendCommand('DOM.getDocument');
-        const found = await dbg.sendCommand('DOM.querySelector', { nodeId: doc.root.nodeId, selector: 'input[type="file"][name="resume"], input[type="file"]#resume' });
+        const found = await dbg.sendCommand('DOM.querySelector', { nodeId: doc.root.nodeId, selector: resumeSel });
         if (!found.nodeId) { await new Promise((r) => setTimeout(r, 300)); continue; }
         await dbg.sendCommand('DOM.setFileInputFiles', { files: [filePath], nodeId: found.nodeId });
         await new Promise((r) => setTimeout(r, 250));
@@ -183,8 +189,11 @@ class Session {
   async reattachResumeIfNeeded() {
     if (!this.lastResume) return;
     try {
+      const resumeSel = typeof this.adapter.resumeSelector === 'function'
+        ? this.adapter.resumeSelector()
+        : 'input[type="file"][name="resume"], input[type="file"]#resume';
       const has = await this.wc.executeJavaScript(
-        `(() => { const i = document.querySelector('input[type="file"][name="resume"], input[type="file"]#resume'); return !!(i && i.files && i.files.length === 1); })()`,
+        `(() => { const i = document.querySelector(${JSON.stringify(resumeSel)}); return !!(i && i.files && i.files.length === 1); })()`,
         true
       );
       if (!has) await this.attachResume(this.lastResume.bytes, this.lastResume.sha256, this.lastResume.filename);
@@ -216,7 +225,7 @@ class Session {
         wc.once('did-finish-load', () => { clearTimeout(timer); resolve(); });
         wc.once('did-fail-load', (_e, code, desc) => { clearTimeout(timer); reject(new Error(`NAVIGATION_FAILED:${code}:${String(desc).slice(0, 60)}`)); });
       });
-      await wc.loadURL(target.isApplyPage ? this.currentPlan.url : `${this.canonical}/apply`);
+      await wc.loadURL(target.isApplyPage ? this.currentPlan.url : `${this.canonical}${typeof this.adapter.applySuffix === 'function' ? this.adapter.applySuffix() : '/apply'}`);
       await loaded;
       this.emit('BROWSER_OPENED', this.canonical);
 
@@ -628,7 +637,7 @@ class Session {
         wc.once('did-finish-load', () => { clearTimeout(timer); resolve(); });
         wc.once('did-fail-load', (_e, code, desc) => { clearTimeout(timer); reject(new Error(`NAVIGATION_FAILED:${code}:${String(desc).slice(0, 60)}`)); });
       });
-      await wc.loadURL(target.isApplyPage ? this.currentPlan.url : `${this.canonical}/apply`);
+      await wc.loadURL(target.isApplyPage ? this.currentPlan.url : `${this.canonical}${typeof this.adapter.applySuffix === 'function' ? this.adapter.applySuffix() : '/apply'}`);
       await loaded;
       this.emit('BROWSER_OPENED', this.canonical);
       const ident = await wc.executeJavaScript(this.adapter.buildIdentityScript(), true);

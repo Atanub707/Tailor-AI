@@ -157,14 +157,17 @@ describe('Auto Apply — Lever dry run (read-only)', () => {
   });
 
   it('unsupported ATS → safe UNSUPPORTED_ATS result, never inspected', async () => {
-    const j = job({
-      id: 'aa-gh', atsPlatform: 'ashby', source: 'Ashby',
-      applyUrl: 'https://jobs.ashbyhq.com/acme/9', url: 'https://jobs.ashbyhq.com/acme/9',
-    });
+    const j = {
+      ...job({
+        id: 'aa-gh', atsPlatform: 'workday', source: 'Workday',
+        applyUrl: 'https://acme.wd1.myworkdayjobs.com/en-US/careers/job/9', url: 'https://acme.wd1.myworkdayjobs.com/en-US/careers/job/9',
+      }),
+      jobUrl: 'https://acme.wd1.myworkdayjobs.com/en-US/careers/job/9',
+    } as Job;
     seedJob(j);
     const result = await runWithUser(USER, () => runAutoApplyDryRun(j.id, fixtureOpts()));
     expect(result.status).toBe('UNSUPPORTED_ATS');
-    expect(result.provider).toBe('ashby');
+    expect(result.provider).toBe('unknown');
     expect(result.fields).toEqual([]);
     expect(result.submission).toEqual({ enabled: false });
     expect(result.message).toMatch(/not supported/i);

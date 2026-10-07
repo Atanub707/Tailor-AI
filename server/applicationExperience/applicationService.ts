@@ -59,7 +59,7 @@ export function verifiedLeverActionUrl(applyUrl: string | undefined, externalJob
   }
   const urlJobId = seg[seg.length - 1] === 'apply' ? seg[seg.length - 2] : seg[seg.length - 1];
   // The local index prefixes external ids with the provider slug (lev-…).
-  const normalizedExternal = String(externalJobId || '').replace(/^(lev|gh|ashby)-/, '');
+  const normalizedExternal = String(externalJobId || '').replace(/^(lev|gh|ash|ashby)-/, '');
   if (externalJobId && normalizedExternal && urlJobId !== normalizedExternal) return null;
   return `${u.protocol}//${u.host}${path}`;
 }

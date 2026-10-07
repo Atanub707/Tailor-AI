@@ -324,11 +324,11 @@ describe('Auto Apply visibility — Lever + Greenhouse', () => {
     const j = (over: { atsPlatform?: string; applyUrl?: string; url?: string }) => ({ url: '', applyUrl: '', ...over });
     expect(isAutoApplyJob(j({ atsPlatform: 'lever' }))).toBe(true);
     expect(isAutoApplyJob(j({ atsPlatform: 'greenhouse' }))).toBe(true);
-    expect(isAutoApplyJob(j({ atsPlatform: 'ashby' }))).toBe(false);
+    expect(isAutoApplyJob(j({ atsPlatform: 'ashby' }))).toBe(true);
     expect(isAutoApplyJob(j({ applyUrl: 'https://jobs.lever.co/acme/1' }))).toBe(true);
     expect(isAutoApplyJob(j({ applyUrl: 'https://job-boards.greenhouse.io/acme/jobs/1' }))).toBe(true);
     expect(isAutoApplyJob(j({ applyUrl: 'https://boards.greenhouse.io/acme/jobs/1' }))).toBe(true);
     expect(isAutoApplyJob(j({ applyUrl: 'https://job-boards.eu.greenhouse.io/acme/jobs/1' }))).toBe(true); // EU regional host
-    expect(isAutoApplyJob(j({ applyUrl: 'https://jobs.ashbyhq.com/acme/1' }))).toBe(false);
+    expect(isAutoApplyJob(j({ applyUrl: 'https://jobs.ashbyhq.com/acme/1' }))).toBe(true);
   });
 });

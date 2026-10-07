@@ -121,7 +121,7 @@ const HOST_PROVIDERS: Array<{ host: string; provider: Provider }> = [
 export const INSPECTION_SUPPORT: Record<string, string> = {
   lever: 'READ_ONLY_INSPECTION_SUPPORTED',
   greenhouse: 'CORE_FIELDS_INSPECTION_SUPPORTED',
-  ashby: 'INSPECTION_NOT_IMPLEMENTED',
+  ashby: 'CORE_FIELDS_INSPECTION_SUPPORTED',
 };
 
 /** Provider detection from hostname + platform signal (confidence-aware). */

@@ -254,21 +254,13 @@ describe('Provider invariant + fixture isolation', () => {
     }
   });
 
-  it('Ashby production → durable UNSUPPORTED plan, never fixture, never hard failure', async () => {
-    for (const [i, platform] of ['ashby'].entries()) {
-      const url = `https://jobs.ashbyhq.com/acme/job-${i}`;
-      const job = { ...makeJob(url, platform), id: `j-${platform}`, externalId: `e-${platform}` };
-      const pkg = await makePackage(job);
-      const { plan } = await createPlan({ userId: USER, mode: 'production', pkg, job, artifactOk: true });
-      expect(plan.status).toBe('UNSUPPORTED');
-      expect(plan.provider).toBe(platform);
-      expect(plan.mappedFields).toEqual([]);
-      expect(plan.requirementsFingerprint).toBe(`unsupported-${platform}`);
-      // idempotent reuse of the unsupported plan
-      const again = await createPlan({ userId: USER, mode: 'production', pkg, job, artifactOk: true });
-      expect(again.reused).toBe(true);
-      expect(again.plan.status).toBe('UNSUPPORTED');
-    }
+  it('Ashby production → real plan from the core-field adapter (never a fixture)', async () => {
+    const job = { ...makeJob('https://jobs.ashbyhq.com/acme/0df7da23-6646-433d-8f52-bfdf9d9d3505', 'ashby'), id: 'j-ash', externalId: 'e-ash' };
+    const pkg = await makePackage(job);
+    const { plan } = await createPlan({ userId: USER, mode: 'production', pkg, job, artifactOk: true });
+    expect(plan.provider).toBe('ashby');
+    expect(['NEEDS_REVIEW', 'NEEDS_INPUT', 'READY_TO_SUBMIT']).toContain(plan.status);
+    expect(plan.target.hostname).toBe('jobs.ashbyhq.com');
   });
 
   it('Greenhouse production → real plan from the core-field adapter (never a fixture)', async () => {
@@ -339,7 +331,7 @@ describe('Lever support capability', () => {
   it('support matrix: Lever + Greenhouse read-only inspection, Ashby not implemented, nothing submission-capable', () => {
     expect(INSPECTION_SUPPORT.lever).toBe('READ_ONLY_INSPECTION_SUPPORTED');
     expect(INSPECTION_SUPPORT.greenhouse).toBe('CORE_FIELDS_INSPECTION_SUPPORTED');
-    expect(INSPECTION_SUPPORT.ashby).toBe('INSPECTION_NOT_IMPLEMENTED');
+    expect(INSPECTION_SUPPORT.ashby).toBe('CORE_FIELDS_INSPECTION_SUPPORTED');
     expect(Object.values(INSPECTION_SUPPORT)).not.toContain('SUBMISSION_SUPPORTED');
   });
 });

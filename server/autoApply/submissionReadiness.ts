@@ -60,10 +60,11 @@ export interface ReadinessResult {
 export function evaluateSubmissionReadiness(input: ReadinessInput): ReadinessResult {
   const blockers: string[] = [];
 
-  const atsVerified = (input.provider === 'lever' || input.provider === 'greenhouse') && Boolean(input.planStatus) && input.planStatus !== 'UNSUPPORTED';
+  const SUPPORTED_ATS = ['lever', 'greenhouse', 'ashby'];
+  const atsVerified = SUPPORTED_ATS.includes(input.provider) && Boolean(input.planStatus) && input.planStatus !== 'UNSUPPORTED';
 
   // Hard blockers (never fillable/submittable around).
-  if (input.provider !== 'lever' && input.provider !== 'greenhouse') blockers.push(`Unsupported ATS — ${input.provider}`);
+  if (!SUPPORTED_ATS.includes(input.provider)) blockers.push(`Unsupported ATS — ${input.provider}`);
   if (input.captchaPresent) blockers.push('CAPTCHA detected — complete it yourself, never bypassed');
   if (input.otpRequired) blockers.push('OTP/MFA required — complete it yourself, never bypassed');
   if (input.loginRequired) blockers.push('Login/account interruption required');

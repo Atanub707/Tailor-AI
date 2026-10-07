@@ -8,6 +8,7 @@ import type { SubmissionPlan } from './contract.js';
 import { ensureExecutionSchema, executionKey, storeApproval, getApproval, storeAttempt, getAttempt, getAttemptsByExecutionKey, updateAttemptStatus, updateAttemptFailure } from './executionStore.js';
 import { resolveAdapter } from './engine.js';
 import { GREENHOUSE_HOSTS } from './greenhouseInspector.js';
+import { ASHBY_HOSTS } from './ashbyInspector.js';
 import { buildLeverPayload, payloadFingerprint, PayloadBuildError } from './leverPayloadBuilder.js';
 import type { MultipartPayload } from './executionContract.js';
 import { assertPhase1Transition, canTransition, integrityGate } from './executionContract.js';
@@ -58,7 +59,7 @@ export function gateExecution(input: EligibilityInput): { ok: true } | { ok: fal
   if (!plan) return { ok: false, reason: 'PLAN_NOT_READY' };
   if (plan.userId !== userId) return { ok: false, reason: 'PLAN_NOT_READY' };
   if (plan.status !== 'READY_TO_SUBMIT') return { ok: false, reason: 'PLAN_NOT_READY' };
-  if (plan.provider !== 'lever' && plan.provider !== 'greenhouse') return { ok: false, reason: 'PROVIDER_MISMATCH' };
+  if (plan.provider !== 'lever' && plan.provider !== 'greenhouse' && plan.provider !== 'ashby') return { ok: false, reason: 'PROVIDER_MISMATCH' };
   if (!pkg) return { ok: false, reason: 'PLAN_NOT_READY' };
   if (pkg.userId !== userId) return { ok: false, reason: 'PLAN_NOT_READY' };
   if (pkg.status !== 'READY') return { ok: false, reason: 'PACKAGE_STALE' };
@@ -68,7 +69,9 @@ export function gateExecution(input: EligibilityInput): { ok: true } | { ok: fal
   const applyHost = String(t.applyUrl || '').replace(/^https?:\/\//, '').split('/')[0].toLowerCase();
   const hostOk = plan.provider === 'greenhouse'
     ? GREENHOUSE_HOSTS.some((h) => applyHost === h || applyHost.endsWith('.' + h))
-    : applyHost === 'jobs.lever.co';
+    : plan.provider === 'ashby'
+      ? ASHBY_HOSTS.some((h) => applyHost === h || applyHost.endsWith('.' + h))
+      : applyHost === 'jobs.lever.co';
   if (!t.applyUrl || !hostOk) return { ok: false, reason: 'TARGET_MISMATCH' };
   if (jobExternalId && t.externalJobId && jobExternalId !== t.externalJobId) return { ok: false, reason: 'TARGET_MISMATCH' };
   return { ok: true };

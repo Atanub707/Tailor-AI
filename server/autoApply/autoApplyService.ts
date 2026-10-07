@@ -175,9 +175,9 @@ export async function runAutoApplyDryRun(
   const job = getJobById(jobId);
   if (!job) throw new AutoApplyError('JOB_NOT_FOUND', 'Job not found.');
 
-  // Existing provider detection — Lever + Greenhouse are live; others stay unsupported.
+  // Existing provider detection — Lever + Greenhouse + Ashby are live.
   const target = targetFromJob(job);
-  if (target.provider !== 'lever' && target.provider !== 'greenhouse') {
+  if (!['lever', 'greenhouse', 'ashby'].includes(target.provider)) {
     return baseResult(job, target.provider, 'UNSUPPORTED_ATS', `Auto Apply is not supported for this ATS yet (${target.provider}).`);
   }
 

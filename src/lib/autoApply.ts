@@ -43,9 +43,15 @@ export function isGreenhouseJob(job: Pick<Job, 'atsPlatform' | 'applyUrl' | 'url
   });
 }
 
+/** Ashby hosted application boards — the third live provider. */
+export function isAshbyJob(job: Pick<Job, 'atsPlatform' | 'applyUrl' | 'url'>): boolean {
+  if (String(job.atsPlatform || '').toLowerCase() === 'ashby') return true;
+  return [job.applyUrl, job.url].some((u) => hostOf(u) === 'jobs.ashbyhq.com' || hostOf(u).endsWith('.ashbyhq.com'));
+}
+
 /** Providers Auto Apply can actually run end-to-end (mirrors server gates). */
 export function isAutoApplyJob(job: Pick<Job, 'atsPlatform' | 'applyUrl' | 'url'>): boolean {
-  return isLeverJob(job) || isGreenhouseJob(job);
+  return isLeverJob(job) || isGreenhouseJob(job) || isAshbyJob(job);
 }
 
 export function hasHttpApplyUrl(job: Pick<Job, 'applyUrl' | 'url'>): boolean {

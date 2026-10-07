@@ -46,7 +46,7 @@ export function verifiedProviderActionUrl(provider: string, applyUrl: string | u
   try { u = new URL(applyUrl); } catch { return null; }
   if (u.protocol !== 'https:') return null;
   const seg = u.pathname.split('/').filter(Boolean);
-  const normalizedExternal = String(externalJobId || '').replace(/^(lev|gh|ashby)-/, '');
+  const normalizedExternal = String(externalJobId || '').replace(/^(lev|gh|ash|ashby)-/, '');
   if (provider === 'lever') {
     if (u.hostname !== 'jobs.lever.co') return null;
     if (seg.length < 2) return null;

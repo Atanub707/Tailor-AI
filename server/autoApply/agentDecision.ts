@@ -225,12 +225,16 @@ export function composeDecision(state: ObservedState, values: Map<string, string
     }
 
     if (f.kind === 'file') {
-      // Only the resume is ever uploaded; optional cover letters are left empty.
+      // Only the RESUME is ever uploaded; cover letters and unlabelled file
+      // fields stay for manual handling (an unlabelled second upload widget
+      // must never receive the resume).
       const idn = `${f.name || ''} ${f.label || ''}`;
       if (/cover/i.test(idn)) {
         notes.push('optional cover letter left empty');
-      } else {
+      } else if (/resume|cv/i.test(idn)) {
         actions.push({ action: 'upload_resume', ref: f.ref });
+      } else {
+        notes.push('non-resume file field left for manual upload');
       }
       continue;
     }

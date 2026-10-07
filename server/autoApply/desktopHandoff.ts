@@ -412,7 +412,7 @@ export function buildPlanPayload(
   plan: SubmissionPlan,
   pkg: { resumeSnapshot?: { pdfHash?: string } }
 ): {
-  provider: 'lever' | 'greenhouse';
+  provider: 'lever' | 'greenhouse' | 'ashby';
   attemptId: string;
   url: string;
   postingId: string;
@@ -423,11 +423,16 @@ export function buildPlanPayload(
   resume: { sha256: string; filename: string; mimeType: string } | null;
 } | null {
   const rawUrl = String((plan as { inspection?: { url?: string } }).inspection?.url || plan.target?.applyUrl || '');
-  // Lever needs the /apply form route; Greenhouse URLs ARE the application page.
-  const isLever = plan.provider !== 'greenhouse';
+  // Lever needs the /apply form route; Ashby needs /application; Greenhouse
+  // URLs ARE the application page.
+  const isLever = plan.provider === 'lever';
+  const isAshby = plan.provider === 'ashby';
+  const base = rawUrl.replace(/\/+$/, '');
   const applyUrl = isLever
-    ? (/^https:\/\/jobs\.lever\.co\/.+\/apply$/.test(rawUrl) ? rawUrl : rawUrl.replace(/\/+$/, '') + '/apply')
-    : rawUrl.replace(/\/+$/, '');
+    ? (/^https:\/\/jobs\.lever\.co\/.+\/apply$/.test(rawUrl) ? rawUrl : base + '/apply')
+    : isAshby
+      ? (/\/application$/.test(base) ? base : base + '/application')
+      : base;
   const fields = (plan.mappedFields || [])
     .filter((f) => f.value !== undefined && f.value !== null)
     .map((f) => ({
@@ -444,10 +449,10 @@ export function buildPlanPayload(
     ? { sha256: pkg.resumeSnapshot.pdfHash, filename: 'resume.pdf', mimeType: 'application/pdf' }
     : null;
   return {
-    provider: isLever ? 'lever' : 'greenhouse',
+    provider: isLever ? 'lever' : isAshby ? 'ashby' : 'greenhouse',
     attemptId,
     url: applyUrl,
-    postingId: String(plan.target?.externalJobId || '').replace(/^lev-/, ''),
+    postingId: String(plan.target?.externalJobId || '').replace(/^(lev|ash)-/, ''),
     company: plan.target?.company || '',
     title: plan.target?.title || '',
     requirementsFingerprint: plan.requirementsFingerprint || '',

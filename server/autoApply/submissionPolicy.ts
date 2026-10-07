@@ -146,7 +146,7 @@ export function computeSubmissionDecision(inputs: SubmissionInputs): SubmissionD
 
   // 1. Feature + provider scope.
   if (!inputs.submitFeatureEnabled || inputs.mode === 'manual_review') blockers.push('SUBMIT_DISABLED');
-  if (inputs.provider !== 'lever' && inputs.provider !== 'greenhouse') blockers.push('PROVIDER_UNSUPPORTED');
+  if (!['lever', 'greenhouse', 'ashby'].includes(inputs.provider)) blockers.push('PROVIDER_UNSUPPORTED');
 
   // 2. Identity + plan integrity.
   if (!inputs.postingMatches) blockers.push('JOB_CHANGED');

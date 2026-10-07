@@ -330,8 +330,9 @@ describe('SubmissionReadinessEngine', () => {
     expect(evaluateSubmissionReadiness({ ...ready, reviewRequired: [{ label: 'x', reason: 'unapproved' }] }).canSubmit).toBe(false);
   });
 
-  it('non-Lever/Greenhouse provider → UNSUPPORTED', () => {
-    expect(evaluateSubmissionReadiness({ ...base(), provider: 'ashby' }).status).toBe('UNSUPPORTED');
+  it('non-Lever/Greenhouse/Ashby provider → UNSUPPORTED', () => {
+    expect(evaluateSubmissionReadiness({ ...base(), provider: 'workday' }).status).toBe('UNSUPPORTED');
+    expect(evaluateSubmissionReadiness({ ...base(), provider: 'ashby' }).status).not.toBe('UNSUPPORTED');
   });
 
   it('consent fields block submission but are reported separately', () => {
