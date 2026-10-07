@@ -142,8 +142,8 @@ export function confirmDesktopSubmit(
   const submittedAt = new Date().toISOString();
   const rawFp = String(evidence.fingerprintHex || '');
   const confirmationFingerprint = /^[0-9a-f]{8,64}$/i.test(rawFp) ? rawFp.toLowerCase() : sha256Hex(`${attemptId}:${submittedAt}`);
-  const confirmationType = ['THANK_YOU_PAGE', 'SUCCESS_MESSAGE', 'CONFIRMATION_ROUTE'].includes(String(evidence.confirmationType))
-    ? (String(evidence.confirmationType) as 'THANK_YOU_PAGE' | 'SUCCESS_MESSAGE' | 'CONFIRMATION_ROUTE')
+  const confirmationType = ['THANK_YOU_PAGE', 'SUCCESS_MESSAGE', 'CONFIRMATION_ROUTE', 'USER_ASSERTED'].includes(String(evidence.confirmationType))
+    ? (String(evidence.confirmationType) as 'THANK_YOU_PAGE' | 'SUCCESS_MESSAGE' | 'CONFIRMATION_ROUTE' | 'USER_ASSERTED')
     : 'SUCCESS_MESSAGE';
   let postingId = '';
   try {

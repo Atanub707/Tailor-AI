@@ -116,6 +116,31 @@ describe('Polling rules (read-only)', () => {
     expect(button).toContain('Notification.requestPermission()');
   });
 
+  it('Phase 2: review actions + screenshot evidence are wired end-to-end', () => {
+    const button = read('src/components/AutoApplyButton.tsx');
+    const panel = read('src/components/AnswerChatPanel.tsx');
+    const bridge = read('desktop/main/desktopBridge.cjs');
+    const session = read('desktop/main/browserSession.cjs');
+    const transport = read('src/lib/browserExecutionTransport.ts');
+    const handoff = read('server/autoApply/desktopHandoff.ts');
+    // "It submitted" → USER_ASSERTED receipt (server accepts it) + Applied.
+    expect(bridge).toContain("'/auto-apply/assert-submitted'");
+    expect(bridge).toContain("confirmationType: 'USER_ASSERTED'");
+    expect(handoff).toContain("'USER_ASSERTED'");
+    expect(transport).toContain('assertDesktopSubmitted');
+    expect(button).toContain('handleAssertSubmitted');
+    // "It didn't submit" → fresh run from a clean session.
+    expect(button).toContain('handleAssertNotSubmitted');
+    expect(panel).toContain("It didn't submit — retry");
+    // Screenshot evidence (loopback-only, small JPEG).
+    expect(bridge).toContain("'/auto-apply/screenshot'");
+    expect(session).toContain('async screenshot()');
+    expect(session).toContain('toJPEG(68)');
+    expect(transport).toContain('fetchSessionScreenshot');
+    expect(panel).toContain('evidenceImage');
+    expect(panel).toContain('Live page');
+  });
+
   it('summarizes verification without leaking values', () => {
     const summary = summarizeFillStatus({ verification: { verified: 8, alreadyCorrect: 2, mismatch: 0, notFound: 0, unverifiable: 0, blocked: 0, newRequiredFields: 0, resumeVerified: true } });
     expect(summary).toBe('Verified 8 · Already correct 2 · Needs review 0 · Resume verified · New required 0');

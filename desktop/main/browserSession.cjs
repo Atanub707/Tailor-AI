@@ -367,6 +367,35 @@ class Session {
     }
   }
 
+  /** Small JPEG preview of the live page for the Needs-you panel (evidence).
+   *  Loopback-only: the user's own session rendered back to their own UI. */
+  async screenshot() {
+    if (!this.alive()) return { ok: false, code: 'NO_SESSION' };
+    // CDP capture paints offscreen — capturePage() returns empty on the
+    // hidden stealth window (verified live).
+    try {
+      const dbg = this.wc.debugger;
+      try { if (!dbg.isAttached()) dbg.attach('1.3'); } catch { /* already attached */ }
+      await dbg.sendCommand('Page.enable').catch(() => {});
+      const r = await dbg.sendCommand('Page.captureScreenshot', { format: 'jpeg', quality: 68 });
+      const b64 = String((r && r.data) || '');
+      if (b64.length < 100) return { ok: false, code: 'EMPTY_CAPTURE' };
+      if (b64.length > 700 * 1024) return { ok: false, code: 'TOO_LARGE' };
+      return { ok: true, image: `data:image/jpeg;base64,${b64}` };
+    } catch {
+      // Fallback: native capture (works when the window is visible).
+      try {
+        const img = await this.view.webContents.capturePage();
+        if (!img || img.isEmpty()) return { ok: false, code: 'EMPTY_CAPTURE' };
+        const jpeg = img.resize({ width: 560 }).toJPEG(68);
+        if (!jpeg || !jpeg.length) return { ok: false, code: 'EMPTY_CAPTURE' };
+        return { ok: true, image: `data:image/jpeg;base64,${jpeg.toString('base64')}` };
+      } catch {
+        return { ok: false, code: 'CAPTURE_FAILED' };
+      }
+    }
+  }
+
   /** Manual unblock: "I completed the challenge — revalidate now." */
   async continueCheckpoint() {
     if (this.agentMode) {

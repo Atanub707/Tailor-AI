@@ -255,6 +255,39 @@ export async function focusFieldInBrowser(executionId: string, ref?: string, nam
   }
 }
 
+/** Small JPEG of the live page (evidence inside the Needs-you panel). */
+export async function fetchSessionScreenshot(executionId: string): Promise<{ ok: boolean; image?: string }> {
+  try {
+    const res = await fetch(`${DESKTOP_BRIDGE_BASE}/auto-apply/screenshot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ executionId }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data || typeof data.image !== 'string') return { ok: false };
+    return { ok: true, image: data.image };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** "It submitted" — the user asserts the outcome; a USER_ASSERTED receipt is
+ *  recorded server-side (idempotent) and the job becomes Applied. */
+export async function assertDesktopSubmitted(executionId: string): Promise<{ ok: boolean; receiptId?: string | null }> {
+  try {
+    const res = await fetch(`${DESKTOP_BRIDGE_BASE}/auto-apply/assert-submitted`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ executionId }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data || data.ok !== true) return { ok: false };
+    return { ok: true, receiptId: data.receiptId || null };
+  } catch {
+    return { ok: false };
+  }
+}
+
 export async function focusTailorBrowser(executionId?: string): Promise<{ ok: boolean }> {
   try {
     const res = await fetch(`${DESKTOP_BRIDGE_BASE}/auto-apply/focus`, {

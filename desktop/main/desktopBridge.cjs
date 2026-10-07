@@ -328,6 +328,43 @@ function createDesktopBridge({ manager, backendBase, onFocus, port = PORT, bootI
         return json(res, r.ok ? 200 : 404, r, origin);
       }
 
+      // Evidence: a small JPEG of the live page for the Needs-you panel.
+      if (req.method === 'POST' && path === '/auto-apply/screenshot') {
+        const body = await readJson(req).catch(() => ({}));
+        const executionId = typeof body.executionId === 'string' ? body.executionId : '';
+        const session = manager.getSession(executionId);
+        if (!session) return json(res, 404, { error: 'UNKNOWN_SESSION' }, origin);
+        const r = await session.screenshot();
+        return json(res, r.ok ? 200 : 404, r, origin);
+      }
+
+      // The USER asserts the outcome of an unconfirmed submission. "It
+      // submitted" records a receipt (USER_ASSERTED) + Applied, exactly like a
+      // detected confirmation — the human IS the evidence. Idempotent.
+      if (req.method === 'POST' && path === '/auto-apply/assert-submitted') {
+        const body = await readJson(req).catch(() => ({}));
+        const executionId = typeof body.executionId === 'string' ? body.executionId : '';
+        const entry = sessions.get(executionId);
+        const session = manager.getSession(executionId);
+        if (!entry || !session) return json(res, 409, { error: 'EXECUTION_MISMATCH' }, origin);
+        const r = await fetch(`${backendBase}/api/auto-apply/desktop-execution/submitted`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ statusToken: entry.statusToken, confirmationType: 'USER_ASSERTED' }),
+        });
+        const data = await r.json().catch(() => null);
+        if (!r.ok || !data || data.ok !== true) {
+          return json(res, 409, { error: (data && data.code) || 'ASSERT_FAILED' }, origin);
+        }
+        try {
+          session.setState('SUBMITTED');
+          session.emit('SUBMISSION_CONFIRMED', 'USER_ASSERTED');
+        } catch { /* session may be mid-teardown */ }
+        sessions.delete(executionId);
+        setTimeout(() => manager.destroySession(executionId, 'APPLIED'), 3000);
+        return json(res, 200, { ok: true, receiptId: data.receiptId || null, duplicate: data.duplicate === true }, origin);
+      }
+
       if (req.method === 'POST' && path === '/auto-apply/stop') {
         const body = await readJson(req);
         const executionId = typeof body.executionId === 'string' ? body.executionId : '';

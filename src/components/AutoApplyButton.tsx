@@ -37,6 +37,8 @@ import {
   startDesktopExecution,
   focusTailorBrowser,
   focusFieldInBrowser,
+  fetchSessionScreenshot,
+  assertDesktopSubmitted,
   stopDesktopExecution,
   submitDesktopExecution,
   fetchDesktopExecutionStatus,
@@ -62,6 +64,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
   const [midRunBrowser, setMidRunBrowser] = useState<AnswerChatBrowserItem[]>([]);
   const [midRunReview, setMidRunReview] = useState<string | null>(null);
   const [midRunHoldUntil, setMidRunHoldUntil] = useState<number | null>(null);
+  const [evidenceImage, setEvidenceImage] = useState<string | null>(null);
   const handledAskSigRef = useRef('');
   // ONE notification per execution (market pattern: batch, never spam).
   const notifiedExecRef = useRef<Set<string>>(new Set());
@@ -410,6 +413,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
         setMidRunBrowser([]);
         setMidRunReview(null);
         setMidRunHoldUntil(null);
+        setEvidenceImage(null);
         if (view.state === 'READY_FOR_REVIEW') {
           void fetchSubmissionDecision(id).then(setDecision).catch(() => {});
         }
@@ -467,8 +471,53 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
         setMidRunReview(review);
         setMidRunHoldUntil(typeof s.waitUntil === 'number' ? s.waitUntil : null);
         setOpen(true);
+        void refreshEvidence(executionId);
       }
     }, AA_POLL_INTERVAL_MS);
+  };
+
+  /** Evidence: a small live-page JPEG inside the panel (best-effort). */
+  const refreshEvidence = async (executionId: string) => {
+    const r = await fetchSessionScreenshot(executionId);
+    if (r.ok && r.image) setEvidenceImage(r.image);
+  };
+
+  /** "It submitted" — the user IS the evidence: record a USER_ASSERTED receipt
+   *  (server-side, idempotent) and move the job to Applied. */
+  const handleAssertSubmitted = async () => {
+    if (!currentExecution) return;
+    const r = await assertDesktopSubmitted(currentExecution.executionId);
+    if (r.ok) {
+      stopPolling();
+      setOpen(false);
+      setMidRunReview(null);
+      setMidRunBrowser([]);
+      setMidRunAsks(null);
+      setEvidenceImage(null);
+      setState('APPLIED');
+      setMessage('Marked as submitted — receipt saved.');
+      return;
+    }
+    setMessage("Couldn't record that — the session may have closed. Check the employer page.");
+  };
+
+  /** "It didn't submit" — the user confirms nothing went through: close this
+   *  session and start a FRESH run (new attempt; safe because the old one is
+   *  abandoned with no receipt). */
+  const handleAssertNotSubmitted = async () => {
+    if (!currentExecution) return;
+    setMessage('Restarting the application from a fresh session…');
+    try { await stopDesktopExecution(currentExecution.executionId); } catch { /* cleanup best-effort */ }
+    setCurrentExecution(null);
+    setAttemptId(null);
+    stopPolling();
+    setOpen(false);
+    setMidRunReview(null);
+    setMidRunBrowser([]);
+    setMidRunAsks(null);
+    setEvidenceImage(null);
+    setState('IDLE');
+    await handleAaClick();
   };
 
   /** "Open in browser" from the Needs-you panel: focus the window AND land on
@@ -492,6 +541,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     setMidRunBrowser([]);
     setMidRunReview(null);
     setMidRunHoldUntil(null);
+    setEvidenceImage(null);
     handledAskSigRef.current = '';
     answeredAtRef.current = 0;
     setState('IDLE');
@@ -507,6 +557,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     setMidRunBrowser([]);
     setMidRunReview(null);
     setMidRunHoldUntil(null);
+    setEvidenceImage(null);
     setMessage(null);
     setState('STARTING');
     // Step 0: apply with the job's TAILORED CV (V1 engine — the same pipeline
@@ -667,6 +718,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
         setMidRunReview(null);
         setMidRunHoldUntil(typeof live.waitUntil === 'number' ? live.waitUntil : null);
         setOpen(true);
+        void refreshEvidence(currentExecution.executionId);
         setMessage(chatQs.length
           ? 'This run needs your input — answer in the panel, then it continues by itself.'
           : 'This run needs a step in Tailor Browser — open it from the panel.');
@@ -680,6 +732,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
           : 'The form rejected the submission — fix the highlighted fields in Tailor Browser; the run continues by itself.');
         setMidRunHoldUntil(typeof live.waitUntil === 'number' ? live.waitUntil : null);
         setOpen(true);
+        void refreshEvidence(currentExecution.executionId);
         setMessage(reason === 'SUBMISSION_UNCONFIRMED' ? 'Checking the submission outcome — see the panel.' : 'The form rejected the submission — see the panel.');
         return;
       }
@@ -876,6 +929,10 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
           reviewNote={midRunReview}
           onOpenBrowser={(item) => void handleOpenBrowserItem(item)}
           waitUntil={midRunHoldUntil}
+          evidenceImage={evidenceImage}
+          onRefreshEvidence={() => { if (currentExecution) void refreshEvidence(currentExecution.executionId); }}
+          onAssertSubmitted={() => void handleAssertSubmitted()}
+          onAssertNotSubmitted={() => void handleAssertNotSubmitted()}
           onSaveAnswer={handleSaveAnswer}
           onSubmit={async () => {
             if (midRunAsks || midRunBrowser.length || midRunReview) {

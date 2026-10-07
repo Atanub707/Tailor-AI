@@ -41,6 +41,12 @@ interface Props {
   onOpenBrowser?: (item?: AnswerChatBrowserItem) => void;
   /** How long the agent holds this pause (epoch ms). */
   waitUntil?: number | null;
+  /** Live-page evidence (small JPEG data URL) shown inside the panel. */
+  evidenceImage?: string | null;
+  onRefreshEvidence?: () => void;
+  /** Outcome review actions for unconfirmed submissions. */
+  onAssertSubmitted?: () => void;
+  onAssertNotSubmitted?: () => void;
 }
 
 interface ChatMessage {
@@ -52,6 +58,7 @@ interface ChatMessage {
 export const AnswerChatPanel: React.FC<Props> = ({
   jobTitle, company, questions, onSaveAnswer, onSubmit, onClose, submitLabel, footnote,
   browserItems = [], reviewNote = null, onOpenBrowser, waitUntil = null,
+  evidenceImage = null, onRefreshEvidence, onAssertSubmitted, onAssertNotSubmitted,
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>(() => [
     { id: 0, role: 'assistant', text: `${jobTitle} at ${company}` },
@@ -149,8 +156,43 @@ export const AnswerChatPanel: React.FC<Props> = ({
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-2.5">
           {hasReview && (
-            <div className="bg-amber-50 border border-amber-200 text-amber-900 text-[12px] leading-relaxed rounded-xl px-3.5 py-3">
-              {reviewNote}
+            <div className="bg-amber-50 border border-amber-200 text-amber-900 text-[12px] leading-relaxed rounded-xl px-3.5 py-3 space-y-2.5">
+              <div>{reviewNote}</div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => onAssertSubmitted?.()}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[11.5px] font-extrabold hover:bg-emerald-700 cursor-pointer"
+                >
+                  It submitted
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onAssertNotSubmitted?.()}
+                  className="px-3 py-1.5 rounded-lg border border-amber-300 bg-white text-amber-800 text-[11.5px] font-extrabold hover:bg-amber-100 cursor-pointer"
+                >
+                  It didn't submit — retry
+                </button>
+              </div>
+            </div>
+          )}
+          {evidenceImage && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10.5px] font-extrabold uppercase tracking-wide text-[var(--color-faint)]">Live page</span>
+                <button
+                  type="button"
+                  onClick={() => onRefreshEvidence?.()}
+                  className="text-[10.5px] font-bold text-[var(--color-brand)] cursor-pointer"
+                >
+                  Refresh
+                </button>
+              </div>
+              <img
+                src={evidenceImage}
+                alt="Live page preview"
+                className="w-full rounded-xl border border-[var(--color-hairline)]"
+              />
             </div>
           )}
           {messages.map((m) =>

@@ -52,7 +52,7 @@ export interface SubmissionReceipt {
   provider: string;
   postingId: string;
   submittedAt: string;
-  confirmationType: 'THANK_YOU_PAGE' | 'SUCCESS_MESSAGE' | 'CONFIRMATION_ROUTE';
+  confirmationType: 'THANK_YOU_PAGE' | 'SUCCESS_MESSAGE' | 'CONFIRMATION_ROUTE' | 'USER_ASSERTED';
   confirmationFingerprint: string;
   resumeHash: string;
   submissionVerified: boolean;
