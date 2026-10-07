@@ -141,6 +141,21 @@ describe('Greenhouse guardrails', () => {
   });
 });
 
+describe('Redirected-host identity (boards → job-boards)', () => {
+  it('identity compares the JOB (slug + posting id), not the hostname', () => {
+    const session = read('desktop/main/browserSession.cjs');
+    expect(session).toContain('const samePosting = !!(herr && planTarget');
+    expect(session).toContain('herr.siteSlug === planTarget.siteSlug && herr.postingId === planTarget.postingId');
+    // The live (redirected) canonical is adopted for later navigation checks.
+    expect(session).toContain('this.canonical = herr.canonical; // adopt the REAL (redirected) host');
+    // Both adapters parse both host forms to the same slug/id.
+    const a = gh.parseLeverUrl('https://boards.greenhouse.io/acme/jobs/1234567');
+    const b = gh.parseLeverUrl('https://job-boards.greenhouse.io/acme/jobs/1234567');
+    expect(a?.siteSlug).toBe(b?.siteSlug);
+    expect(a?.postingId).toBe(b?.postingId);
+  });
+});
+
 describe('Session provider selection', () => {
   it('picks the adapter by URL and routes the agent path through it', () => {
     expect(sessionSrc).toContain("const greenhouseAdapter = require('./greenhouseAdapter.cjs')");

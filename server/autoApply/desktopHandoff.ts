@@ -15,7 +15,7 @@
  */
 import type { Database } from 'better-sqlite3';
 import { randomToken, sha256Hex } from './crypto.js';
-import { getReceiptByAttempt, saveSubmissionReceipt } from './submissionStore.js';
+import { getReceiptByAttempt, hasVerifiedReceiptForJob, saveSubmissionReceipt } from './submissionStore.js';
 import { getAttempt } from '../applicationEngine/executionStore.js';
 import { transitionAttempt } from '../applicationEngine/executionEngine.js';
 import { getJobById, updateJobInStorage, runWithUser } from '../storage/fileStorage.js';
@@ -95,9 +95,14 @@ export function markDesktopSubmitting(db: Database, statusToken: string): Deskto
   const attemptId = String(row.attempt_id);
   const jobId = String(row.job_id);
 
-  // Duplicate protection FIRST: a verified receipt ends the story.
+  // Duplicate protection FIRST: a verified receipt ends the story — checked
+  // per ATTEMPT and per JOB (a fresh attempt on an already-applied job must
+  // never submit a duplicate; this was a real live incident).
   const receipt = getReceiptByAttempt(db, attemptId);
   if (receipt && receipt.submissionVerified) return { ok: false, code: 'ALREADY_SUBMITTED', userId, attemptId, jobId };
+  try {
+    if (hasVerifiedReceiptForJob(db, userId, jobId)) return { ok: false, code: 'ALREADY_SUBMITTED', userId, attemptId, jobId };
+  } catch { /* best-effort; attempt-level CAS still applies */ }
   try {
     const attempt = getAttempt(db, userId, attemptId) as { status?: string } | null;
     const status = String((attempt && attempt.status) || '');

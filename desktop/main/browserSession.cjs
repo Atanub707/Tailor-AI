@@ -234,12 +234,15 @@ class Session {
 
       const ident = await wc.executeJavaScript(this.adapter.buildIdentityScript(), true);
       const herr = this.adapter.parseLeverUrl(ident.href);
-      if (!herr || herr.canonical !== this.canonical) {
+      const planTarget2 = this.adapter.parseLeverUrl(this.currentPlan.url);
+      const samePosting2 = !!(herr && planTarget2 && herr.siteSlug === planTarget2.siteSlug && herr.postingId === planTarget2.postingId);
+      if (!herr || (!samePosting2 && herr.canonical !== this.canonical)) {
         this.setState('FAILED');
         this.emit('JOB_MISMATCH', 'page identity differs from the frozen plan');
         this.scheduleAutoClose(AUTO_CLOSE_FAILED_MS);
         return { ok: false, code: 'JOB_MISMATCH' };
       }
+      this.canonical = herr.canonical;
       this.emit('LEVER_VERIFIED', `${herr.siteSlug}/${herr.postingId}`);
       this.setState('INSPECTING');
 
@@ -713,12 +716,17 @@ class Session {
       this.emit('BROWSER_OPENED', this.canonical);
       const ident = await wc.executeJavaScript(this.adapter.buildIdentityScript(), true);
       const herr = this.adapter.parseLeverUrl(ident.href);
-      if (!herr || herr.canonical !== this.canonical) {
+      // Same JOB, possibly a redirected HOST (boards.greenhouse.io 301s to
+      // job-boards.greenhouse.io — comparing hosts failed every old-style URL).
+      const planTarget = this.adapter.parseLeverUrl(this.currentPlan.url);
+      const samePosting = !!(herr && planTarget && herr.siteSlug === planTarget.siteSlug && herr.postingId === planTarget.postingId);
+      if (!herr || (!samePosting && herr.canonical !== this.canonical)) {
         this.setState('FAILED');
         this.emit('JOB_MISMATCH', 'page identity differs from the frozen plan');
         this.scheduleAutoClose(AUTO_CLOSE_FAILED_MS);
         return { ok: false, code: 'JOB_MISMATCH' };
       }
+      this.canonical = herr.canonical; // adopt the REAL (redirected) host
       this.emit('LEVER_VERIFIED', `${herr.siteSlug}/${herr.postingId}`);
       this.setState('INSPECTING');
       return await this.agentLoop();

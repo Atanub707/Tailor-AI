@@ -81,7 +81,13 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
   // must never trigger another tailor. The row's job prop is stale: the list
   // payload may omit tailoredCv and AA's own tailor never writes back to it.
   const tailoredJobsRef = useRef<Set<string>>(new Set());
+  // The tailor step is an LLM call with an external budget. When the budget is
+  // gone, retrying is pointless — the user gets the Master CV path instead.
+  const skipTailoringRef = useRef(false);
+  const tailorRetryRef = useRef(0);
+  const [failedStep, setFailedStep] = useState<'tailor' | null>(null);
   const needsTailoring = () =>
+    !skipTailoringRef.current &&
     !job.tailoredCv &&
     !tailoredJobsRef.current.has(job.id) &&
     !['tailored', 'applied'].includes(String((job as { state?: string }).state || ''));
@@ -228,6 +234,65 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     await runChromeHandoffFlow();
   };
 
+  /** Tailor step with honest failure handling: quota → Master CV offer;
+   *  transient → bounded auto-retry with backoff; never a click loop. */
+  const ensureTailored = async (): Promise<boolean> => {
+    if (!needsTailoring()) return true;
+    setPhase('TAILOR');
+    setMessage(tailorRetryRef.current ? `Retrying tailoring (attempt ${tailorRetryRef.current + 1} of 3)…` : 'Tailoring your CV…');
+    try {
+      const controller = new AbortController();
+      const tailorTimer = window.setTimeout(() => controller.abort(), 6 * 60 * 1000);
+      const tail = await fetch(`/api/jobs/${job.id}/tailor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: job.tailorMode ?? 'enhanced' }),
+        signal: controller.signal,
+      });
+      window.clearTimeout(tailorTimer);
+      const tdata = await tail.json().catch(() => null);
+      if (!tail.ok) {
+        const code = String(tdata?.code || '');
+        if (code === 'quota') {
+          setFailedStep('tailor');
+          setState('NEEDS_REVIEW');
+          setPhase('IDLE');
+          setMessage(tdata?.error || 'The AI budget is used up — continue with your Master CV.');
+          return false;
+        }
+        if (tailorRetryRef.current < 2) {
+          tailorRetryRef.current += 1;
+          const waitS = tailorRetryRef.current === 1 ? 10 : 30;
+          setMessage(`The AI service is busy — retrying tailoring in ${waitS}s…`);
+          await new Promise((r) => window.setTimeout(r, waitS * 1000));
+          return ensureTailored();
+        }
+        setFailedStep('tailor');
+        setState('NEEDS_REVIEW');
+        setPhase('IDLE');
+        setMessage(tdata?.error || 'Tailoring failed — retry, or continue with your Master CV.');
+        return false;
+      }
+      tailoredJobsRef.current.add(job.id);
+      tailorRetryRef.current = 0;
+      setMessage('Tailored CV ready — starting Auto Apply…');
+      return true;
+    } catch {
+      if (tailorRetryRef.current < 2) {
+        tailorRetryRef.current += 1;
+        const waitS = tailorRetryRef.current === 1 ? 10 : 30;
+        setMessage(`Tailoring timed out — retrying in ${waitS}s…`);
+        await new Promise((r) => window.setTimeout(r, waitS * 1000));
+        return ensureTailored();
+      }
+      setFailedStep('tailor');
+      setState('NEEDS_REVIEW');
+      setPhase('IDLE');
+      setMessage('Tailoring timed out — retry, or continue with your Master CV.');
+      return false;
+    }
+  };
+
   // ── Chrome → Tailor Browser handoff (execution: desktop) ─────────────
   // Chrome NEVER opens the ATS: no window.open, no navigation, no new tab, no
   // silent extension fallback. The backend mints a single-use token; the
@@ -238,40 +303,11 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     setDesktopUnavailable(false);
     setPhase('IDLE');
     setState('STARTING');
-    // ── Step 0: AA applies with the job's TAILORED CV (V1 engine — the same
-    // pipeline the manual Tailor button runs). When the job has no tailored
-    // CV yet, run the V1 tailor first; the server then builds the package and
-    // the attached PDF from this exact tailored CV. An existing tailored CV
-    // is never regenerated at fill time.
-    if (needsTailoring()) {
-      setPhase('TAILOR');
-      setMessage('Tailoring your CV…');
-      try {
-        const controller = new AbortController();
-        const tailorTimer = window.setTimeout(() => controller.abort(), 6 * 60 * 1000);
-        const tail = await fetch(`/api/jobs/${job.id}/tailor`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode: job.tailorMode ?? 'enhanced' }),
-          signal: controller.signal,
-        });
-        window.clearTimeout(tailorTimer);
-        const tdata = await tail.json().catch(() => null);
-        if (!tail.ok) {
-          setState('NEEDS_REVIEW');
-          setMessage(tdata?.error || 'Tailoring failed — try again.');
-          setPhase('IDLE');
-          return;
-        }
-        tailoredJobsRef.current.add(job.id);
-        setMessage('Tailored CV ready — starting Auto Apply…');
-      } catch {
-        setState('NEEDS_REVIEW');
-        setMessage('Tailoring timed out or failed — try again.');
-        setPhase('IDLE');
-        return;
-      }
-    }
+    // ── Step 0: tailor (LLM). Quota exhaustion is NOT retried — the user is
+    // offered the Master CV path instead; transient failures auto-retry with
+    // backoff. The user is never the retry mechanism.
+    if (!(await ensureTailored())) return;
+    setFailedStep(null);
     setPhase('BROWSER');
     setMessage('Starting Tailor Browser…');
     try {
@@ -553,6 +589,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     setEvidenceImage(null);
     setMidRunEvents([]);
     setLocalEvents([]);
+    setFailedStep(null);
     handledAskSigRef.current = '';
     answeredAtRef.current = 0;
     setState('IDLE');
@@ -921,6 +958,22 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
           className="text-[10.5px] font-bold text-[var(--color-faint)] underline whitespace-nowrap cursor-pointer hover:text-[var(--color-ink)]"
         >
           Stop
+        </button>
+      )}
+      {failedStep === 'tailor' && (
+        <button
+          type="button"
+          onClick={() => {
+            skipTailoringRef.current = true;
+            setFailedStep(null);
+            tailorRetryRef.current = 0;
+            setMessage('Continuing with your Master CV — you can tailor this job later.');
+            void runChromeHandoffFlow();
+          }}
+          title="Start Auto Apply now using your Master CV — tailoring can be done later"
+          className="text-[10.5px] font-bold text-[var(--color-brand)] underline whitespace-nowrap cursor-pointer"
+        >
+          Continue with Master CV
         </button>
       )}
       {desktopUnavailable && (

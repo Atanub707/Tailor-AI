@@ -10,6 +10,7 @@ export type LlmErrorCode =
   | 'timeout'
   | 'network'
   | 'rate_limit'
+  | 'quota'
   | 'provider'
   | 'malformed'
   | 'llm_error';
@@ -46,8 +47,21 @@ export function normalizeLlmError(err: unknown): LLMError {
   if (code === 'AUTH' || /401|403|api key|invalid.*key|unauthorized/i.test(message)) {
     return new LLMError('invalid_key', 'Your API key appears to be expired or invalid — update it in Settings.');
   }
+  if (code === 'QUOTA' || /usage limit|quota|budget exceeded/i.test(message)) {
+    const ms = Number((err as { retryAfterMs?: number })?.retryAfterMs || 0);
+    const when = ms > 0
+      ? ms >= 86400000 ? ` in about ${Math.round(ms / 86400000)} day${Math.round(ms / 86400000) === 1 ? '' : 's'}`
+        : ms >= 3600000 ? ` in about ${Math.round(ms / 3600000)} hour${Math.round(ms / 3600000) === 1 ? '' : 's'}`
+          : ` in about ${Math.max(1, Math.round(ms / 60000))} min`
+      : '';
+    const e = new LLMError('quota', `The AI budget is used up${when} — you can still apply now: Taylor will continue with your Master CV.`);
+    (e as any).retryAfterMs = ms || undefined;
+    return e;
+  }
   if (code === 'RATE_LIMIT' || /429|rate.?limit/i.test(message)) {
-    return new LLMError('rate_limit', 'The AI provider is rate-limiting requests — wait a moment and try again.');
+    const e = new LLMError('rate_limit', 'The AI provider is busy right now — retrying automatically.');
+    (e as any).retryAfterMs = Number((err as { retryAfterMs?: number })?.retryAfterMs || 0) || undefined;
+    return e;
   }
   if (code === 'PROVIDER' || /5\d\d|server error/i.test(message)) {
     return new LLMError('provider', "The AI provider returned an error. Please try again.");

@@ -2393,8 +2393,8 @@ Return valid JSON only, no markdown:
         );
       } catch (llmErr: any) {
         if (llmErr instanceof LLMError) {
-          const status = llmErr.code === 'timeout' ? 504 : llmErr.code === 'invalid_key' ? 401 : llmErr.code === 'rate_limit' ? 429 : 502;
-          res.status(status).json({ error: llmErr.message, code: llmErr.code });
+          const status = llmErr.code === 'timeout' ? 504 : llmErr.code === 'invalid_key' ? 401 : (llmErr.code === 'rate_limit' || llmErr.code === 'quota') ? 429 : 502;
+          res.status(status).json({ error: llmErr.message, code: llmErr.code, retryAfterMs: (llmErr as any).retryAfterMs });
           return;
         }
         throw llmErr;
@@ -3451,8 +3451,8 @@ const sanitizeAttemptDryRun = (a: any) => ({
       } catch (llmErr: any) {
         const { LLMError } = await import('./server/llm/llmErrors.js');
         if (llmErr instanceof LLMError) {
-          const status = llmErr.code === 'timeout' ? 504 : llmErr.code === 'invalid_key' ? 401 : llmErr.code === 'rate_limit' ? 429 : 502;
-          res.status(status).json({ error: llmErr.message, code: llmErr.code });
+          const status = llmErr.code === 'timeout' ? 504 : llmErr.code === 'invalid_key' ? 401 : (llmErr.code === 'rate_limit' || llmErr.code === 'quota') ? 429 : 502;
+          res.status(status).json({ error: llmErr.message, code: llmErr.code, retryAfterMs: (llmErr as any).retryAfterMs });
           return;
         }
         if (llmErr?.name === 'TailorVerificationFailedError') {

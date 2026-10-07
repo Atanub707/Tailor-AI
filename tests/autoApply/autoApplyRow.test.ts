@@ -201,6 +201,31 @@ describe('Polling rules (read-only)', () => {
     expect(bridge).toContain("!String(ev.detail || '').includes('STOPPED_BY_USER')");
   });
 
+  it('quota 429s are classified, never retried, and never dead-end the click', () => {
+    const provider = read('server/llm/providers/openaiProvider.ts');
+    const errors = read('server/llm/llmErrors.ts');
+    const server = read('server.ts');
+    const button = read('src/components/AutoApplyButton.tsx');
+    const handoff = read('server/autoApply/desktopHandoff.ts');
+    // Provider: quota (budget) vs transient (burst) with Retry-After.
+    expect(provider).toContain("'QUOTA'");
+    expect(provider).toContain("retry-after");
+    expect(provider).toContain('UsageLimit');
+    // Errors: honest copy with the reset window; rate_limit copy says retrying.
+    expect(errors).toContain("| 'quota'");
+    expect(errors).toContain('The AI budget is used up');
+    // Routes pass the code + retryAfterMs through.
+    expect(server).toContain("llmErr.code === 'quota'");
+    expect(server).toContain('retryAfterMs: (llmErr as any).retryAfterMs');
+    // Client: quota → Master CV offer; transient → bounded auto-retry.
+    expect(button).toContain('const ensureTailored');
+    expect(button).toContain("code === 'quota'");
+    expect(button).toContain('Continue with Master CV');
+    expect(button).toContain('retrying tailoring in ${waitS}s');
+    // Duplicate guard: a verified receipt for the JOB blocks re-submission.
+    expect(handoff).toContain('hasVerifiedReceiptForJob(db, userId, jobId)');
+  });
+
   it('summarizes verification without leaking values', () => {
     const summary = summarizeFillStatus({ verification: { verified: 8, alreadyCorrect: 2, mismatch: 0, notFound: 0, unverifiable: 0, blocked: 0, newRequiredFields: 0, resumeVerified: true } });
     expect(summary).toBe('Verified 8 · Already correct 2 · Needs review 0 · Resume verified · New required 0');

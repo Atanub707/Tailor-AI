@@ -60,7 +60,21 @@ export async function askOpenAi(options: OpenAiOptions): Promise<string> {
     throw providerError('INVALID_MODEL', `model/endpoint not found (404) — check the model name and base URL`);
   }
   if (response.status === 429) {
-    throw providerError('RATE_LIMIT', `rate limited (${response.status})`);
+    // Two very different 429s: a TRANSIENT burst limit (retry in seconds)
+    // vs a QUOTA/budget exhaustion (retry in hours/days — retrying is
+    // pointless and burns nothing but user time). The Go gateway types them
+    // in the body and sends Retry-After seconds.
+    let retryAfterSec = 0;
+    try { retryAfterSec = Number(response.headers?.get?.('retry-after') || 0); } catch { /* stub responses */ }
+    let errType = '';
+    try {
+      const j: any = await response.json();
+      errType = String(j?.error?.type || '');
+    } catch { /* body may be empty */ }
+    const quota = /UsageLimit|Quota|Budget|CreditLimit|InsufficientBalance/i.test(errType) || (Number.isFinite(retryAfterSec) && retryAfterSec > 90);
+    const e = providerError(quota ? 'QUOTA' : 'RATE_LIMIT', quota ? `usage limit exceeded (${errType || 'quota'})` : `rate limited (${response.status})`);
+    if (Number.isFinite(retryAfterSec) && retryAfterSec > 0) (e as any).retryAfterMs = retryAfterSec * 1000;
+    throw e;
   }
   if (!response.ok) {
     const errBody = await response.text().catch(() => '');
