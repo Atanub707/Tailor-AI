@@ -54,6 +54,20 @@ export function isAutoApplyJob(job: Pick<Job, 'atsPlatform' | 'applyUrl' | 'url'
   return isLeverJob(job) || isGreenhouseJob(job) || isAshbyJob(job);
 }
 
+/** Richer row copy for attention states — the backend event string carries the
+ *  session's waitReason (e.g. 'STATE:QUESTIONS_REQUIRED'), so the row can say
+ *  WHY it needs you instead of a generic "Action required". */
+export function reasonMessage(state: AaRowState, base: string, event?: string): string {
+  if (state !== 'USER_ACTION_REQUIRED' && state !== 'NEEDS_REVIEW') return base;
+  const e = String(event || '');
+  if (e.includes('QUESTIONS_REQUIRED')) return 'Waiting for your answers — open the chat or Tailor Browser; the run continues by itself.';
+  if (e.includes('CAPTCHA_REQUIRED')) return 'CAPTCHA needed on the employer page — complete it in Tailor Browser.';
+  if (e.includes('SUBMISSION_UNCONFIRMED')) return "Couldn't confirm the submission — check the employer page in Tailor Browser.";
+  if (e.includes('SUBMISSION_REJECTED')) return 'The form rejected the submission — fix the highlighted fields in Tailor Browser.';
+  if (e.includes('VERIFICATION_REQUIRED')) return 'The form needs a quick check in Tailor Browser.';
+  return base;
+}
+
 export function hasHttpApplyUrl(job: Pick<Job, 'applyUrl' | 'url'>): boolean {
   return /^https?:\/\//.test(String(job.applyUrl || job.url || ''));
 }

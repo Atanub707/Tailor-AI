@@ -123,7 +123,7 @@ describe('Chrome row state mapping (pure)', () => {
     expect(mapDesktopStateToRow('NAVIGATING')?.message).toBe('Opening application…');
     expect(mapDesktopStateToRow('FILLING')?.state).toBe('FILLING');
     expect(mapDesktopStateToRow('WAITING_FOR_USER')).toMatchObject({ state: 'USER_ACTION_REQUIRED', message: 'Action required in Tailor Browser', terminal: false });
-    expect(mapDesktopStateToRow('READY_FOR_REVIEW')).toMatchObject({ state: 'READY_FOR_REVIEW', terminal: true });
+    expect(mapDesktopStateToRow('READY_FOR_REVIEW')).toMatchObject({ state: 'READY_FOR_REVIEW', terminal: false }); // submit-time waits must stay visible
     expect(mapDesktopStateToRow('FAILED')?.state).toBe('NEEDS_REVIEW');
     expect(mapDesktopStateToRow('SUBMITTED_VERIFIED')?.state).toBe('APPLIED');
     expect(mapDesktopStateToRow('WHATEVER')).toBeNull();
@@ -217,6 +217,19 @@ describe('Desktop bridge security (Phase 4/13)', () => {
     expect(mapEventToState({ type: 'STATE', detail: 'NAVIGATING' })).toBe('NAVIGATING');
     expect(mapEventToState({ type: 'RUN_FAILED' })).toBe('FAILED');
     expect(mapEventToState({ type: 'NOTHING' })).toBeNull();
+    // Routine-operation events must NEVER flip the row to Action needed:
+    // SUBMISSION_BLOCKED fires on every retried field act / decide hiccup,
+    // CHECKPOINT_CLEARED on every auto-resume. Row state comes from STATE +
+    // heartbeat only.
+    expect(mapEventToState({ type: 'SUBMISSION_BLOCKED' })).toBeNull();
+    expect(mapEventToState({ type: 'CHECKPOINT_CLEARED' })).toBeNull();
+  });
+
+  it('the bridge carries the waitReason in posted events; focus reports unknown sessions honestly', () => {
+    const bridge = read('desktop/main/desktopBridge.cjs');
+    expect(bridge).toContain("HEARTBEAT${session.waitReason ? ':' + session.waitReason : ''}");
+    expect(bridge).toContain("const reason = session && session.waitReason ? ':' + session.waitReason : '';");
+    expect(bridge).toContain("return json(res, 404, { error: (r && r.code) || 'UNKNOWN_SESSION' }, origin);");
   });
 
   it('10/23. protocol is launch-only; bridge starts on launch and closes on exit', () => {

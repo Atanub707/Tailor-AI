@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import {
   aaStateFromFillResult, resolveApplicationUrl, isTerminalFillStatus,
   summarizeFillStatus, aaReasonFromBlockers, AA_POLL_INTERVAL_MS, AA_POLL_TIMEOUT_MS,
-  isAutoApplyJob,
+  isAutoApplyJob, reasonMessage,
 } from '../../src/lib/autoApply.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -65,6 +65,29 @@ describe('Polling rules (read-only)', () => {
     expect(isTerminalFillStatus({ readyForUserSubmission: true, verification: null })).toBe(true);
     expect(isTerminalFillStatus({ readyForUserSubmission: false, verification: { totalFields: 3 } })).toBe(true);
     expect(isTerminalFillStatus({ readyForUserSubmission: false, verification: null, attempt: { status: 'READY_FOR_DRY_RUN' } })).toBe(false);
+  });
+
+  it('attention copy carries the REAL waitReason (questions/captcha/unconfirmed)', () => {
+    expect(reasonMessage('USER_ACTION_REQUIRED', 'base', 'STATE:QUESTIONS_REQUIRED')).toContain('Waiting for your answers');
+    expect(reasonMessage('USER_ACTION_REQUIRED', 'base', 'HEARTBEAT:CAPTCHA_REQUIRED')).toContain('CAPTCHA');
+    expect(reasonMessage('USER_ACTION_REQUIRED', 'base', 'STATE:SUBMISSION_UNCONFIRMED')).toContain('confirm the submission');
+    expect(reasonMessage('USER_ACTION_REQUIRED', 'base', 'SUBMISSION_REJECTED')).toContain('rejected');
+    expect(reasonMessage('USER_ACTION_REQUIRED', 'base', 'VERIFICATION_REQUIRED')).toContain('check');
+    expect(reasonMessage('FILLING', 'Filling…', 'STATE:QUESTIONS_REQUIRED')).toBe('Filling…'); // only attention states get reason copy
+    expect(reasonMessage('USER_ACTION_REQUIRED', 'base', 'HEARTBEAT')).toBe('base');
+  });
+
+  it('click routing names browser-only asks and the adoption gate works in Chrome', () => {
+    const button = read('src/components/AutoApplyButton.tsx');
+    // Human-only asks get a NAMED message + focus instead of a silent fallthrough.
+    expect(button).toContain('Finish in Tailor Browser:');
+    // waitReason branches for every pause family.
+    expect(button).toContain("reason === 'SUBMISSION_UNCONFIRMED'");
+    expect(button).toContain("reason === 'SUBMISSION_REJECTED'");
+    expect(button).toContain("reason === 'VERIFICATION_REQUIRED'");
+    // Reload adoption must run in the real browser too (no Electron-only gate).
+    expect(button).not.toMatch(/if \(!desktopBridge\) return;\n    let alive = true;/);
+    expect(button).toContain('fetchActiveExecutions()');
   });
 
   it('summarizes verification without leaking values', () => {

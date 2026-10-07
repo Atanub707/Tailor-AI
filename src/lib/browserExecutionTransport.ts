@@ -328,7 +328,9 @@ export function mapDesktopStateToRow(state: unknown): DesktopRowView | null {
     case 'VERIFYING': return { state: 'VERIFYING', message: 'Verifying…', terminal: false };
     case 'SUBMITTING': return { state: 'SUBMITTING', message: 'Submitting…', terminal: false };
     case 'WAITING_FOR_USER': return { state: 'USER_ACTION_REQUIRED', message: 'Action required in Tailor Browser', terminal: false };
-    case 'READY_FOR_REVIEW': return { state: 'READY_FOR_REVIEW', message: 'Ready for review in Tailor Browser.', terminal: true };
+    // NOT terminal: submit-time CAPTCHAs and unconfirmed submissions happen
+    // AFTER ready — the row must keep polling to surface them.
+    case 'READY_FOR_REVIEW': return { state: 'READY_FOR_REVIEW', message: 'Ready for review in Tailor Browser.', terminal: false };
     case 'FAILED': return { state: 'NEEDS_REVIEW', message: 'Auto Apply needs review — open Tailor Browser.', terminal: true };
     case 'SUBMITTED_VERIFIED': return { state: 'APPLIED', message: 'Applied ✓ — confirmed by the job board.', terminal: true };
     default: return null;

@@ -44,7 +44,6 @@ function mapEventToState(ev) {
       RESUME_SKIPPED: 'ATTACHING_RESUME',
       FILL_VERIFICATION_COMPLETED: 'VERIFYING',
       HUMAN_ACTION_REQUIRED: 'WAITING_FOR_USER',
-      CHECKPOINT_CLEARED: 'VERIFYING',
       READY_FOR_REVIEW: 'READY_FOR_REVIEW',
       RUN_FAILED: 'FAILED',
       FILL_FAILED: 'FAILED',
@@ -52,11 +51,15 @@ function mapEventToState(ev) {
       PLAN_REJECTED: 'FAILED',
       SUBMIT_CONTROL_ACTIVATED: 'SUBMITTING',
       SUBMISSION_CONFIRMED: 'SUBMITTED_VERIFIED',
-      // Unconfirmed/rejected/blocked are NOT terminal: keep the session so the
-      // user can review, fix, and retry — never delete on an unverified outcome.
+      // Unconfirmed/rejected are NOT terminal: keep the session so the user can
+      // review, fix, and retry — never delete on an unverified outcome.
       SUBMISSION_UNCONFIRMED: 'WAITING_FOR_USER',
       SUBMISSION_REJECTED: 'WAITING_FOR_USER',
-      SUBMISSION_BLOCKED: 'WAITING_FOR_USER',
+      // NOTE: SUBMISSION_BLOCKED and CHECKPOINT_CLEARED are deliberately NOT
+      // mapped. They fire during NORMAL operation (a field act retried, a
+      // decide hiccup, a checkpoint auto-clearing) — mapping them flipped the
+      // row to "Action needed" mid-fill and made clicks land on a session with
+      // nothing to ask. Row state is driven by STATE events + the heartbeat.
       SUBMISSION_FAILED: 'FAILED',
     }[String(ev.type)] || null
   );
@@ -126,7 +129,7 @@ function createDesktopBridge({ manager, backendBase, onFocus, port = PORT, bootI
         void fetch(STATUS_ENDPOINT, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ statusToken: entry.statusToken, state, event: 'HEARTBEAT' }),
+          body: JSON.stringify({ statusToken: entry.statusToken, state, event: `HEARTBEAT${session.waitReason ? ':' + session.waitReason : ''}` }),
         }).catch(() => {});
       }
     }, 5000);
@@ -167,12 +170,17 @@ function createDesktopBridge({ manager, backendBase, onFocus, port = PORT, bootI
     if (!entry) return;
     const state = mapEventToState(ev);
     if (!state) return;
+    // Carry WHY the session is waiting (waitReason) in the posted event string
+    // so the row can say "2 questions" / "CAPTCHA" instead of a generic line.
+    const session = manager.getSession(executionId);
+    const reason = session && session.waitReason ? ':' + session.waitReason : '';
+    const eventStr = `${String(ev.type || '')}${reason}`.slice(0, 80);
     if (TERMINAL_STATES.has(state)) {
       sessions.delete(executionId);
       void fetch(STATUS_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ statusToken: entry.statusToken, state, event: String(ev.type || '').slice(0, 64) }),
+        body: JSON.stringify({ statusToken: entry.statusToken, state, event: eventStr }),
       }).catch(() => {});
       return;
     }
@@ -191,7 +199,7 @@ function createDesktopBridge({ manager, backendBase, onFocus, port = PORT, bootI
     void fetch(STATUS_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ statusToken: entry.statusToken, state, event: String(ev.type || '').slice(0, 64) }),
+      body: JSON.stringify({ statusToken: entry.statusToken, state, event: eventStr }),
     }).catch(() => {});
   };
 
@@ -301,7 +309,11 @@ function createDesktopBridge({ manager, backendBase, onFocus, port = PORT, bootI
       if (req.method === 'POST' && path === '/auto-apply/focus') {
         const body = await readJson(req).catch(() => ({}));
         const executionId = typeof body.executionId === 'string' ? body.executionId : '';
-        if (executionId) manager.setVisibleSession(executionId);
+        if (executionId) {
+          // Honest result: a stale executionId must NOT report success.
+          const r = manager.setVisibleSession(executionId);
+          if (!r || r.ok === false) return json(res, 404, { error: (r && r.code) || 'UNKNOWN_SESSION' }, origin);
+        }
         if (typeof onFocus === 'function') onFocus();
         return json(res, 200, { ok: true }, origin);
       }

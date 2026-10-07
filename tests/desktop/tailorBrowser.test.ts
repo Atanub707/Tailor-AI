@@ -149,6 +149,15 @@ describe('Deterministic scripts — invariants (never submit, never bypass CAPTC
     expect(loop).toContain('deadline = Math.min(hardDeadline');
   });
 
+  it('every pause path carries a waitReason (the row can say WHY it needs you)', () => {
+    expect(sessionSrc).toContain("this.waitReason = 'VERIFICATION_REQUIRED'");
+    expect(sessionSrc).toContain("this.waitReason = 'SUBMISSION_UNCONFIRMED'");
+    expect(sessionSrc).toContain("this.waitReason = 'SUBMISSION_REJECTED'");
+    // Submit-time CAPTCHA sets AND clears it (the run continues after solving).
+    expect(sessionSrc).toContain("this.waitReason = 'CAPTCHA_REQUIRED'");
+    expect(sessionSrc).toContain("this.waitReason = null");
+  });
+
   it('a transient decision outage retries instead of killing the run', () => {
     const loop = sessionSrc.slice(sessionSrc.indexOf('async agentLoop()'), sessionSrc.indexOf('async agentFinalRevalidation()'));
     expect(loop).toContain('decideFailures += 1');

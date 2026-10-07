@@ -203,6 +203,7 @@ class Session {
   finishVerification(rb) {
     const clean = rb.newRequiredCount === 0 && !/[MNBU]/.test(rb.statuses);
     if (!clean) {
+      this.waitReason = 'VERIFICATION_REQUIRED';
       this.setState('WAITING_FOR_USER');
       this.emit('HUMAN_ACTION_REQUIRED', 'FILL_VERIFICATION_REQUIRED');
       return { ok: false, code: 'VERIFICATION_FAILED', statuses: rb.statuses };
@@ -263,6 +264,7 @@ class Session {
       this.emit('FILL_VERIFICATION_COMPLETED', `statuses=${rb.statuses};newRequired=${rb.newRequiredCount}`);
 
       if (fill.captchaPresent) {
+        this.waitReason = 'CAPTCHA_REQUIRED';
         this.setState('WAITING_FOR_USER');
         this.emit('HUMAN_ACTION_REQUIRED', 'CAPTCHA_REQUIRED');
         return this.waitForCheckpoint(fill.wasCorrect);
@@ -298,6 +300,7 @@ class Session {
           const result = await this.revalidateAfterCheckpoint();
           if (result && result.ok !== true && this.checkpointAttempts < 25) {
             this.checkpointAttempts += 1;
+            this.waitReason = 'VERIFICATION_REQUIRED';
             this.setState('WAITING_FOR_USER');
             this.emit('HUMAN_ACTION_REQUIRED', 'VERIFICATION_REQUIRED');
             this.waitForCheckpoint(wasCorrect);
@@ -310,6 +313,7 @@ class Session {
 
   /** After a human checkpoint: revalidate identity, RE-FILL wiped values, re-attach resume, read-back. */
   async revalidateAfterCheckpoint() {
+    this.waitReason = null;
     const wc = this.wc;
     const ident = await wc.executeJavaScript(this.adapter.buildIdentityScript(), true);
     const herr = this.adapter.parseLeverUrl(ident.href);
@@ -355,6 +359,7 @@ class Session {
     const result = await this.revalidateAfterCheckpoint();
     if (result && result.ok !== true && this.checkpointAttempts < 25) {
       this.checkpointAttempts += 1;
+      this.waitReason = 'VERIFICATION_REQUIRED';
       this.setState('WAITING_FOR_USER');
       this.emit('HUMAN_ACTION_REQUIRED', 'VERIFICATION_REQUIRED');
       this.waitForCheckpoint({});
@@ -878,6 +883,7 @@ class Session {
       // Nothing to do and not submittable (e.g., disabled control) — wait briefly.
       await new Promise((r) => setTimeout(r, 1500));
     }
+    this.waitReason = 'SUBMISSION_UNCONFIRMED';
     this.setState('WAITING_FOR_USER');
     this.emit('SUBMISSION_UNCONFIRMED', 'agent loop exhausted — user reviews');
     return { ok: false, code: 'AGENT_LOOP_EXHAUSTED' };
@@ -997,6 +1003,7 @@ class Session {
       let cur = '';
       try { cur = String(wc.getURL() || ''); } catch { /* ignore */ }
       if (cur.startsWith('chrome-error://')) {
+        this.waitReason = 'SUBMISSION_UNCONFIRMED';
         this.setState('WAITING_FOR_USER');
         this.emit('SUBMISSION_UNCONFIRMED', `page-error:${cur.slice(0, 40)}`);
         return { ok: false, code: 'SUBMITTED_UNVERIFIED' };
@@ -1027,6 +1034,7 @@ class Session {
       if (cp && cp.captchaPresent) {
         if (!captchaNotified) {
           captchaNotified = true;
+          this.waitReason = 'CAPTCHA_REQUIRED';
           this.setState('WAITING_FOR_USER');
           this.emit('HUMAN_ACTION_REQUIRED', 'CAPTCHA_REQUIRED');
         }
@@ -1035,9 +1043,11 @@ class Session {
       if (captchaNotified && !(cp && cp.captchaPresent)) {
         // Solved — Lever's callback submits; keep watching for confirmation.
         captchaNotified = false;
+        this.waitReason = null;
         this.setState('SUBMITTING');
       }
       if (c.error) {
+        this.waitReason = 'SUBMISSION_REJECTED';
         this.setState('WAITING_FOR_USER');
         this.emit('SUBMISSION_UNCONFIRMED', `rejected:${String(c.evidence || 'validation')}`);
         return { ok: false, code: 'SUBMISSION_REJECTED' };
@@ -1053,6 +1063,7 @@ class Session {
         true
       );
     } catch { /* snippet is best-effort */ }
+    this.waitReason = 'SUBMISSION_UNCONFIRMED';
     this.setState('WAITING_FOR_USER');
     this.emit('SUBMISSION_UNCONFIRMED', snippet ? `no confirmation: ${String(snippet).slice(0, 150)}` : 'no confirmation within 6min — user reviews');
     return { ok: false, code: 'SUBMITTED_UNVERIFIED' };

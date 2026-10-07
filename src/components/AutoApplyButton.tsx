@@ -20,6 +20,7 @@ import {
   summarizeFillStatus,
   fetchSubmissionDecision,
   submissionBlockerMessage,
+  reasonMessage,
   type SubmissionDecisionView,
   AA_POLL_INTERVAL_MS,
   type AaRowState,
@@ -103,28 +104,32 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
 
   // RELOAD ADOPTION: after a page refresh the row forgot its live execution —
   // reconnect to the session that is STILL running (server knows; the bridge
-  // proves it is alive) instead of dead-ending on a stale row.
+  // proves it is alive) instead of dead-ending on a stale row. This runs in
+  // the REAL browser too (plain loopback fetches with CORS) — not only inside
+  // the Electron debug UI.
   useEffect(() => {
-    if (!desktopBridge) return;
     let alive = true;
     void (async () => {
       try {
         const [execs, health] = await Promise.all([fetchActiveExecutions(), desktopHealth()]);
         const exec = execs.find((e) => e.jobId === job.id);
         if (!exec || !alive) return;
+        // Never adopt without an attemptId: an unpolled "Action needed" row is
+        // worse than none (it can never update itself).
+        if (!exec.attemptId) return;
         const live = (health.sessions || []).find((s) => s.executionId === exec.executionId);
         if (!live) return;
         setCurrentExecution({ executionId: exec.executionId, attemptId: exec.attemptId, jobId: job.id, jobTitle: job.title, company: job.company });
         setAttemptId(exec.attemptId);
         setState('USER_ACTION_REQUIRED');
         setMessage('This job is already running in Tailor Browser — the run continues by itself and closes when it finishes.');
-        if (exec.attemptId) startDesktopStatusPolling(exec.attemptId);
+        startDesktopStatusPolling(exec.attemptId);
         startAskWatcher(exec.executionId);
       } catch { /* adoption is best-effort; clicking Auto Apply still recovers */ }
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [desktopBridge, job.id]);
+  }, [job.id]);
 
   if (!enabled) return null;
 
@@ -384,7 +389,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
       const view = mapDesktopStateToRow(status.state);
       if (!view) return;
       setState(view.state);
-      setMessage(view.message);
+      setMessage(reasonMessage(view.state, view.message, status.event));
       if (view.state === 'FILLING') setPhase('FILL');
       else if (view.state === 'VERIFYING') setPhase('VERIFY');
       else if (view.state === 'SUBMITTING') setPhase('SUBMIT');
@@ -602,11 +607,12 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
         await handleAaClick();
         return;
       }
-      // The ACTION decides the response: a question opens the chat (right
-      // drawer), a CAPTCHA needs the visible window, anything else gets the
-      // window brought forward. Feedback is set in EVERY branch — the button
-      // must never look stuck with no clue.
-      if (live.waitReason === 'QUESTIONS_REQUIRED' && live.asks && live.asks.length) {
+      // The ACTION decides the response: questions open the chat (right
+      // drawer), browser-only asks get named + focused, a CAPTCHA needs the
+      // visible window, anything else gets the window brought forward with the
+      // REAL reason. Feedback is set in EVERY branch — never a silent click.
+      const reason = live.waitReason || '';
+      if (reason === 'QUESTIONS_REQUIRED' && live.asks && live.asks.length) {
         const qs: AnswerChatQuestion[] = live.asks.filter((a) => !a.human).map((a, i) => ({ providerFieldId: `ask-${i}`, label: a.label, options: a.options }));
         if (qs.length) {
           handledAskSigRef.current = `${currentExecution.executionId}|${qs.map((q) => q.label).join('|')}`;
@@ -615,10 +621,31 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
           setMessage('This run needs your input — answer in the chat, then it continues by itself.');
           return;
         }
+        // Browser-only asks (consent / widget fixes): name what is needed.
+        const first = String(live.asks[0]?.label || 'a step').slice(0, 90);
+        const extra = live.asks.length > 1 ? ` (+${live.asks.length - 1} more)` : '';
+        await focusTailorBrowser(currentExecution.executionId);
+        setMessage(`Finish in Tailor Browser: ${first}${extra} — the run continues by itself.`);
+        return;
       }
-      if (live.waitReason === 'CAPTCHA_REQUIRED') {
+      if (reason === 'CAPTCHA_REQUIRED') {
         await focusTailorBrowser(currentExecution.executionId);
         setMessage('Complete the CAPTCHA in the Tailor Browser window — the run continues and submits by itself.');
+        return;
+      }
+      if (reason === 'SUBMISSION_UNCONFIRMED') {
+        await focusTailorBrowser(currentExecution.executionId);
+        setMessage("The site didn't confirm the submission — check the employer page in Tailor Browser before retrying.");
+        return;
+      }
+      if (reason === 'SUBMISSION_REJECTED') {
+        await focusTailorBrowser(currentExecution.executionId);
+        setMessage('The form rejected the submission — fix the highlighted fields in Tailor Browser.');
+        return;
+      }
+      if (reason === 'VERIFICATION_REQUIRED') {
+        await focusTailorBrowser(currentExecution.executionId);
+        setMessage('The form needs a quick check in Tailor Browser — fix what is highlighted there.');
         return;
       }
       const focused = await focusTailorBrowser(currentExecution.executionId);
