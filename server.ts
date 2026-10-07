@@ -2841,11 +2841,12 @@ const sanitizeAttemptDryRun = (a: any) => ({
       const hash = pkg?.resumeSnapshot?.pdfHash;
       if (!hash) return res.status(404).json({ error: 'RESUME_ARTIFACT_MISSING' });
       const { readPdfArtifact } = await import('./server/applicationPackage/artifactStore.js');
+      const { resumeAttachmentFilename } = await import('./server/applicationEngine/resumeNaming.js');
       const bytes = readPdfArtifact(hash);
       if (!bytes.length || bytes.length > 5 * 1024 * 1024) return res.status(413).json({ error: 'ARTIFACT_INVALID' });
       if (bytes.subarray(0, 5).toString('ascii') !== '%PDF-') return res.status(422).json({ error: 'ARTIFACT_INVALID' });
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', 'attachment; filename="resume.pdf"');
+      res.setHeader('Content-Disposition', `attachment; filename="${resumeAttachmentFilename(pkg)}"`);
       res.setHeader('Cache-Control', 'no-store');
       return void res.send(bytes);
     } catch { return res.status(500).json({ error: 'RESUME_ERROR' }); }
@@ -3306,8 +3307,9 @@ const sanitizeAttemptDryRun = (a: any) => ({
       } catch (err: any) {
         return res.status(410).json({ error: err?.message || 'PDF artifact unavailable.' });
       }
+      const { resumeAttachmentFilename } = await import('./server/applicationEngine/resumeNaming.js');
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="package-v${pkg.version}-resume.pdf"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${resumeAttachmentFilename(pkg)}"`);
       res.send(buf);
     } catch (err: any) {
       res.status(500).json({ error: String(err?.message || 'failed').slice(0, 200) });

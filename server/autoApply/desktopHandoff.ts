@@ -19,6 +19,8 @@ import { getReceiptByAttempt, saveSubmissionReceipt } from './submissionStore.js
 import { getAttempt } from '../applicationEngine/executionStore.js';
 import { transitionAttempt } from '../applicationEngine/executionEngine.js';
 import { getJobById, updateJobInStorage, runWithUser } from '../storage/fileStorage.js';
+import { resumeAttachmentFilename } from '../applicationEngine/resumeNaming.js';
+import type { ApplicationPackage } from '../applicationPackage/packageModel.js';
 import type { SubmissionPlan } from '../applicationEngine/contract.js';
 
 export const HANDOFF_TTL_MS = 120_000;
@@ -410,7 +412,7 @@ export function buildPlanPayload(
   userId: string,
   attemptId: string,
   plan: SubmissionPlan,
-  pkg: { resumeSnapshot?: { pdfHash?: string } }
+  pkg: Pick<ApplicationPackage, 'resumeSnapshot' | 'answers' | 'jobSnapshot' | 'applicantSnapshot'>
 ): {
   provider: 'lever' | 'greenhouse' | 'ashby';
   attemptId: string;
@@ -446,7 +448,7 @@ export function buildPlanPayload(
   void userId;
   void attemptId;
   const resume = pkg.resumeSnapshot?.pdfHash
-    ? { sha256: pkg.resumeSnapshot.pdfHash, filename: 'resume.pdf', mimeType: 'application/pdf' }
+    ? { sha256: pkg.resumeSnapshot.pdfHash, filename: resumeAttachmentFilename(pkg as ApplicationPackage), mimeType: 'application/pdf' }
     : null;
   return {
     provider: isLever ? 'lever' : isAshby ? 'ashby' : 'greenhouse',

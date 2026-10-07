@@ -15,6 +15,7 @@ import {
   deleteAnswer,
 } from './answerBank/answerBankStore.js';
 import { answerQuestionForJob } from './answerBank/answerBankService.js';
+import { resumeAttachmentFilename } from '../applicationEngine/resumeNaming.js';
 import { getAttempt } from '../applicationEngine/executionStore.js';
 import { getEventTypesForAttempt, getEventsForAttempt } from '../applicationExperience/applicationEvents.js';
 import { buildVerificationOutcome, latestVerificationEvent, summarizeVerification } from './fillVerification.js';
@@ -237,7 +238,7 @@ export function createAutoApplyRouter(): Router {
         ? {
             url: `/api/auto-apply/fill/${result.attemptId}/resume`,
             sha256: pkg.resumeSnapshot.pdfHash,
-            filename: 'resume.pdf',
+            filename: resumeAttachmentFilename(pkg),
             mimeType: 'application/pdf',
           }
         : null;
@@ -283,7 +284,7 @@ export function createAutoApplyRouter(): Router {
       if (bytes.length > 5 * 1024 * 1024) return void res.status(413).json({ error: 'ARTIFACT_TOO_LARGE' });
       if (bytes.subarray(0, 5).toString('ascii') !== '%PDF-') return void res.status(422).json({ error: 'ARTIFACT_INVALID' });
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', 'attachment; filename="resume.pdf"');
+      res.setHeader('Content-Disposition', `attachment; filename="${resumeAttachmentFilename(pkg)}"`);
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('X-Content-Type-Options', 'nosniff');
       return void res.send(bytes);
