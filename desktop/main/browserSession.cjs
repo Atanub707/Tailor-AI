@@ -57,6 +57,7 @@ class Session {
     this.asksSig = null; // signature of the currently displayed ask set
     this.loopRunning = false;
     this.waitReason = null;
+    this.waitUntil = null; // how long the agent holds this pause (ms epoch)
     this.tmpDirs = [];
     this.attached = false;
   }
@@ -204,6 +205,7 @@ class Session {
     const clean = rb.newRequiredCount === 0 && !/[MNBU]/.test(rb.statuses);
     if (!clean) {
       this.waitReason = 'VERIFICATION_REQUIRED';
+      this.waitUntil = Date.now() + 55 * 60 * 1000;
       this.setState('WAITING_FOR_USER');
       this.emit('HUMAN_ACTION_REQUIRED', 'FILL_VERIFICATION_REQUIRED');
       return { ok: false, code: 'VERIFICATION_FAILED', statuses: rb.statuses };
@@ -265,6 +267,7 @@ class Session {
 
       if (fill.captchaPresent) {
         this.waitReason = 'CAPTCHA_REQUIRED';
+        this.waitUntil = Date.now() + 55 * 60 * 1000;
         this.setState('WAITING_FOR_USER');
         this.emit('HUMAN_ACTION_REQUIRED', 'CAPTCHA_REQUIRED');
         return this.waitForCheckpoint(fill.wasCorrect);
@@ -301,6 +304,7 @@ class Session {
           if (result && result.ok !== true && this.checkpointAttempts < 25) {
             this.checkpointAttempts += 1;
             this.waitReason = 'VERIFICATION_REQUIRED';
+            this.waitUntil = Date.now() + 55 * 60 * 1000;
             this.setState('WAITING_FOR_USER');
             this.emit('HUMAN_ACTION_REQUIRED', 'VERIFICATION_REQUIRED');
             this.waitForCheckpoint(wasCorrect);
@@ -314,6 +318,7 @@ class Session {
   /** After a human checkpoint: revalidate identity, RE-FILL wiped values, re-attach resume, read-back. */
   async revalidateAfterCheckpoint() {
     this.waitReason = null;
+    this.waitUntil = null;
     const wc = this.wc;
     const ident = await wc.executeJavaScript(this.adapter.buildIdentityScript(), true);
     const herr = this.adapter.parseLeverUrl(ident.href);
@@ -329,6 +334,37 @@ class Session {
     const rb = await wc.executeJavaScript(this.adapter.buildReadBackScript(this.currentPlan, (refill && refill.wasCorrect) || {}), true);
     this.emit('FILL_VERIFICATION_COMPLETED', `statuses=${rb.statuses};newRequired=${rb.newRequiredCount};revalidated`);
     return this.finishVerification(rb);
+  }
+
+  /** Deep-focus ONE field in the live page (scroll + brief highlight). The
+   *  chat/panel's "Open in browser" lands ON the field, not just the window. */
+  async focusField(ref, name) {
+    if (!this.alive()) return { ok: false, code: 'NO_SESSION' };
+    try {
+      const refJson = JSON.stringify(String(ref || ''));
+      const nameJson = JSON.stringify(String(name || ''));
+      const r = await this.wc.executeJavaScript(`(() => {
+        const safeRef = String(${refJson}).replace(/[^a-zA-Z0-9_-]/g, '');
+        const safeName = String(${nameJson}).replace(/"/g, '');
+        let el = safeRef ? document.querySelector('[data-ta-ref="' + safeRef + '"]') : null;
+        if (!el && safeName) {
+          el = document.getElementById(safeName) || document.querySelector('[name="' + safeName + '"]');
+        }
+        if (!el) return false;
+        try { document.documentElement.style.scrollBehavior = 'auto'; document.body.style.scrollBehavior = 'auto'; } catch (e) { /* best-effort */ }
+        try { el.scrollIntoView({ block: 'center' }); } catch (e) { /* best-effort */ }
+        try {
+          const prev = el.style.outline;
+          el.style.outline = '3px solid #f59e0b';
+          el.style.outlineOffset = '2px';
+          setTimeout(() => { try { el.style.outline = prev; } catch (e) { /* gone */ } }, 2600);
+        } catch (e) { /* highlight is best-effort */ }
+        return true;
+      })()`, true).catch(() => false);
+      return { ok: r === true, code: r === true ? undefined : 'FIELD_NOT_FOUND' };
+    } catch {
+      return { ok: false, code: 'FOCUS_FIELD_FAILED' };
+    }
   }
 
   /** Manual unblock: "I completed the challenge — revalidate now." */
@@ -360,6 +396,7 @@ class Session {
     if (result && result.ok !== true && this.checkpointAttempts < 25) {
       this.checkpointAttempts += 1;
       this.waitReason = 'VERIFICATION_REQUIRED';
+      this.waitUntil = Date.now() + 55 * 60 * 1000;
       this.setState('WAITING_FOR_USER');
       this.emit('HUMAN_ACTION_REQUIRED', 'VERIFICATION_REQUIRED');
       this.waitForCheckpoint({});
@@ -704,6 +741,7 @@ class Session {
         if (!captchaNotified) {
           captchaNotified = true;
           this.waitReason = 'CAPTCHA_REQUIRED';
+          this.waitUntil = Date.now() + 55 * 60 * 1000;
           this.setState('WAITING_FOR_USER');
           this.emit('HUMAN_ACTION_REQUIRED', 'CAPTCHA_REQUIRED');
         }
@@ -713,6 +751,7 @@ class Session {
       if (captchaNotified) {
         captchaNotified = false;
         this.waitReason = null;
+        this.waitUntil = null;
         this.setState('INSPECTING');
         this.emit('CHECKPOINT_CLEARED', 'AGENT_AUTO_RESUME');
       }
@@ -818,22 +857,29 @@ class Session {
           label: String(f.label || '').slice(0, 500),
           reason: "the form's list does not include your saved answer — pick one of its options",
           options: entry.options.slice(0, 24).map((o) => String(o).slice(0, 240)),
+          ref: f.ref,
+          name: String(f.name || ''),
           human: false,
         });
       }
 
+      const fieldByRef = new Map((obs.state.fields || []).map((x) => [x.ref, x]));
       const askList = [
         ...choiceAsks,
         ...(decision.asks || []).map((a) => ({
           label: String(a.label || '').slice(0, 500),
           reason: String(a.reason || '').slice(0, 240),
           options: Array.isArray(a.options) ? a.options.slice(0, 24).map((o) => String(o).slice(0, 240)) : [],
+          ref: a.ref,
+          name: String((fieldByRef.get(a.ref) || {}).name || ''),
           human: a.human === true,
         })),
         ...stuck.map((f) => ({
           label: String(f.label || '').slice(0, 500),
           reason: 'the form did not accept the automatic value — pick it once in the Tailor Browser window; the rest of the form keeps filling and the run continues by itself',
           options: (f.options || []).map((o) => String(o.option || '')).filter(Boolean).slice(0, 24),
+          ref: f.ref,
+          name: String(f.name || ''),
           // Human-in-browser by design: typeahead/widget failures are fixed in
           // the real window — a chat answer cannot operate the widget, and a
           // chat ask here would HALT every other fill under the questions gate.
@@ -851,6 +897,7 @@ class Session {
           questionsNotified = true;
           this.asksSig = askSig;
           this.waitReason = 'QUESTIONS_REQUIRED';
+          this.waitUntil = Date.now() + 55 * 60 * 1000;
           this.pendingAsks = askList;
           this.setState('WAITING_FOR_USER');
           this.emit('HUMAN_ACTION_REQUIRED', `QUESTIONS_REQUIRED:${String(askList[0].label || '').slice(0, 80)}`);
@@ -867,6 +914,7 @@ class Session {
       if (questionsNotified) {
         questionsNotified = false;
         this.waitReason = null;
+        this.waitUntil = null;
         this.pendingAsks = [];
         this.setState('INSPECTING');
         this.emit('CHECKPOINT_CLEARED', 'AGENT_USER_RESOLVED');
@@ -884,6 +932,7 @@ class Session {
       await new Promise((r) => setTimeout(r, 1500));
     }
     this.waitReason = 'SUBMISSION_UNCONFIRMED';
+    this.waitUntil = Date.now() + 55 * 60 * 1000;
     this.setState('WAITING_FOR_USER');
     this.emit('SUBMISSION_UNCONFIRMED', 'agent loop exhausted — user reviews');
     return { ok: false, code: 'AGENT_LOOP_EXHAUSTED' };
@@ -1004,6 +1053,7 @@ class Session {
       try { cur = String(wc.getURL() || ''); } catch { /* ignore */ }
       if (cur.startsWith('chrome-error://')) {
         this.waitReason = 'SUBMISSION_UNCONFIRMED';
+        this.waitUntil = Date.now() + 55 * 60 * 1000;
         this.setState('WAITING_FOR_USER');
         this.emit('SUBMISSION_UNCONFIRMED', `page-error:${cur.slice(0, 40)}`);
         return { ok: false, code: 'SUBMITTED_UNVERIFIED' };
@@ -1035,6 +1085,7 @@ class Session {
         if (!captchaNotified) {
           captchaNotified = true;
           this.waitReason = 'CAPTCHA_REQUIRED';
+          this.waitUntil = Date.now() + 55 * 60 * 1000;
           this.setState('WAITING_FOR_USER');
           this.emit('HUMAN_ACTION_REQUIRED', 'CAPTCHA_REQUIRED');
         }
@@ -1044,10 +1095,12 @@ class Session {
         // Solved — Lever's callback submits; keep watching for confirmation.
         captchaNotified = false;
         this.waitReason = null;
+        this.waitUntil = null;
         this.setState('SUBMITTING');
       }
       if (c.error) {
         this.waitReason = 'SUBMISSION_REJECTED';
+        this.waitUntil = Date.now() + 55 * 60 * 1000;
         this.setState('WAITING_FOR_USER');
         this.emit('SUBMISSION_UNCONFIRMED', `rejected:${String(c.evidence || 'validation')}`);
         return { ok: false, code: 'SUBMISSION_REJECTED' };
@@ -1064,6 +1117,7 @@ class Session {
       );
     } catch { /* snippet is best-effort */ }
     this.waitReason = 'SUBMISSION_UNCONFIRMED';
+    this.waitUntil = Date.now() + 55 * 60 * 1000;
     this.setState('WAITING_FOR_USER');
     this.emit('SUBMISSION_UNCONFIRMED', snippet ? `no confirmation: ${String(snippet).slice(0, 150)}` : 'no confirmation within 6min — user reviews');
     return { ok: false, code: 'SUBMITTED_UNVERIFIED' };
@@ -1238,6 +1292,15 @@ class BrowserSessionManager {
         company: (s.currentPlan && s.currentPlan.company) || '',
         checkpoint: s.state === 'WAITING_FOR_USER' ? 'ACTION_REQUIRED' : null,
         waitReason: s.waitReason || null,
+        // Typed ask taxonomy (market research): ANSWER = chat-answerable,
+        // BROWSER = only resolvable in the live window, REVIEW = verify the
+        // outcome (unconfirmed/rejected submission).
+        actionType: s.state !== 'WAITING_FOR_USER' ? null
+          : s.waitReason === 'QUESTIONS_REQUIRED'
+            ? ((s.pendingAsks || []).some((a) => a && a.human !== true) ? 'ANSWER' : 'BROWSER')
+            : (s.waitReason === 'SUBMISSION_UNCONFIRMED' || s.waitReason === 'SUBMISSION_REJECTED') ? 'REVIEW'
+              : 'BROWSER',
+        waitUntil: s.waitUntil || null,
         asks: s.pendingAsks || [],
         preAuthorizedSubmit: s.preAuthorizedSubmit,
         pageUrl: s.pageUrl || '',

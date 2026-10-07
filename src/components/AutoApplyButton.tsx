@@ -36,6 +36,7 @@ import {
   createDesktopHandoff,
   startDesktopExecution,
   focusTailorBrowser,
+  focusFieldInBrowser,
   stopDesktopExecution,
   submitDesktopExecution,
   fetchDesktopExecutionStatus,
@@ -43,7 +44,7 @@ import {
   mapDesktopStateToRow,
 } from '../lib/browserExecutionTransport';
 import { pushDesktopEvent, resetDesktopTimeline } from '../lib/desktopTimeline';
-import { AnswerChatPanel, type AnswerChatQuestion } from './AnswerChatPanel';
+import { AnswerChatPanel, type AnswerChatQuestion, type AnswerChatBrowserItem } from './AnswerChatPanel';
 import type { AutoApplyDryRunResult } from '../../server/autoApply/autoApplyTypes';
 
 interface AutoApplyButtonProps {
@@ -58,7 +59,12 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
   const [result, setResult] = useState<AutoApplyDryRunResult | null>(null);
   const [open, setOpen] = useState(false);
   const [midRunAsks, setMidRunAsks] = useState<AnswerChatQuestion[] | null>(null);
+  const [midRunBrowser, setMidRunBrowser] = useState<AnswerChatBrowserItem[]>([]);
+  const [midRunReview, setMidRunReview] = useState<string | null>(null);
+  const [midRunHoldUntil, setMidRunHoldUntil] = useState<number | null>(null);
   const handledAskSigRef = useRef('');
+  // ONE notification per execution (market pattern: batch, never spam).
+  const notifiedExecRef = useRef<Set<string>>(new Set());
   // When the user answered an ask and it PERSISTS (answer didn't resolve the
   // field), the chat reopens after this cooldown instead of dead-ending.
   const answeredAtRef = useRef(0);
@@ -200,6 +206,11 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
 
   const handleAaClick = async () => {
     if (busy || !autoApplyable) return;
+    // Ask for notification permission on the user's gesture — the ONE ping per
+    // run when the agent needs them (never spam).
+    try {
+      if (typeof Notification !== 'undefined' && Notification.permission === 'default') void Notification.requestPermission();
+    } catch { /* notifications are best-effort */ }
     setState('STARTING');
     setMessage('Starting Auto Apply…');
     // Pre-flight: when required questions are still missing, ask them in the
@@ -396,6 +407,9 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
       if (view.terminal) {
         stopPolling();
         setMidRunAsks(null);
+        setMidRunBrowser([]);
+        setMidRunReview(null);
+        setMidRunHoldUntil(null);
         if (view.state === 'READY_FOR_REVIEW') {
           void fetchSubmissionDecision(id).then(setDecision).catch(() => {});
         }
@@ -417,30 +431,55 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
       const health = await desktopHealth();
       const s = (health.sessions || []).find((x) => x.executionId === executionId);
       if (!s) return;
-      if (s.waitReason === 'QUESTIONS_REQUIRED' && s.asks && s.asks.length) {
-        // Consent asks are human-in-browser by design (never auto-filled from
-        // the bank) — only answerable questions open the chat.
-        const qs: AnswerChatQuestion[] = s.asks
-          .filter((a) => !a.human)
-          .map((a, i) => ({
-            providerFieldId: `ask-${i}`,
-            label: a.label,
-            options: a.options,
-          }));
-        if (!qs.length) return;
-        const sig = `${executionId}|${qs.map((q) => q.label).join('|')}`;
-        // A saved answer that did NOT resolve the question (the ask persists)
-        // must not dead-end: reopen the chat after a short cooldown so the
-        // user can retry. Closing the chat manually never triggers this.
-        const unansweredRetry = answeredAtRef.current > 0 && Date.now() - answeredAtRef.current > 15_000;
-        if (sig !== handledAskSigRef.current || unansweredRetry) {
-          handledAskSigRef.current = sig;
-          answeredAtRef.current = 0;
-          setMidRunAsks(qs);
-          setOpen(true);
-        }
+      const asks = s.asks || [];
+      const chatQs: AnswerChatQuestion[] = asks
+        .filter((a) => !a.human)
+        .map((a, i) => ({ providerFieldId: `ask-${i}`, label: a.label, options: a.options }));
+      const browserItems: AnswerChatBrowserItem[] = asks
+        .filter((a) => a.human)
+        .map((a) => ({ label: a.label, reason: a.reason, ref: a.ref, name: a.name }));
+      const review = s.waitReason === 'SUBMISSION_UNCONFIRMED'
+        ? "The site didn't confirm the submission — open the employer page and check whether it went through. If it did, no action is needed."
+        : s.waitReason === 'SUBMISSION_REJECTED'
+          ? 'The form rejected the submission — fix the highlighted fields in Tailor Browser; the run continues by itself.'
+          : null;
+      if (!asks.length && !review) return;
+      // ONE notification per execution, on the FIRST moment it needs you
+      // (batched, opt-in via granted permission — never spam).
+      if (!notifiedExecRef.current.has(executionId) && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        notifiedExecRef.current.add(executionId);
+        try {
+          new Notification('Tailor AI — action needed', {
+            body: `${job.title} · ${job.company}: ${review ? 'the submission needs a check' : chatQs.length ? 'answer a question to continue' : 'finish a step in Tailor Browser'}`,
+            tag: `aa-${executionId}`,
+          });
+        } catch { /* notifications are best-effort */ }
+      }
+      const sig = `${executionId}|${asks.map((a) => a.label).join('|')}|${review ? 'review' : ''}`;
+      // A saved answer that did NOT resolve the question (the ask persists)
+      // must not dead-end: reopen after a cooldown so the user can retry.
+      const unansweredRetry = answeredAtRef.current > 0 && Date.now() - answeredAtRef.current > 15_000;
+      if (sig !== handledAskSigRef.current || unansweredRetry) {
+        handledAskSigRef.current = sig;
+        answeredAtRef.current = 0;
+        setMidRunAsks(chatQs.length ? chatQs : null);
+        setMidRunBrowser(browserItems);
+        setMidRunReview(review);
+        setMidRunHoldUntil(typeof s.waitUntil === 'number' ? s.waitUntil : null);
+        setOpen(true);
       }
     }, AA_POLL_INTERVAL_MS);
+  };
+
+  /** "Open in browser" from the Needs-you panel: focus the window AND land on
+   *  the exact field (scroll + highlight) when the ask carries a ref/name. */
+  const handleOpenBrowserItem = async (item?: AnswerChatBrowserItem) => {
+    if (!currentExecution) return;
+    await focusTailorBrowser(currentExecution.executionId);
+    if (item && (item.ref || item.name)) {
+      void focusFieldInBrowser(currentExecution.executionId, item.ref, item.name);
+    }
+    setMessage(item ? `Tailor Browser focused on: ${String(item.label).slice(0, 80)}` : 'Tailor Browser opened.');
   };
 
   const stopCurrentExecution = async () => {
@@ -450,6 +489,9 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     setAttemptId(null);
     stopPolling();
     setMidRunAsks(null);
+    setMidRunBrowser([]);
+    setMidRunReview(null);
+    setMidRunHoldUntil(null);
     handledAskSigRef.current = '';
     answeredAtRef.current = 0;
     setState('IDLE');
@@ -462,6 +504,9 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     handledAskSigRef.current = '';
     answeredAtRef.current = 0;
     setMidRunAsks(null);
+    setMidRunBrowser([]);
+    setMidRunReview(null);
+    setMidRunHoldUntil(null);
     setMessage(null);
     setState('STARTING');
     // Step 0: apply with the job's TAILORED CV (V1 engine — the same pipeline
@@ -612,20 +657,30 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
       // visible window, anything else gets the window brought forward with the
       // REAL reason. Feedback is set in EVERY branch — never a silent click.
       const reason = live.waitReason || '';
-      if (reason === 'QUESTIONS_REQUIRED' && live.asks && live.asks.length) {
-        const qs: AnswerChatQuestion[] = live.asks.filter((a) => !a.human).map((a, i) => ({ providerFieldId: `ask-${i}`, label: a.label, options: a.options }));
-        if (qs.length) {
-          handledAskSigRef.current = `${currentExecution.executionId}|${qs.map((q) => q.label).join('|')}`;
-          setMidRunAsks(qs);
-          setOpen(true);
-          setMessage('This run needs your input — answer in the chat, then it continues by itself.');
-          return;
-        }
-        // Browser-only asks (consent / widget fixes): name what is needed.
-        const first = String(live.asks[0]?.label || 'a step').slice(0, 90);
-        const extra = live.asks.length > 1 ? ` (+${live.asks.length - 1} more)` : '';
-        await focusTailorBrowser(currentExecution.executionId);
-        setMessage(`Finish in Tailor Browser: ${first}${extra} — the run continues by itself.`);
+      const asks = live.asks || [];
+      if (reason === 'QUESTIONS_REQUIRED' && asks.length) {
+        const chatQs: AnswerChatQuestion[] = asks.filter((a) => !a.human).map((a, i) => ({ providerFieldId: `ask-${i}`, label: a.label, options: a.options }));
+        const browserItems: AnswerChatBrowserItem[] = asks.filter((a) => a.human).map((a) => ({ label: a.label, reason: a.reason, ref: a.ref, name: a.name }));
+        handledAskSigRef.current = `${currentExecution.executionId}|${asks.map((a) => a.label).join('|')}`;
+        setMidRunAsks(chatQs.length ? chatQs : null);
+        setMidRunBrowser(browserItems);
+        setMidRunReview(null);
+        setMidRunHoldUntil(typeof live.waitUntil === 'number' ? live.waitUntil : null);
+        setOpen(true);
+        setMessage(chatQs.length
+          ? 'This run needs your input — answer in the panel, then it continues by itself.'
+          : 'This run needs a step in Tailor Browser — open it from the panel.');
+        return;
+      }
+      if (reason === 'SUBMISSION_UNCONFIRMED' || reason === 'SUBMISSION_REJECTED') {
+        setMidRunAsks(null);
+        setMidRunBrowser([]);
+        setMidRunReview(reason === 'SUBMISSION_UNCONFIRMED'
+          ? "The site didn't confirm the submission — open the employer page and check whether it went through. If it did, no action is needed."
+          : 'The form rejected the submission — fix the highlighted fields in Tailor Browser; the run continues by itself.');
+        setMidRunHoldUntil(typeof live.waitUntil === 'number' ? live.waitUntil : null);
+        setOpen(true);
+        setMessage(reason === 'SUBMISSION_UNCONFIRMED' ? 'Checking the submission outcome — see the panel.' : 'The form rejected the submission — see the panel.');
         return;
       }
       if (reason === 'CAPTCHA_REQUIRED') {
@@ -811,26 +866,32 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
           {submissionBlockerMessage(decision.blockerCodes)}
         </span>
       )}
-            {open && chatQuestions.length > 0 && (
+            {open && (chatQuestions.length > 0 || midRunBrowser.length > 0 || !!midRunReview) && (
         <AnswerChatPanel
-          key={chatQuestions.map((q) => q.label).join('|')}
+          key={`${chatQuestions.map((q) => q.label).join('|')}|${midRunBrowser.map((b) => b.label).join('|')}|${midRunReview ? 'review' : ''}`}
           jobTitle={job.title}
           company={job.company}
           questions={chatQuestions}
+          browserItems={midRunBrowser}
+          reviewNote={midRunReview}
+          onOpenBrowser={(item) => void handleOpenBrowserItem(item)}
+          waitUntil={midRunHoldUntil}
           onSaveAnswer={handleSaveAnswer}
           onSubmit={async () => {
-            if (midRunAsks) {
+            if (midRunAsks || midRunBrowser.length || midRunReview) {
               setOpen(false);
               setMidRunAsks(null);
-              setMessage('Answers saved — the run will continue automatically.');
+              setMidRunBrowser([]);
+              setMidRunReview(null);
+              setMessage('Saved — the run continues by itself; I will close this when it finishes.');
               return;
             }
             setOpen(false);
             await handleAaClick();
           }}
-          submitLabel={midRunAsks ? 'Continue' : undefined}
-          footnote={midRunAsks ? 'Saved to your Answer Bank — the run resumes by itself.' : undefined}
-          onClose={() => { setOpen(false); setMidRunAsks(null); }}
+          submitLabel={midRunAsks || midRunBrowser.length || midRunReview ? 'Continue' : undefined}
+          footnote={midRunAsks || midRunBrowser.length || midRunReview ? 'The run resumes by itself — you can close this.' : undefined}
+          onClose={() => { setOpen(false); setMidRunAsks(null); setMidRunBrowser([]); setMidRunReview(null); }}
         />
       )}
     </>

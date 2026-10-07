@@ -77,10 +77,11 @@ describe('Polling rules (read-only)', () => {
     expect(reasonMessage('USER_ACTION_REQUIRED', 'base', 'HEARTBEAT')).toBe('base');
   });
 
-  it('click routing names browser-only asks and the adoption gate works in Chrome', () => {
+  it('click routing opens the unified Needs-you panel; adoption works in Chrome', () => {
     const button = read('src/components/AutoApplyButton.tsx');
-    // Human-only asks get a NAMED message + focus instead of a silent fallthrough.
-    expect(button).toContain('Finish in Tailor Browser:');
+    // Browser-only asks ride the SAME panel as chat asks (no silent fallthrough).
+    expect(button).toContain('setMidRunBrowser(browserItems)');
+    expect(button).toContain('Open in browser');
     // waitReason branches for every pause family.
     expect(button).toContain("reason === 'SUBMISSION_UNCONFIRMED'");
     expect(button).toContain("reason === 'SUBMISSION_REJECTED'");
@@ -88,6 +89,31 @@ describe('Polling rules (read-only)', () => {
     // Reload adoption must run in the real browser too (no Electron-only gate).
     expect(button).not.toMatch(/if \(!desktopBridge\) return;\n    let alive = true;/);
     expect(button).toContain('fetchActiveExecutions()');
+  });
+
+  it('Phase 1: typed asks, deep-focus, hold window, one notification per run', () => {
+    const button = read('src/components/AutoApplyButton.tsx');
+    const panel = read('src/components/AnswerChatPanel.tsx');
+    const session = read('desktop/main/browserSession.cjs');
+    const bridge = read('desktop/main/desktopBridge.cjs');
+    const transport = read('src/lib/browserExecutionTransport.ts');
+    // Typed taxonomy on the health payload.
+    expect(session).toContain("? 'ANSWER'");
+    expect(session).toContain("'REVIEW'");
+    expect(session).toContain('waitUntil: s.waitUntil || null');
+    // Deep-focus endpoint + field highlight.
+    expect(bridge).toContain("'/auto-apply/focus-field'");
+    expect(session).toContain('async focusField(ref, name)');
+    expect(session).toContain("3px solid #f59e0b");
+    expect(transport).toContain('focusFieldInBrowser');
+    // Panel: browser items, review note, hold line.
+    expect(panel).toContain('Do this in Tailor Browser');
+    expect(panel).toContain('reviewNote');
+    expect(panel).toContain("I'll hold this until");
+    // One notification per execution, only with granted permission.
+    expect(button).toContain('notifiedExecRef');
+    expect(button).toContain("Notification.permission === 'granted'");
+    expect(button).toContain('Notification.requestPermission()');
   });
 
   it('summarizes verification without leaking values', () => {
@@ -187,7 +213,7 @@ describe('AA click never leaves the job list', () => {
 
   it('the CHAT opens only when required answers are missing (no dry-run panel exists)', () => {
     expect(button).toContain("onClick={() => void (attention ? handleAttentionClick() : handleAaClick())}");
-    expect(button).toContain('{open && chatQuestions.length > 0 && (');
+    expect(button).toContain('{open && (chatQuestions.length > 0 || midRunBrowser.length > 0 || !!midRunReview) && (');
     // The dry-run preview panel was removed entirely.
     expect(button).not.toContain('AutoApplyDryRunPreview');
     expect(button).not.toContain('chatQuestions.length === 0');
@@ -338,7 +364,7 @@ describe('Needs-input chat (right-side drawer)', () => {
     expect(chat).toContain('All answers saved');
     expect(chat).toContain('Submit application');
     expect(button).toContain('await handleAaClick();');
-    expect(button).toContain('if (midRunAsks)'); // mid-run: loop resumes by itself
+    expect(button).toContain('if (midRunAsks || midRunBrowser.length || midRunReview)'); // mid-run: loop resumes by itself
   });
 });
 

@@ -1,16 +1,26 @@
-// Auto Apply — answer chat (right-side drawer, same slot as the preview).
+// Auto Apply — the "Needs you" panel (right-side drawer, same slot as preview).
 //
-// Appears when required questions are missing: asks ONE question at a time,
-// saves each answer immediately, then offers Submit (tailor + fill + submit).
-// No dry-run wall of text — only the questions that need an answer.
+// ONE consolidated surface for everything a run is waiting on (market-grade
+// pattern from the HITL research):
+//   - answerable questions  → inline chat (one at a time, saved immediately)
+//   - browser-only steps    → named items with "Open in browser" (deep-focus)
+//   - outcome reviews       → "the site didn't confirm…" with the page escape
+// No dry-run wall of text — only what actually needs the human.
 
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowUp, Check, X } from 'lucide-react';
+import { ArrowUp, Check, ExternalLink, X } from 'lucide-react';
 
 export interface AnswerChatQuestion {
   providerFieldId: string;
   label: string;
   options?: string[];
+}
+
+export interface AnswerChatBrowserItem {
+  label: string;
+  reason?: string;
+  ref?: string;
+  name?: string;
 }
 
 interface Props {
@@ -23,6 +33,14 @@ interface Props {
   /** Mid-run mode: the loop resumes by itself, so the final button is Continue. */
   submitLabel?: string;
   footnote?: string;
+  /** Browser-only steps (consent, widget fixes) — resolved in the live window. */
+  browserItems?: AnswerChatBrowserItem[];
+  /** Outcome review (unconfirmed/rejected submission) — verify on the page. */
+  reviewNote?: string | null;
+  /** Deep-focus + open the live window on a specific item. */
+  onOpenBrowser?: (item?: AnswerChatBrowserItem) => void;
+  /** How long the agent holds this pause (epoch ms). */
+  waitUntil?: number | null;
 }
 
 interface ChatMessage {
@@ -31,10 +49,13 @@ interface ChatMessage {
   text: string;
 }
 
-export const AnswerChatPanel: React.FC<Props> = ({ jobTitle, company, questions, onSaveAnswer, onSubmit, onClose, submitLabel, footnote }) => {
+export const AnswerChatPanel: React.FC<Props> = ({
+  jobTitle, company, questions, onSaveAnswer, onSubmit, onClose, submitLabel, footnote,
+  browserItems = [], reviewNote = null, onOpenBrowser, waitUntil = null,
+}) => {
   const [messages, setMessages] = useState<ChatMessage[]>(() => [
     { id: 0, role: 'assistant', text: `${jobTitle} at ${company}` },
-    { id: 1, role: 'assistant', text: questions[0]?.label ?? '' },
+    ...(questions[0] ? [{ id: 1, role: 'assistant' as const, text: questions[0].label }] : []),
   ]);
   const [index, setIndex] = useState(0);
   const [input, setInput] = useState('');
@@ -92,9 +113,16 @@ export const AnswerChatPanel: React.FC<Props> = ({ jobTitle, company, questions,
   };
 
   const remaining = Math.min(index + 1, questions.length);
+  const hasChat = questions.length > 0;
+  const hasBrowser = browserItems.length > 0;
+  const hasReview = !!reviewNote;
+  const anythingPending = (hasChat && !done) || hasBrowser || hasReview;
+  const holdLine = waitUntil && Date.now() < waitUntil
+    ? `I'll hold this until ${new Date(waitUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} — answer anytime.`
+    : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Auto Apply questions">
+    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Auto Apply needs you">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
       <div className="relative w-full max-w-[460px] bg-white h-full flex flex-col shadow-xl border-l border-[var(--color-hairline)]">
         <header className="px-4 py-3 border-b border-[var(--color-hairline)] flex items-center justify-between gap-2 shrink-0">
@@ -106,12 +134,12 @@ export const AnswerChatPanel: React.FC<Props> = ({ jobTitle, company, questions,
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <span className="text-[10px] font-extrabold uppercase tracking-wide bg-sky-50 text-sky-700 border border-sky-200 rounded-full px-2 py-0.5 whitespace-nowrap">
-              {done ? 'Ready' : `Question ${remaining} of ${questions.length}`}
+              {hasChat && !done ? `Question ${remaining} of ${questions.length}` : 'Needs you'}
             </span>
             <button
               type="button"
               onClick={onClose}
-              aria-label="Close questions"
+              aria-label="Close"
               className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-[var(--color-faint)] cursor-pointer"
             >
               <X className="w-4 h-4" />
@@ -120,6 +148,11 @@ export const AnswerChatPanel: React.FC<Props> = ({ jobTitle, company, questions,
         </header>
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-2.5">
+          {hasReview && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-900 text-[12px] leading-relaxed rounded-xl px-3.5 py-3">
+              {reviewNote}
+            </div>
+          )}
           {messages.map((m) =>
             m.role === 'user' ? (
               <div
@@ -154,6 +187,27 @@ export const AnswerChatPanel: React.FC<Props> = ({ jobTitle, company, questions,
                 >
                   {opt}
                 </button>
+              ))}
+            </div>
+          )}
+
+          {hasBrowser && (
+            <div className="pt-2 space-y-2">
+              <div className="text-[10.5px] font-extrabold uppercase tracking-wide text-[var(--color-faint)]">
+                Do this in Tailor Browser
+              </div>
+              {browserItems.map((item, i) => (
+                <div key={`${item.label}-${i}`} className="border border-[var(--color-hairline)] rounded-xl p-3 space-y-1.5">
+                  <div className="text-[12px] font-bold text-[var(--color-ink)]">{item.label}</div>
+                  {item.reason && <div className="text-[11px] text-[var(--color-faint)] leading-relaxed">{item.reason}</div>}
+                  <button
+                    type="button"
+                    onClick={() => onOpenBrowser?.(item)}
+                    className="inline-flex items-center gap-1.5 text-[11px] font-extrabold text-[var(--color-brand)] cursor-pointer"
+                  >
+                    <ExternalLink className="w-3 h-3" /> Open in browser
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -198,7 +252,7 @@ export const AnswerChatPanel: React.FC<Props> = ({ jobTitle, company, questions,
                 {submitting ? 'Starting…' : (<><Check className="w-4 h-4" /> {submitLabel ?? 'Submit application'}</>)}
               </button>
               <p className="text-[10.5px] text-[var(--color-faint)] text-center">
-                {footnote ?? "I'll tailor your CV with these answers, fill the form, and submit."}
+                {anythingPending ? (holdLine || footnote || 'The run continues by itself — you can close this.') : (footnote ?? "I'll tailor your CV with these answers, fill the form, and submit.")}
               </p>
             </>
           )}

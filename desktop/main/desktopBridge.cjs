@@ -318,6 +318,16 @@ function createDesktopBridge({ manager, backendBase, onFocus, port = PORT, bootI
         return json(res, 200, { ok: true }, origin);
       }
 
+      // Deep-focus: land the window ON the exact field (scroll + highlight).
+      if (req.method === 'POST' && path === '/auto-apply/focus-field') {
+        const body = await readJson(req).catch(() => ({}));
+        const executionId = typeof body.executionId === 'string' ? body.executionId : '';
+        const session = manager.getSession(executionId);
+        if (!session) return json(res, 404, { error: 'UNKNOWN_SESSION' }, origin);
+        const r = await session.focusField(body.ref, body.name);
+        return json(res, r.ok ? 200 : 404, r, origin);
+      }
+
       if (req.method === 'POST' && path === '/auto-apply/stop') {
         const body = await readJson(req);
         const executionId = typeof body.executionId === 'string' ? body.executionId : '';

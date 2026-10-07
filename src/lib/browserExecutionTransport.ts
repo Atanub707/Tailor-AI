@@ -70,8 +70,12 @@ export interface DesktopHealth {
     crashed?: boolean;
     /** Agent-loop pause reason ('QUESTIONS_REQUIRED' | 'CAPTCHA_REQUIRED' | …). */
     waitReason?: string;
+    /** Typed ask taxonomy: ANSWER (chat) | BROWSER (live window) | REVIEW (verify outcome). */
+    actionType?: string | null;
+    /** How long the agent holds this pause (epoch ms). */
+    waitUntil?: number | null;
     /** Pending human questions with the form's options (for the answer chat). */
-    asks?: Array<{ label: string; reason: string; options: string[]; human: boolean }>;
+    asks?: Array<{ label: string; reason: string; options: string[]; human: boolean; ref?: string; name?: string }>;
   }>;
 }
 
@@ -81,20 +85,24 @@ export function interpretHealth(data: unknown, httpOk: boolean): DesktopHealth {
   if (!httpOk || !d || d.available !== true) return { available: false };
   if (d.app !== 'tailor-browser') return { available: false, appMismatch: true };
   const sessions = Array.isArray(d.sessions)
-    ? (d.sessions as Array<{ executionId?: unknown; state?: unknown; pageUrl?: unknown; crashed?: unknown; waitReason?: unknown; asks?: unknown }>)
+    ? (d.sessions as Array<{ executionId?: unknown; state?: unknown; pageUrl?: unknown; crashed?: unknown; waitReason?: unknown; actionType?: unknown; waitUntil?: unknown; asks?: unknown }>)
         .map((s) => ({
           executionId: String(s?.executionId || ''),
           state: String(s?.state || ''),
           pageUrl: String(s?.pageUrl || ''),
           crashed: s?.crashed === true,
           waitReason: typeof s?.waitReason === 'string' ? s.waitReason : undefined,
+          actionType: typeof s?.actionType === 'string' ? s.actionType : null,
+          waitUntil: typeof s?.waitUntil === 'number' ? s.waitUntil : null,
           asks: Array.isArray(s?.asks)
-            ? (s.asks as Array<{ label?: unknown; reason?: unknown; options?: unknown; human?: unknown }>)
+            ? (s.asks as Array<{ label?: unknown; reason?: unknown; options?: unknown; human?: unknown; ref?: unknown; name?: unknown }>)
                 .map((a) => ({
                   label: String(a?.label || ''),
                   reason: String(a?.reason || ''),
                   options: Array.isArray(a?.options) ? (a.options as unknown[]).map((o) => String(o)) : [],
                   human: a?.human === true,
+                  ref: typeof a?.ref === 'string' ? a.ref : undefined,
+                  name: typeof a?.name === 'string' ? a.name : undefined,
                 }))
                 .filter((a) => a.label)
             : undefined,
@@ -227,6 +235,19 @@ export async function continueDesktopExecution(executionId: string): Promise<{ o
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ executionId }),
+    });
+    return { ok: res.ok };
+  } catch {
+    return { ok: false };
+  }
+}
+
+export async function focusFieldInBrowser(executionId: string, ref?: string, name?: string): Promise<{ ok: boolean }> {
+  try {
+    const res = await fetch(`${DESKTOP_BRIDGE_BASE}/auto-apply/focus-field`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ executionId, ref: ref || '', name: name || '' }),
     });
     return { ok: res.ok };
   } catch {
