@@ -122,7 +122,7 @@ describe('Chrome row state mapping (pure)', () => {
     expect(mapDesktopStateToRow('DESKTOP_STARTING')?.message).toBe('Starting Tailor Browser…');
     expect(mapDesktopStateToRow('NAVIGATING')?.message).toBe('Opening application…');
     expect(mapDesktopStateToRow('FILLING')?.state).toBe('FILLING');
-    expect(mapDesktopStateToRow('WAITING_FOR_USER')).toMatchObject({ state: 'USER_ACTION_REQUIRED', message: 'Action required in Tailor Browser', terminal: false });
+    expect(mapDesktopStateToRow('WAITING_FOR_USER')).toMatchObject({ state: 'USER_ACTION_REQUIRED', message: 'Needs you — open to continue.', terminal: false });
     expect(mapDesktopStateToRow('READY_FOR_REVIEW')).toMatchObject({ state: 'READY_FOR_REVIEW', terminal: false }); // submit-time waits must stay visible
     expect(mapDesktopStateToRow('FAILED')?.state).toBe('NEEDS_REVIEW');
     expect(mapDesktopStateToRow('SUBMITTED_VERIFIED')?.state).toBe('APPLIED');
@@ -159,14 +159,14 @@ describe('No-redirect contract (Phases 6/22/29)', () => {
   });
 
   it('6/27. desktop unavailable → one explicit launch action, never an ATS tab', () => {
-    expect(button).toContain("setMessage('Tailor Browser is not running.')");
+    expect(button).toContain('Tailor Browser is closed — open it and we’ll pick up where you left off.');
     expect(button).toContain('Launch Tailor Browser');
     expect(button).not.toContain('Try again');
     expect(button).toContain('launchTailorBrowser()');
   });
 
   it('25. BUSY → no overwrite: explicit actions only', () => {
-    expect(button).toContain("setMessage('Queued — waiting for a free slot…')");
+    expect(button).toContain('One application at a time — this one starts by itself when a slot frees.');
     expect(button).toContain('retryToken.executionToken');
     expect(button).toContain('stopDesktopExecution(currentExecution.executionId)');
   });

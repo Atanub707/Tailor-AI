@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import {
   aaStateFromFillResult, resolveApplicationUrl, isTerminalFillStatus,
   summarizeFillStatus, aaReasonFromBlockers, AA_POLL_INTERVAL_MS, AA_POLL_TIMEOUT_MS,
-  isAutoApplyJob, reasonMessage,
+  isAutoApplyJob, reasonMessage, eventLabel, timeAgo,
 } from '../../src/lib/autoApply.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -22,7 +22,7 @@ const read = (rel: string) => fs.readFileSync(path.join(root, rel), 'utf8');
 describe('AA row state mapping (existing fill API results)', () => {
   it('maps every server status to a user-facing row state', () => {
     expect(aaStateFromFillResult({ status: 'FILL_STARTED' }, true).state).toBe('WAITING_FOR_BROWSER');
-    expect(aaStateFromFillResult({ status: 'FILL_DISABLED' }, true)).toMatchObject({ state: 'FILL_DISABLED', message: 'Auto Apply fill is disabled.' });
+    expect(aaStateFromFillResult({ status: 'FILL_DISABLED' }, true)).toMatchObject({ state: 'FILL_DISABLED', message: "Auto Apply isn't enabled right now — turn it on in settings or apply manually." });
     expect(aaStateFromFillResult({ status: 'FILL_NOT_ELIGIBLE' }, true).state).toBe('NOT_ELIGIBLE');
     expect(aaStateFromFillResult({ status: 'USER_ACTION_REQUIRED' }, true).state).toBe('USER_ACTION_REQUIRED');
     expect(aaStateFromFillResult({ status: 'FORM_CHANGED' }, true).state).toBe('FORM_CHANGED');
@@ -160,6 +160,30 @@ describe('Polling rules (read-only)', () => {
     expect(button).toContain('const h = await waitForDesktop(8000, 500)');
   });
 
+  it('timeline: friendly event labels + relative times (no jargon)', () => {
+    expect(eventLabel('BROWSER_OPENED')).toBe("Opened the employer's page");
+    expect(eventLabel('RESUME_ATTACHED')).toBe('Attached your resume');
+    expect(eventLabel('HUMAN_ACTION_REQUIRED')).toBe('Waiting for you');
+    expect(eventLabel('SUBMISSION_CONFIRMED')).toBe('Submitted — confirmed');
+    expect(eventLabel('NOT_A_REAL_EVENT')).toBeNull();
+    const now = Date.parse('2026-10-07T12:00:00Z');
+    expect(timeAgo('2026-10-07T12:00:00Z', now)).toBe('just now');
+    expect(timeAgo('2026-10-07T11:59:18Z', now)).toBe('42s ago');
+    expect(timeAgo('2026-10-07T11:57:00Z', now)).toBe('3m ago');
+    expect(timeAgo('bad', now)).toBe('');
+    // Wiring: bridge ring buffer → health → watcher → panel Activity.
+    const bridge = read('desktop/main/desktopBridge.cjs');
+    expect(bridge).toContain('events: [], // ring buffer');
+    expect(bridge).toContain('entry.events.push({ type: t');
+    expect(bridge).toContain('return { ...s, events: (entry && entry.events) || [] };');
+    const button = read('src/components/AutoApplyButton.tsx');
+    expect(button).toContain('setMidRunEvents(mappedEvents)');
+    expect(button).toContain('You answered:');
+    const panel = read('src/components/AnswerChatPanel.tsx');
+    expect(panel).toContain('Activity');
+    expect(panel).toContain('timeAgo(e.at)');
+  });
+
   it('summarizes verification without leaking values', () => {
     const summary = summarizeFillStatus({ verification: { verified: 8, alreadyCorrect: 2, mismatch: 0, notFound: 0, unverifiable: 0, blocked: 0, newRequiredFields: 0, resumeVerified: true } });
     expect(summary).toBe('Verified 8 · Already correct 2 · Needs review 0 · Resume verified · New required 0');
@@ -265,7 +289,7 @@ describe('AA click never leaves the job list', () => {
   });
 
   it('desktop unavailable → one explicit action (launch), never an ATS fallback', () => {
-    expect(button).toContain('Tailor Browser is not running.');
+    expect(button).toContain('Tailor Browser is closed — open it and we’ll pick up where you left off.');
     expect(button).toContain('Launch Tailor Browser');
     // Single affordance: the amber button itself retries after launch.
     expect(button).not.toContain('Try again');
@@ -327,8 +351,8 @@ describe('Chrome → Tailor Browser handoff (execution ownership: desktop)', () 
   });
 
   it('desktop unavailable → explicit state; BUSY → explicit actions (no overwrite)', () => {
-    expect(button).toContain("setMessage('Tailor Browser is not running.')");
-    expect(button).toContain("setMessage('Queued — waiting for a free slot…')");
+    expect(button).toContain('Tailor Browser is closed — open it and we’ll pick up where you left off.');
+    expect(button).toContain('One application at a time — this one starts by itself when a slot frees.');
     expect(button).toContain('startDesktopExecution(job.id, retryToken.executionToken)');
   });
 

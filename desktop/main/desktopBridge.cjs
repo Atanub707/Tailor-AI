@@ -183,6 +183,16 @@ function createDesktopBridge({ manager, backendBase, onFocus, port = PORT, bootI
     }
     const entry = sessions.get(executionId);
     if (!entry) return;
+    // Timeline ring buffer: keep the user-visible milestones only.
+    try {
+      const t = String(ev.type || '');
+      const NOISE = t === 'STATE' || t === 'FORM_DISCOVERED' || t === 'SESSION_VISIBLE' || /^SUBMISSION_BLOCKED/.test(t);
+      if (t && !NOISE) {
+        entry.events = entry.events || [];
+        entry.events.push({ type: t, detail: String(ev.detail || '').slice(0, 120), state: String(ev.state || ''), at: String(ev.at || new Date().toISOString()) });
+        if (entry.events.length > 15) entry.events.splice(0, entry.events.length - 15);
+      }
+    } catch { /* timeline is best-effort */ }
     const state = mapEventToState(ev);
     if (!state) return;
     // Carry WHY the session is waiting (waitReason) in the posted event string
@@ -231,6 +241,10 @@ function createDesktopBridge({ manager, backendBase, onFocus, port = PORT, bootI
       if (req.method === 'GET' && path === '/health') {
         // Identity: Chrome MUST reject anything else answering on this port.
         const snapshot = manager.getState();
+        const sessionsOut = (snapshot.sessions || []).map((s) => {
+          const entry = sessions.get(s.executionId);
+          return { ...s, events: (entry && entry.events) || [] };
+        });
         return json(res, 200, {
           available: true,
           app: 'tailor-browser',
@@ -238,9 +252,9 @@ function createDesktopBridge({ manager, backendBase, onFocus, port = PORT, bootI
           version: '1.0.0',
           protocolVersion: 1,
           bootId,
-          busy: snapshot.sessions.length > 0,
+          busy: sessionsOut.length > 0,
           visibleSessionId: snapshot.visibleSessionId,
-          sessions: snapshot.sessions,
+          sessions: sessionsOut,
         }, origin);
       }
 
@@ -276,6 +290,7 @@ function createDesktopBridge({ manager, backendBase, onFocus, port = PORT, bootI
           jobId,
           preAuthorizedSubmit: data.preAuthorizedSubmit === true,
           autoSubmitted: false,
+          events: [], // ring buffer of user-visible milestones (timeline)
         });
         let resumeBytes = null;
         if (data.plan && data.plan.resume && data.resumeUrl) {

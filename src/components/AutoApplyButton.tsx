@@ -21,6 +21,7 @@ import {
   fetchSubmissionDecision,
   submissionBlockerMessage,
   reasonMessage,
+  eventLabel,
   type SubmissionDecisionView,
   AA_POLL_INTERVAL_MS,
   type AaRowState,
@@ -65,6 +66,8 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
   const [midRunReview, setMidRunReview] = useState<string | null>(null);
   const [midRunHoldUntil, setMidRunHoldUntil] = useState<number | null>(null);
   const [evidenceImage, setEvidenceImage] = useState<string | null>(null);
+  const [midRunEvents, setMidRunEvents] = useState<Array<{ label: string; at: string }>>([]);
+  const [localEvents, setLocalEvents] = useState<Array<{ label: string; at: string }>>([]);
   const handledAskSigRef = useRef('');
   // ONE notification per execution (market pattern: batch, never spam).
   const notifiedExecRef = useRef<Set<string>>(new Set());
@@ -280,13 +283,13 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
       }
       if (health.appMismatch) {
         setState('USER_ACTION_REQUIRED');
-        setMessage('Tailor Browser startup conflict.');
+        setMessage("Something else is using Taylor's connection — quit that app, then try again. Nothing was submitted.");
         setDesktopUnavailable(true);
         return;
       }
       if (!health.available) {
         setState('USER_ACTION_REQUIRED');
-        setMessage('Tailor Browser is not running.');
+        setMessage('Tailor Browser is closed — open it and we’ll pick up where you left off.');
         setDesktopUnavailable(true);
         return;
       }
@@ -314,13 +317,13 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
           return;
         }
         setState('USER_ACTION_REQUIRED');
-        setMessage('This job already has a session — open Tailor Browser (Action needed) or wait for it.');
+        setMessage('This job is already running — bringing it forward.');
         return;
       }
       if (started.busy) {
         // Concurrency limit reached: this job is QUEUED — it starts by itself
         // as soon as a slot frees (bounded retry while the tab stays open).
-        setMessage('Queued — waiting for a free slot…');
+        setMessage('One application at a time — this one starts by itself when a slot frees.');
         setState('WAITING_FOR_BROWSER');
         const deadline = Date.now() + 120_000; // bounded: 2 minutes, then a real error
         let activeCount = Array.isArray(started.current) ? started.current.length : 0;
@@ -343,7 +346,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
               return;
             }
             setState('USER_ACTION_REQUIRED');
-            setMessage('This job already has a session — open Tailor Browser (Action needed) or wait for it.');
+            setMessage('This job is already running — bringing it forward.');
             setDesktopUnavailable(false);
             return;
           }
@@ -414,6 +417,8 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
         setMidRunReview(null);
         setMidRunHoldUntil(null);
         setEvidenceImage(null);
+        setMidRunEvents([]);
+        setLocalEvents([]);
         if (view.state === 'READY_FOR_REVIEW') {
           void fetchSubmissionDecision(id).then(setDecision).catch(() => {});
         }
@@ -435,6 +440,10 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
       const health = await desktopHealth();
       const s = (health.sessions || []).find((x) => x.executionId === executionId);
       if (!s) return;
+      const mappedEvents = (s.events || [])
+        .map((e) => ({ label: eventLabel(e.type, e.detail), at: e.at }))
+        .filter((e): e is { label: string; at: string } => !!e.label);
+      if (mappedEvents.length) setMidRunEvents(mappedEvents);
       const asks = s.asks || [];
       const chatQs: AnswerChatQuestion[] = asks
         .filter((a) => !a.human)
@@ -542,6 +551,8 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     setMidRunReview(null);
     setMidRunHoldUntil(null);
     setEvidenceImage(null);
+    setMidRunEvents([]);
+    setLocalEvents([]);
     handledAskSigRef.current = '';
     answeredAtRef.current = 0;
     setState('IDLE');
@@ -558,6 +569,8 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     setMidRunReview(null);
     setMidRunHoldUntil(null);
     setEvidenceImage(null);
+    setMidRunEvents([]);
+    setLocalEvents([]);
     setMessage(null);
     setState('STARTING');
     // Step 0: apply with the job's TAILORED CV (V1 engine — the same pipeline
@@ -675,7 +688,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
                     ? 'The form rejected the submission — fix the highlighted fields in Tailor Browser and retry.'
                     : result.ok
                       ? 'Submitted — waiting for confirmation.'
-                      : 'Submission is blocked — see Tailor Browser.'
+                      : "Couldn't submit yet — check the page in Tailor Browser."
     );
   };
 
@@ -683,7 +696,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     if (!attemptId || !currentExecution) {
       // No live session: a previous failure must never dead-end. If answers
       // are missing the chat opens; otherwise RETRY the full apply flow.
-      setMessage('Restarting the application…');
+      setMessage('This run stopped — starting a fresh one. Your answers are saved and reused.');
       await handleAaClick();
       return;
     }
@@ -695,7 +708,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
       const live = (health.sessions || []).find((s) => s.executionId === currentExecution.executionId);
       const usable = !!live && !live.crashed && !!live.pageUrl && live.pageUrl !== 'about:blank';
       if (!usable) {
-        setMessage('The session ended — restarting the application…');
+        setMessage('This run stopped — starting a fresh one…');
         try { await stopDesktopExecution(currentExecution.executionId); } catch { /* cleanup best-effort */ }
         setCurrentExecution(null);
         setAttemptId(null);
@@ -758,7 +771,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
       }
       const focused = await focusTailorBrowser(currentExecution.executionId);
       if (!focused.ok) {
-        setMessage('Tailor Browser is not running.');
+        setMessage('Tailor Browser is closed — open it and we’ll pick up where you left off.');
         setDesktopUnavailable(true);
         return;
       }
@@ -766,7 +779,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
     } catch {
       // Bridge probe failed — still try to bring the window forward, with feedback.
       const focused = await focusTailorBrowser(currentExecution.executionId);
-      setMessage(focused.ok ? 'Tailor Browser opened — complete the action there.' : 'Tailor Browser is not running — click Auto Apply to restart it.');
+      setMessage(focused.ok ? 'Tailor Browser opened — complete the action there.' : 'Tailor Browser is closed — open it, then click Action needed.');
       if (!focused.ok) setDesktopUnavailable(true);
     }
   };
@@ -806,6 +819,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
       const data = await res.json().catch(() => null);
       if (!res.ok) return { ok: false, error: (data && data.error) || 'Could not save that answer — try again.' };
       answeredAtRef.current = Date.now();
+      setLocalEvents((prev) => [...prev.slice(-7), { label: `You answered: ${String(question).slice(0, 60)}`, at: new Date().toISOString() }]);
       // RESUME NOW: the answer is in the bank — nudge the desktop agent so it
       // stops waiting and continues immediately (idempotent; no-op if it is
       // already running).
@@ -959,6 +973,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
           onRefreshEvidence={() => { if (currentExecution) void refreshEvidence(currentExecution.executionId); }}
           onAssertSubmitted={() => void handleAssertSubmitted()}
           onAssertNotSubmitted={() => void handleAssertNotSubmitted()}
+          timeline={[...midRunEvents, ...localEvents].sort((a, b) => Date.parse(a.at) - Date.parse(b.at))}
           onSaveAnswer={handleSaveAnswer}
           onSubmit={async () => {
             if (midRunAsks || midRunBrowser.length || midRunReview) {

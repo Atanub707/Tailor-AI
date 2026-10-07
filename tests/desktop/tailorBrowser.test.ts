@@ -474,7 +474,7 @@ describe('Protocol ownership & app identity (senior bug-hunt phase)', () => {
     const transport = read('src/lib/browserExecutionTransport.ts');
     expect(transport).toContain('interpretHealth');
     expect(transport).toContain("d.app !== 'tailor-browser'");
-    expect(read('src/components/AutoApplyButton.tsx')).toContain("setMessage('Tailor Browser startup conflict.')");
+    expect(read('src/components/AutoApplyButton.tsx')).toContain("Something else is using Taylor's connection");
   });
 
   it('AA still waits for health before any handoff (Phase 16 ordering intact)', () => {

@@ -76,6 +76,8 @@ export interface DesktopHealth {
     waitUntil?: number | null;
     /** Pending human questions with the form's options (for the answer chat). */
     asks?: Array<{ label: string; reason: string; options: string[]; human: boolean; ref?: string; name?: string }>;
+    /** User-visible milestones for the run timeline (newest last). */
+    events?: Array<{ type: string; detail: string; state: string; at: string }>;
   }>;
 }
 
@@ -85,7 +87,7 @@ export function interpretHealth(data: unknown, httpOk: boolean): DesktopHealth {
   if (!httpOk || !d || d.available !== true) return { available: false };
   if (d.app !== 'tailor-browser') return { available: false, appMismatch: true };
   const sessions = Array.isArray(d.sessions)
-    ? (d.sessions as Array<{ executionId?: unknown; state?: unknown; pageUrl?: unknown; crashed?: unknown; waitReason?: unknown; actionType?: unknown; waitUntil?: unknown; asks?: unknown }>)
+    ? (d.sessions as Array<{ executionId?: unknown; state?: unknown; pageUrl?: unknown; crashed?: unknown; waitReason?: unknown; actionType?: unknown; waitUntil?: unknown; asks?: unknown; events?: unknown }>)
         .map((s) => ({
           executionId: String(s?.executionId || ''),
           state: String(s?.state || ''),
@@ -105,6 +107,11 @@ export function interpretHealth(data: unknown, httpOk: boolean): DesktopHealth {
                   name: typeof a?.name === 'string' ? a.name : undefined,
                 }))
                 .filter((a) => a.label)
+            : undefined,
+          events: Array.isArray(s?.events)
+            ? (s.events as Array<{ type?: unknown; detail?: unknown; state?: unknown; at?: unknown }>)
+                .map((e) => ({ type: String(e?.type || ''), detail: String(e?.detail || '').slice(0, 120), state: String(e?.state || ''), at: String(e?.at || '') }))
+                .filter((e) => e.type && e.at)
             : undefined,
         }))
         .filter((s) => s.executionId)
@@ -381,7 +388,7 @@ export function mapDesktopStateToRow(state: unknown): DesktopRowView | null {
     case 'ATTACHING_RESUME': return { state: 'FILLING', message: 'Attaching resume…', terminal: false };
     case 'VERIFYING': return { state: 'VERIFYING', message: 'Verifying…', terminal: false };
     case 'SUBMITTING': return { state: 'SUBMITTING', message: 'Submitting…', terminal: false };
-    case 'WAITING_FOR_USER': return { state: 'USER_ACTION_REQUIRED', message: 'Action required in Tailor Browser', terminal: false };
+    case 'WAITING_FOR_USER': return { state: 'USER_ACTION_REQUIRED', message: 'Needs you — open to continue.', terminal: false };
     // NOT terminal: submit-time CAPTCHAs and unconfirmed submissions happen
     // AFTER ready — the row must keep polling to surface them.
     case 'READY_FOR_REVIEW': return { state: 'READY_FOR_REVIEW', message: 'Ready for review in Tailor Browser.', terminal: false };

@@ -54,6 +54,39 @@ export function isAutoApplyJob(job: Pick<Job, 'atsPlatform' | 'applyUrl' | 'url'
   return isLeverJob(job) || isGreenhouseJob(job) || isAshbyJob(job);
 }
 
+/** Friendly timeline label for a desktop event (no jargon — copy rules). */
+export function eventLabel(type: string, detail?: string): string | null {
+  switch (String(type)) {
+    case 'BROWSER_OPENED': return "Opened the employer's page";
+    case 'LEVER_VERIFIED': return 'Confirmed the right job page';
+    case 'FORM_DISCOVERED': return 'Read the application form';
+    case 'FIELDS_FILLED': return 'Filled the form';
+    case 'RESUME_ATTACHED': return 'Attached your resume';
+    case 'RESUME_NOT_ATTACHED': return 'Resume will be attached at submit';
+    case 'HUMAN_ACTION_REQUIRED': return 'Waiting for you';
+    case 'CHECKPOINT_CLEARED': return 'Continued';
+    case 'READY_FOR_REVIEW': return 'Ready to submit';
+    case 'SUBMIT_CONTROL_ACTIVATED': return 'Submitting…';
+    case 'SUBMISSION_CONFIRMED': return 'Submitted — confirmed';
+    case 'SUBMISSION_UNCONFIRMED': return 'Checking the submission';
+    case 'RUN_FAILED': return 'Run stopped';
+    case 'SESSION_CLOSED': return 'Run ended';
+    default: return null;
+  }
+}
+
+/** "just now" / "42s ago" / "3m ago" for timeline rows. */
+export function timeAgo(at: string, now: number = Date.now()): string {
+  const t = Date.parse(String(at || ''));
+  if (!Number.isFinite(t)) return '';
+  const s = Math.max(0, Math.round((now - t) / 1000));
+  if (s < 5) return 'just now';
+  if (s < 60) return `${s}s ago`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  return `${Math.round(m / 60)}h ago`;
+}
+
 /** Richer row copy for attention states — the backend event string carries the
  *  session's waitReason (e.g. 'STATE:QUESTIONS_REQUIRED'), so the row can say
  *  WHY it needs you instead of a generic "Action required". */
@@ -118,7 +151,7 @@ export function aaStateFromFillResult(data: unknown, httpOk: boolean): AaStateVi
     case 'FILL_STARTED':
       return { state: 'WAITING_FOR_BROWSER', message: 'Opening Lever application… waiting for Tailor Browser.' };
     case 'FILL_DISABLED':
-      return { state: 'FILL_DISABLED', message: 'Auto Apply fill is disabled.' };
+      return { state: 'FILL_DISABLED', message: "Auto Apply isn't enabled right now — turn it on in settings or apply manually." };
     case 'FILL_NOT_ELIGIBLE':
       return { state: 'NOT_ELIGIBLE', message: reason ?? "This job isn't ready for Auto Apply." };
     case 'USER_ACTION_REQUIRED':

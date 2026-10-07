@@ -9,6 +9,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowUp, Check, ExternalLink, X } from 'lucide-react';
+import { timeAgo } from '../lib/autoApply';
 
 export interface AnswerChatQuestion {
   providerFieldId: string;
@@ -47,6 +48,8 @@ interface Props {
   /** Outcome review actions for unconfirmed submissions. */
   onAssertSubmitted?: () => void;
   onAssertNotSubmitted?: () => void;
+  /** Run timeline (newest last): friendly milestones with timestamps. */
+  timeline?: Array<{ label: string; at: string }>;
 }
 
 interface ChatMessage {
@@ -58,7 +61,7 @@ interface ChatMessage {
 export const AnswerChatPanel: React.FC<Props> = ({
   jobTitle, company, questions, onSaveAnswer, onSubmit, onClose, submitLabel, footnote,
   browserItems = [], reviewNote = null, onOpenBrowser, waitUntil = null,
-  evidenceImage = null, onRefreshEvidence, onAssertSubmitted, onAssertNotSubmitted,
+  evidenceImage = null, onRefreshEvidence, onAssertSubmitted, onAssertNotSubmitted, timeline = [],
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>(() => [
     { id: 0, role: 'assistant', text: `${jobTitle} at ${company}` },
@@ -155,6 +158,19 @@ export const AnswerChatPanel: React.FC<Props> = ({
         </header>
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-2.5">
+          {timeline.length > 0 && (
+            <div className="space-y-1 pb-1">
+              <div className="text-[10.5px] font-extrabold uppercase tracking-wide text-[var(--color-faint)]">Activity</div>
+              <ul className="space-y-0.5">
+                {timeline.slice(-6).map((e, i) => (
+                  <li key={`${e.at}-${i}`} className="flex items-baseline justify-between gap-2 text-[11.5px] text-[var(--color-ink)]">
+                    <span className="truncate">{e.label}</span>
+                    <span className="text-[10.5px] text-[var(--color-faint)] whitespace-nowrap">{timeAgo(e.at)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {hasReview && (
             <div className="bg-amber-50 border border-amber-200 text-amber-900 text-[12px] leading-relaxed rounded-xl px-3.5 py-3 space-y-2.5">
               <div>{reviewNote}</div>
