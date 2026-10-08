@@ -168,7 +168,7 @@ describe('Deterministic scripts — invariants (never submit, never bypass CAPTC
     const loop = sessionSrc.slice(sessionSrc.indexOf('async agentLoop()'), sessionSrc.indexOf('async agentFinalRevalidation()'));
     expect(loop).toContain('CHOICE ASKS');
     expect(loop).toContain("entry.code !== 'OPTION_NOT_FOUND'");
-    expect(loop).toContain('options: entry.options.slice(0, 24)');
+    expect(loop).toContain('probedFor(f.ref, entry.options)'); // probe-enriched, cap 60
     // The failed attempt is not hammered; a CHANGED value unlocks a retry.
     expect(loop).toContain('if (prevFail.sig === sig) continue;');
     expect(loop).toContain('this.lastFailures.delete(a.ref)');

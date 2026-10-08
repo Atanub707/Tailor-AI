@@ -54,6 +54,24 @@ export function isAutoApplyJob(job: Pick<Job, 'atsPlatform' | 'applyUrl' | 'url'
   return isLeverJob(job) || isGreenhouseJob(job) || isAshbyJob(job);
 }
 
+/** Tolerant option keys (exact / parenthetical-stripped / veteran synonym) —
+ *  the SAME logic the server uses, so client validation and act-time matching
+ *  can never disagree. */
+export function optionKeys(value: string): string[] {
+  const norm = String(value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const stripped = norm.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+  const vet = stripped.replace(/protected\s+veteran/g, 'veteran').replace(/\s+/g, ' ').trim();
+  return [norm, stripped, vet].filter((k, i, a) => k && a.indexOf(k) === i);
+}
+
+/** Does the typed answer match one of the FORM's options? (For questions with
+ *  a known list — never let an unmatchable answer be saved silently.) */
+export function answerMatchesOptions(answer: string, options: string[]): boolean {
+  const wanted = String(answer || '').split(',').map((v) => v.trim()).filter(Boolean);
+  if (!wanted.length) return false;
+  return wanted.every((w) => options.some((o) => optionKeys(o).some((k) => optionKeys(w).includes(k))));
+}
+
 /** Friendly timeline label for a desktop event (no jargon — copy rules). */
 export function eventLabel(type: string, detail?: string): string | null {
   switch (String(type)) {

@@ -75,7 +75,7 @@ export interface DesktopHealth {
     /** How long the agent holds this pause (epoch ms). */
     waitUntil?: number | null;
     /** Pending human questions with the form's options (for the answer chat). */
-    asks?: Array<{ label: string; reason: string; options: string[]; human: boolean; ref?: string; name?: string }>;
+    asks?: Array<{ label: string; reason: string; options: string[]; human: boolean; ref?: string; name?: string; kind?: string }>;
     /** User-visible milestones for the run timeline (newest last). */
     events?: Array<{ type: string; detail: string; state: string; at: string }>;
   }>;
@@ -97,7 +97,7 @@ export function interpretHealth(data: unknown, httpOk: boolean): DesktopHealth {
           actionType: typeof s?.actionType === 'string' ? s.actionType : null,
           waitUntil: typeof s?.waitUntil === 'number' ? s.waitUntil : null,
           asks: Array.isArray(s?.asks)
-            ? (s.asks as Array<{ label?: unknown; reason?: unknown; options?: unknown; human?: unknown; ref?: unknown; name?: unknown }>)
+            ? (s.asks as Array<{ label?: unknown; reason?: unknown; options?: unknown; human?: unknown; ref?: unknown; name?: unknown; kind?: unknown }>)
                 .map((a) => ({
                   label: String(a?.label || ''),
                   reason: String(a?.reason || ''),
@@ -105,6 +105,7 @@ export function interpretHealth(data: unknown, httpOk: boolean): DesktopHealth {
                   human: a?.human === true,
                   ref: typeof a?.ref === 'string' ? a.ref : undefined,
                   name: typeof a?.name === 'string' ? a.name : undefined,
+                  kind: typeof a?.kind === 'string' ? a.kind : undefined,
                 }))
                 .filter((a) => a.label)
             : undefined,

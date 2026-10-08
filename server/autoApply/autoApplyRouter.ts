@@ -15,6 +15,7 @@ import {
   deleteAnswer,
 } from './answerBank/answerBankStore.js';
 import { answerQuestionForJob } from './answerBank/answerBankService.js';
+import { answerMatchesOptions } from './agentDecision.js';
 import { resumeAttachmentFilename } from '../applicationEngine/resumeNaming.js';
 import { getAttempt } from '../applicationEngine/executionStore.js';
 import { getEventTypesForAttempt, getEventsForAttempt } from '../applicationExperience/applicationEvents.js';
@@ -153,6 +154,12 @@ export function createAutoApplyRouter(): Router {
     const answer = body.answer;
     if (!jobId || !question || typeof answer !== 'string' || !answer.trim()) {
       return void res.status(400).json({ error: 'jobId, question and answer are required.' });
+    }
+    // Option-constrained questions: never persist an answer the form's own
+    // list can't hold (real case: "West Bengal" into a US-state dropdown).
+    const expectOptions = Array.isArray(body.options) ? body.options.map(String).filter(Boolean).slice(0, 60) : [];
+    if (expectOptions.length && !answerMatchesOptions(String(answer), expectOptions)) {
+      return void res.json({ stored: false, reason: 'ANSWER_NOT_IN_OPTIONS', options: expectOptions });
     }
     const result = answerQuestionForJob(userId, {
       jobId,

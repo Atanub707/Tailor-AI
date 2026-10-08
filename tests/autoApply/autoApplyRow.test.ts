@@ -226,6 +226,33 @@ describe('Polling rules (read-only)', () => {
     expect(handoff).toContain('hasVerifiedReceiptForJob(db, userId, jobId)');
   });
 
+  it('option questions show FORM TRUTH: probe, validate, refresh, skip', () => {
+    const session = read('desktop/main/browserSession.cjs');
+    const adapter = read('desktop/main/greenhouseAdapter.cjs');
+    const panel = read('src/components/AnswerChatPanel.tsx');
+    const button = read('src/components/AutoApplyButton.tsx');
+    const router = read('server/autoApply/autoApplyRouter.ts');
+    // Probe: open → read real options → Escape close (bounded, cached).
+    expect(adapter).toContain('function buildMenuOptionsScript');
+    expect(adapter).toContain('menu-notice|no-options'); // notices are NOT options
+    expect(session).toContain('async probeComboboxOptions(ref)');
+    expect(session).toContain('this.probedOptions.set(a.ref,');
+    // Caps raised to 60 so a 50-state list fully renders.
+    expect(session).toContain('.slice(0, 60).map((o) => String(o).slice(0, 240))');
+    expect(read('server/autoApply/agentDecision.ts')).toContain('slice(0, 60)');
+    // Signatures include options so new options refresh the chat immediately.
+    expect(session).toContain('const askSig = askList.map((a) => `${a.label}#${(a.options || []).length}');
+    expect(button).toContain("`${a.label}#${(a.options || []).length}`");
+    // Validation: client blocks unmatchable answers; server refuses to store them.
+    expect(panel).toContain('answerMatchesOptions(value, opts)');
+    expect(router).toContain("'ANSWER_NOT_IN_OPTIONS'");
+    expect(button).toContain("data.reason || '') === 'ANSWER_NOT_IN_OPTIONS'");
+    // Reason copy + skip escape are surfaced in the panel.
+    expect(panel).toContain('None of these fit — skip this job');
+    expect(panel).toContain('Skip this job? Nothing will be submitted');
+    expect(button).toContain('handleSkipJob');
+  });
+
   it('summarizes verification without leaking values', () => {
     const summary = summarizeFillStatus({ verification: { verified: 8, alreadyCorrect: 2, mismatch: 0, notFound: 0, unverifiable: 0, blocked: 0, newRequiredFields: 0, resumeVerified: true } });
     expect(summary).toBe('Verified 8 · Already correct 2 · Needs review 0 · Resume verified · New required 0');

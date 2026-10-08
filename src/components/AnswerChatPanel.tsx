@@ -9,12 +9,16 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowUp, Check, ExternalLink, X } from 'lucide-react';
-import { timeAgo } from '../lib/autoApply';
+import { timeAgo, answerMatchesOptions } from '../lib/autoApply';
 
 export interface AnswerChatQuestion {
   providerFieldId: string;
   label: string;
   options?: string[];
+  /** Why the agent is asking (shown as context under the question). */
+  reason?: string;
+  /** 'single' | 'multi' | 'text' — drives the input affordance. */
+  kind?: string;
 }
 
 export interface AnswerChatBrowserItem {
@@ -50,6 +54,8 @@ interface Props {
   onAssertNotSubmitted?: () => void;
   /** Run timeline (newest last): friendly milestones with timestamps. */
   timeline?: Array<{ label: string; at: string }>;
+  /** Stop this run honestly (nothing submitted) — the constraint escape. */
+  onSkipJob?: () => void;
 }
 
 interface ChatMessage {
@@ -61,7 +67,7 @@ interface ChatMessage {
 export const AnswerChatPanel: React.FC<Props> = ({
   jobTitle, company, questions, onSaveAnswer, onSubmit, onClose, submitLabel, footnote,
   browserItems = [], reviewNote = null, onOpenBrowser, waitUntil = null,
-  evidenceImage = null, onRefreshEvidence, onAssertSubmitted, onAssertNotSubmitted, timeline = [],
+  evidenceImage = null, onRefreshEvidence, onAssertSubmitted, onAssertNotSubmitted, timeline = [], onSkipJob,
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>(() => [
     { id: 0, role: 'assistant', text: `${jobTitle} at ${company}` },
@@ -73,6 +79,7 @@ export const AnswerChatPanel: React.FC<Props> = ({
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(questions.length === 0);
   const [submitting, setSubmitting] = useState(false);
+  const [skipConfirm, setSkipConfirm] = useState(false);
   const nextId = useRef(2);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -90,6 +97,13 @@ export const AnswerChatPanel: React.FC<Props> = ({
     if (!value || busy || done) return;
     const question = questions[index];
     if (!question) return;
+    // THE FORM'S TRUTH: a known option list means the answer MUST be in it —
+    // never save "West Bengal" into a US-state dropdown silently.
+    const opts = question.options || [];
+    if (opts.length && !answerMatchesOptions(value, opts)) {
+      push('error', "That isn't one of the form's options — pick one of the options below.");
+      return;
+    }
     setBusy(true);
     const res = await onSaveAnswer(question.label, value, remember);
     setBusy(false);
@@ -272,12 +286,49 @@ export const AnswerChatPanel: React.FC<Props> = ({
         </div>
 
         <div className="border-t border-[var(--color-hairline)] p-3 space-y-2 shrink-0">
+          {!done && String(questions[index]?.reason || '').trim() && (
+            <p className="text-[10.5px] text-[var(--color-faint)] leading-snug">
+              {String(questions[index]?.reason).replace(/^the form's list does not include your saved answer — pick one of its options$/i, "The form only accepts its own options — pick one below.")}
+            </p>
+          )}
           {!done ? (
             <>
               <label className="flex items-center gap-1.5 text-[10.5px] text-[var(--color-faint)] cursor-pointer">
                 <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
                 Remember for similar applications
               </label>
+              {onSkipJob && !skipConfirm && (
+                <button
+                  type="button"
+                  onClick={() => setSkipConfirm(true)}
+                  className="text-[10.5px] font-bold text-[var(--color-faint)] underline cursor-pointer hover:text-[var(--color-ink)]"
+                >
+                  None of these fit — skip this job
+                </button>
+              )}
+              {onSkipJob && skipConfirm && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-2.5 space-y-2">
+                  <p className="text-[11px] text-amber-900 leading-snug">
+                    Skip this job? Nothing will be submitted and this run stops. You can apply manually or try again later.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onSkipJob()}
+                      className="px-2.5 py-1.5 rounded-lg bg-amber-600 text-white text-[11px] font-extrabold cursor-pointer"
+                    >
+                      Skip job
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSkipConfirm(false)}
+                      className="px-2.5 py-1.5 rounded-lg border border-amber-300 bg-white text-amber-800 text-[11px] font-extrabold cursor-pointer"
+                    >
+                      Keep answering
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="flex items-end gap-2">
                 <textarea
                   value={input}

@@ -45,6 +45,13 @@ const BANK_KEY_CONCEPTS: Array<{ re: RegExp; keys: string[] }> = [
 ];
 
 /** Exported for tests: canonical bank keys for a field label (or []). */
+/** Does an answer match one of the form's options (tolerant keys)? */
+export function answerMatchesOptions(answer: string, options: string[]): boolean {
+  const wanted = String(answer || '').split(',').map((v) => v.trim()).filter(Boolean);
+  if (!wanted.length) return false;
+  return wanted.every((w) => options.some((o) => optionKeys(o).some((k) => optionKeys(w).includes(k))));
+}
+
 export function bankKeysForLabel(label: string): string[] {
   const text = String(label || '');
   // Phone country-code pickers are NOT phone-number fields: their answer is
@@ -159,7 +166,7 @@ function matchText(f: ObservedField): string {
 /** Tolerant option keys: exact, parenthetical-stripped, veteran synonym —
  *  mirrors the payload builder's canonicalOption so the agent matches the
  *  same way the submission path validates. */
-function optionKeys(value: string): string[] {
+export function optionKeys(value: string): string[] {
   const norm = String(value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
   const stripped = norm.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
   const vet = stripped.replace(/protected\s+veteran/g, 'veteran').replace(/\s+/g, ' ').trim();
@@ -175,9 +182,10 @@ function optionMatches(f: ObservedField, wanted: string): string | null {
   return null;
 }
 
-/** Chat-visible options for a question (form truth, capped). */
+/** Chat-visible options for a question (form truth, capped at 60 — a US
+ *  state list has 50 entries and MUST fully render in the chat). */
 function askOptions(f: ObservedField): string[] {
-  return (f.options || []).map((o) => String(o.option || '')).filter(Boolean).slice(0, 24);
+  return (f.options || []).map((o) => String(o.option || '')).filter(Boolean).slice(0, 60);
 }
 
 /** Conditional follow-ups ("If not, please describe…", "Other, please
@@ -277,7 +285,7 @@ export function composeDecision(state: ObservedState, values: Map<string, string
         if (isEeoLabel(gLabel)) {
           notes.push(`voluntary EEO group left untouched: ${gLabel.slice(0, 60)}`);
         } else if (f.required) {
-          const opts = (groupMembers.get(gk) || []).map((m) => String(m.label || '')).filter(Boolean).slice(0, 24);
+          const opts = (groupMembers.get(gk) || []).map((m) => String(m.label || '')).filter(Boolean).slice(0, 60);
           asks.push({ ref: f.ref, label: gLabel.slice(0, 500), reason: 'no saved answer for this required question', human: false, options: opts });
         } else {
           notes.push(`optional group left unanswered: ${gLabel.slice(0, 60)}`);

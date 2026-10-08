@@ -233,14 +233,31 @@ function buildActScript(action) {
         return null;
       } catch (e) { return null; }
     };
+    // REAL options only: role="option" nodes, never the "No options" notice
+    // (its class contains "option" and was being returned as an option list —
+    // burning the full 8s poll and surfacing a junk chip).
+    const readRealOptions = (list) => {
+      if (!list) return [];
+      return Array.from(list.querySelectorAll('[role="option"]'))
+        .filter((o) => !/menu-notice|no-options|nooptions/i.test(String(o.className || '')))
+        .filter((o) => String(o.textContent || '').trim());
+    };
+    const menuHasNoOptionsNotice = (list) => {
+      if (!list) return false;
+      try {
+        return !!list.querySelector('[class*="menu-notice"], [class*="no-options"], [class*="noOptions"]') ||
+          /^\s*no options\s*$/i.test(String(list.textContent || '').trim());
+      } catch (e) { return false; }
+    };
     const findComboboxOption = async (wanted) => {
       const want = String(wanted || '').trim().toLowerCase();
       const startMs = Date.now();
       while (Date.now() < startMs + 8000) {
         await new Promise((r) => setTimeout(r, 200));
         const list = findOpenMenu();
-        const opts = list ? Array.from(list.querySelectorAll('[role="option"], li, [class*="option"]'))
-          .filter((o) => String(o.textContent || '').trim()) : [];
+        // A "No options" notice is FINAL for this filter — don't poll 8s.
+        if (menuHasNoOptionsNotice(list)) break;
+        const opts = readRealOptions(list);
         if (!opts.length) continue;
         // Option text can carry a dial code ("India +91") — strip it, then
         // prefer EXACT matches so "India" never loses to "British Indian Ocean
@@ -456,6 +473,42 @@ function buildMenuCheckScript(ref) {
   })()`;
 }
 
+/** READ-ONLY: the OPEN menu's real options for this field — used to show the
+ *  form's actual choices in the question chat BEFORE the user answers. */
+function buildMenuOptionsScript(ref) {
+  const safeRef = String(ref || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  return `(() => {
+    const el = document.querySelector('[data-ta-ref="${safeRef}"]');
+    if (!el) return { ok: false, code: 'STALE_REF' };
+    const findMenu = () => {
+      try {
+        const own = document.querySelector('.select__menu');
+        if (own) return own;
+        const id = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
+        if (id) { const m = document.getElementById(id); if (m && !m.classList.contains('iti__country-list')) return m; }
+        const cont = el.closest('.select__container') || el.closest('.select__control');
+        const local = cont ? cont.querySelector('.select__menu') : null;
+        if (local) return local;
+        const active = document.activeElement;
+        const ctl = el.closest('.select__control');
+        if (active && ctl && (ctl.contains(active) || active === el)) {
+          return document.querySelector('[role="listbox"]:not(.iti__country-list):not([class*="iti__"])');
+        }
+        return null;
+      } catch (e) { return null; }
+    };
+    const menu = findMenu();
+    if (!menu) return { ok: false, code: 'MENU_CLOSED' };
+    const options = Array.from(menu.querySelectorAll('[role="option"]'))
+      .filter((o) => !/menu-notice|no-options|nooptions/i.test(String(o.className || '')))
+      .map((o) => String(o.textContent || '').trim().replace(/\s*\+\d+$/, '').trim())
+      .filter(Boolean)
+      .filter((t, i, a) => a.indexOf(t) === i);
+    if (!options.length) return { ok: false, code: 'NO_OPTIONS', options: [] };
+    return { ok: true, options: options.slice(0, 60), truncated: options.length > 60 };
+  })()`;
+}
+
 /** FRESH control center right before a trusted open click: the page re-renders
  *  and scrolls between cycles — a stale rect makes the click miss the widget. */
 function buildControlRectScript(ref) {
@@ -492,6 +545,7 @@ module.exports = {
   buildConfirmationScript,
   buildComboboxCheckScript,
   buildMenuCheckScript,
+  buildMenuOptionsScript,
   buildControlRectScript,
   buildFillScript: unsupported,
   buildReadBackScript: unsupported,

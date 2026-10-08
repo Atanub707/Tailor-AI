@@ -483,7 +483,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
       const asks = s.asks || [];
       const chatQs: AnswerChatQuestion[] = asks
         .filter((a) => !a.human)
-        .map((a, i) => ({ providerFieldId: `ask-${i}`, label: a.label, options: a.options }));
+        .map((a, i) => ({ providerFieldId: `ask-${i}`, label: a.label, options: a.options, reason: a.reason, kind: a.kind }));
       const browserItems: AnswerChatBrowserItem[] = asks
         .filter((a) => a.human)
         .map((a) => ({ label: a.label, reason: a.reason, ref: a.ref, name: a.name }));
@@ -504,7 +504,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
           });
         } catch { /* notifications are best-effort */ }
       }
-      const sig = `${executionId}|${asks.map((a) => a.label).join('|')}|${review ? 'review' : ''}`;
+      const sig = `${executionId}|${asks.map((a) => `${a.label}#${(a.options || []).length}`).join('|')}|${review ? 'review' : ''}`;
       // A saved answer that did NOT resolve the question (the ask persists)
       // must not dead-end: reopen after a cooldown so the user can retry.
       const unansweredRetry = answeredAtRef.current > 0 && Date.now() - answeredAtRef.current > 15_000;
@@ -549,6 +549,16 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
   /** "It didn't submit" — the user confirms nothing went through: close this
    *  session and start a FRESH run (new attempt; safe because the old one is
    *  abandoned with no receipt). */
+  /** "Skip this job" — stop the run honestly (nothing submitted). */
+  const handleSkipJob = async () => {
+    setOpen(false);
+    setMidRunAsks(null);
+    setMidRunBrowser([]);
+    setMidRunReview(null);
+    setMessage('Skipped — nothing was submitted. You can apply manually any time.');
+    await stopCurrentExecution();
+  };
+
   const handleAssertNotSubmitted = async () => {
     if (!currentExecution) return;
     setMessage('Restarting the application from a fresh session…');
@@ -760,7 +770,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
       const reason = live.waitReason || '';
       const asks = live.asks || [];
       if (reason === 'QUESTIONS_REQUIRED' && asks.length) {
-        const chatQs: AnswerChatQuestion[] = asks.filter((a) => !a.human).map((a, i) => ({ providerFieldId: `ask-${i}`, label: a.label, options: a.options }));
+        const chatQs: AnswerChatQuestion[] = asks.filter((a) => !a.human).map((a, i) => ({ providerFieldId: `ask-${i}`, label: a.label, options: a.options, reason: a.reason, kind: a.kind }));
         const browserItems: AnswerChatBrowserItem[] = asks.filter((a) => a.human).map((a) => ({ label: a.label, reason: a.reason, ref: a.ref, name: a.name }));
         handledAskSigRef.current = `${currentExecution.executionId}|${asks.map((a) => a.label).join('|')}`;
         setMidRunAsks(chatQs.length ? chatQs : null);
@@ -848,13 +858,22 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
   /** Chat saves: one answer at a time, straight into the Answer Bank. */
   const handleSaveAnswer = async (question: string, answer: string, remember: boolean): Promise<{ ok: boolean; error?: string }> => {
     try {
+      const askMeta = midRunAsks?.find((q) => q.label === question);
       const res = await fetch('/api/auto-apply/answer-bank/learn', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: job.id, question, answer, remember }),
+        body: JSON.stringify({
+          jobId: job.id, question, answer, remember,
+          options: askMeta?.options || [],
+          fieldKind: askMeta?.kind || undefined,
+        }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) return { ok: false, error: (data && data.error) || 'Could not save that answer — try again.' };
+      if (data && data.stored === false && String(data.reason || '') === 'ANSWER_NOT_IN_OPTIONS') {
+        // Server said no — the form's list can't hold this answer.
+        return { ok: false, error: "That isn't one of the form's options — pick one of the options above." };
+      }
       answeredAtRef.current = Date.now();
       setLocalEvents((prev) => [...prev.slice(-7), { label: `You answered: ${String(question).slice(0, 60)}`, at: new Date().toISOString() }]);
       // RESUME NOW: the answer is in the bank — nudge the desktop agent so it
@@ -1027,6 +1046,7 @@ export const AutoApplyButton: React.FC<AutoApplyButtonProps> = ({ job }) => {
           onAssertSubmitted={() => void handleAssertSubmitted()}
           onAssertNotSubmitted={() => void handleAssertNotSubmitted()}
           timeline={[...midRunEvents, ...localEvents].sort((a, b) => Date.parse(a.at) - Date.parse(b.at))}
+          onSkipJob={() => void handleSkipJob()}
           onSaveAnswer={handleSaveAnswer}
           onSubmit={async () => {
             if (midRunAsks || midRunBrowser.length || midRunReview) {

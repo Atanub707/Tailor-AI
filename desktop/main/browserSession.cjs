@@ -54,6 +54,7 @@ class Session {
     this.pendingAsks = [];
     this.actFailures = new Map(); // sig -> consecutive failed attempts
     this.lastFailures = new Map(); // ref -> { code, sig, options } (choice asks)
+    this.probedOptions = new Map(); // ref -> { at, options } (menu probe cache)
     this.asksSig = null; // signature of the currently displayed ask set
     this.loopRunning = false;
     this.waitReason = null;
@@ -337,6 +338,44 @@ class Session {
     const rb = await wc.executeJavaScript(this.adapter.buildReadBackScript(this.currentPlan, (refill && refill.wasCorrect) || {}), true);
     this.emit('FILL_VERIFICATION_COMPLETED', `statuses=${rb.statuses};newRequired=${rb.newRequiredCount};revalidated`);
     return this.finishVerification(rb);
+  }
+
+  /** Probe ONE combobox's menu with the trusted protocol and read the REAL
+   *  options (react-select renders options only while open). Bounded, closes
+   *  the menu afterwards so the next observe sees a clean page. */
+  async probeComboboxOptions(ref) {
+    if (!this.alive() || typeof this.adapter.buildMenuOptionsScript !== 'function') return { ok: false };
+    const read = () => this.wc.executeJavaScript(this.adapter.buildMenuOptionsScript(ref), true).catch(() => null);
+    try {
+      // Already open (rare)? Read directly.
+      let opts = await read();
+      if (opts && opts.ok) return { ok: true, options: opts.options };
+      // Open: exactly ONE trusted click on a fresh rect…
+      if (typeof this.adapter.buildControlRectScript === 'function') {
+        const fresh = await this.wc.executeJavaScript(this.adapter.buildControlRectScript(ref), true).catch(() => null);
+        if (fresh && Number.isFinite(fresh.x) && Number.isFinite(fresh.y)) {
+          try { await this.trustedClick(fresh.x, fresh.y); } catch { /* fallback below */ }
+          await new Promise((r) => setTimeout(r, 500));
+          opts = await read();
+          if (opts && opts.ok) { await this.trustedKey('Escape', 'Escape', 27).catch(() => {}); return { ok: true, options: opts.options }; }
+        }
+      }
+      // …then the keyboard opener fallback.
+      const focused = await this.trustedFocus(ref).catch(() => false);
+      if (focused) {
+        await new Promise((r) => setTimeout(r, 80));
+        await this.trustedKey('ArrowDown', 'ArrowDown', 40);
+        await new Promise((r) => setTimeout(r, 320));
+        opts = await read();
+        if (opts && opts.ok) { await this.trustedKey('Escape', 'Escape', 27).catch(() => {}); return { ok: true, options: opts.options }; }
+      }
+      // Never leave a menu open behind us.
+      try { await this.trustedKey('Escape', 'Escape', 27); } catch { /* best-effort */ }
+      await new Promise((r) => setTimeout(r, 120));
+      return { ok: false };
+    } catch {
+      return { ok: false };
+    }
   }
 
   /** Deep-focus ONE field in the live page (scroll + brief highlight). The
@@ -702,6 +741,7 @@ class Session {
     const wc = this.wc;
     this.actFailures = new Map();
     this.lastFailures = new Map();
+    this.probedOptions = new Map();
     try {
       const target = this.adapter.parseLeverUrl(this.currentPlan.url);
       this.canonical = target ? target.canonical : null;
@@ -898,6 +938,32 @@ class Session {
         if (!hasValue) stuck.push(f);
       }
 
+      const fieldByRef = new Map((obs.state.fields || []).map((x) => [x.ref, x]));
+
+      // PROBE OPTIONS BEFORE ASKING: react-select only renders options while
+      // its menu is open, so option-less custom-select asks used to show a
+      // bare text box (the "West Bengal vs US states" dead-end). Open, read,
+      // close — bounded to 2 fields/cycle, cached per ref for 30s.
+      if (chatAsks.length) {
+        let probesLeft = 2;
+        for (const a of chatAsks) {
+          if (probesLeft <= 0) break;
+          const f = fieldByRef.get(a.ref);
+          if (!f || f.kind !== 'custom-select') continue;
+          if (Array.isArray(a.options) && a.options.length) continue;
+          const cached = this.probedOptions.get(a.ref);
+          if (cached && (cached.options.length || Date.now() - cached.at < 30_000)) continue;
+          probesLeft -= 1;
+          const probed = await this.probeComboboxOptions(a.ref);
+          this.probedOptions.set(a.ref, { at: Date.now(), options: (probed.ok && probed.options) || [] });
+        }
+      }
+      const probedFor = (ref, fallback) => {
+        const p = this.probedOptions.get(ref);
+        if (p && p.options && p.options.length) return p.options;
+        return Array.isArray(fallback) ? fallback : [];
+      };
+
       // CHOICE ASKS: a value the form's option list rejected (remote city
       // lists, Yes/No picks) becomes a CHAT ask WITH the real options — the
       // user picks one chip and the loop fills it on the next cycle.
@@ -911,30 +977,32 @@ class Session {
         choiceAsks.push({
           label: String(f.label || '').slice(0, 500),
           reason: "the form's list does not include your saved answer — pick one of its options",
-          options: entry.options.slice(0, 24).map((o) => String(o).slice(0, 240)),
+          options: (probedFor(f.ref, entry.options)).slice(0, 60).map((o) => String(o).slice(0, 240)),
           ref: f.ref,
           name: String(f.name || ''),
+          kind: String(f.kind || ''),
           human: false,
         });
       }
 
-      const fieldByRef = new Map((obs.state.fields || []).map((x) => [x.ref, x]));
       const askList = [
         ...choiceAsks,
         ...(decision.asks || []).map((a) => ({
           label: String(a.label || '').slice(0, 500),
           reason: String(a.reason || '').slice(0, 240),
-          options: Array.isArray(a.options) ? a.options.slice(0, 24).map((o) => String(o).slice(0, 240)) : [],
+          options: probedFor(a.ref, a.options).slice(0, 60).map((o) => String(o).slice(0, 240)),
           ref: a.ref,
           name: String((fieldByRef.get(a.ref) || {}).name || ''),
+          kind: String((fieldByRef.get(a.ref) || {}).kind || ''),
           human: a.human === true,
         })),
         ...stuck.map((f) => ({
           label: String(f.label || '').slice(0, 500),
           reason: 'the form did not accept the automatic value — pick it once in the Tailor Browser window; the rest of the form keeps filling and the run continues by itself',
-          options: (f.options || []).map((o) => String(o.option || '')).filter(Boolean).slice(0, 24),
+          options: (f.options || []).map((o) => String(o.option || '')).filter(Boolean).slice(0, 60),
           ref: f.ref,
           name: String(f.name || ''),
+          kind: String(f.kind || ''),
           // Human-in-browser by design: typeahead/widget failures are fixed in
           // the real window — a chat answer cannot operate the widget, and a
           // chat ask here would HALT every other fill under the questions gate.
@@ -947,7 +1015,7 @@ class Session {
         // in the visible browser (or the chat in the full UI) and the loop
         // resumes by itself. Refresh pendingAsks whenever the set CHANGES so
         // the chat never shows a stale question list.
-        const askSig = askList.map((a) => a.label).join('|');
+        const askSig = askList.map((a) => `${a.label}#${(a.options || []).length}:${String((a.options || [])[0] || '').slice(0, 16)}`).join('|');
         if (!questionsNotified || this.asksSig !== askSig) {
           questionsNotified = true;
           this.asksSig = askSig;
