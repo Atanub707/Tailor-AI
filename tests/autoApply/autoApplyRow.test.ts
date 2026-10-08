@@ -193,6 +193,9 @@ describe('Polling rules (read-only)', () => {
     expect(session).toContain('noFormCycles >= 3');
     expect(ashby).toContain('jobClosed');
     expect(reasonMessage('NEEDS_REVIEW', 'base', 'RUN_FAILED:JOB_UNAVAILABLE')).toContain('job is closed');
+    // Start refusals name the fix — never a phantom 'Review' page.
+    expect(aaReasonFromBlockers(['TARGET_MISMATCH'])).toContain("couldn't be verified");
+    expect(aaReasonFromBlockers(['RUN_FAILED:JOB_UNAVAILABLE'])).toContain('job is closed');
     // OS-level notifications from the desktop app (works away from the tab).
     expect(bridge).toContain('notifyNative(entry');
     expect(bridge).toContain("'Taylor AI — action needed'");

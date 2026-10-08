@@ -111,7 +111,7 @@ export interface AgentDecision {
   notes: string[];
 }
 
-const CONSENT_RE = /consent|agree|terms|privacy|acknowledg|declare|policy/i;
+const CONSENT_RE = /consent|agree|terms|privacy|acknowledg|declare|policy|certif|attest/i;
 const EEO_RE = /gender|race|ethnicity|veteran|disability|sexual orientation|demographic/i;
 
 function isConsentField(f: ObservedField): boolean {

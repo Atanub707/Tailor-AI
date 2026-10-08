@@ -159,6 +159,8 @@ export function aaReasonFromBlockers(blockers: unknown): string | null {
   if (list.some((b) => b.startsWith('PLAN_') || b.startsWith('READINESS_') || b.startsWith('EXECUTION_'))) {
     return 'This job needs answers or review before Auto Apply can fill it.';
   }
+  if (list.some((b) => b === 'TARGET_MISMATCH')) return "This job's application page couldn't be verified — nothing was submitted.";
+  if (list.some((b) => b.includes('JOB_UNAVAILABLE'))) return 'This job is closed — the page no longer accepts applications. Nothing was submitted.';
   return null;
 }
 

@@ -68,7 +68,9 @@ export function gateExecution(input: EligibilityInput): { ok: true } | { ok: fal
   const t = plan.target;
   const applyHost = String(t.applyUrl || '').replace(/^https?:\/\//, '').split('/')[0].toLowerCase();
   const hostOk = plan.provider === 'greenhouse'
-    ? GREENHOUSE_HOSTS.some((h) => applyHost === h || applyHost.endsWith('.' + h))
+    ? (GREENHOUSE_HOSTS.some((h) => applyHost === h || applyHost.endsWith('.' + h)) ||
+       // Company-hosted Greenhouse embeds carry the posting as ?gh_jid=…
+       /[?&]gh_jid=[0-9]{4,20}/.test(String(t.applyUrl || '')))
     : plan.provider === 'ashby'
       ? ASHBY_HOSTS.some((h) => applyHost === h || applyHost.endsWith('.' + h))
       : applyHost === 'jobs.lever.co';

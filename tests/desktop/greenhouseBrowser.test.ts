@@ -8,7 +8,7 @@ import path from 'node:path';
 
 const read = (p: string) => fs.readFileSync(path.join(process.cwd(), p), 'utf8');
 const gh = require('../../desktop/main/greenhouseAdapter.cjs') as {
-  parseLeverUrl: (u: string) => { canonical: string; siteSlug: string; postingId: string; isApplyPage: boolean } | null;
+  parseLeverUrl: (u: string) => { canonical: string; siteSlug: string; postingId: string; isApplyPage: boolean; embed?: boolean } | null;
   buildObserveScript: () => string;
   buildActScript: (a: unknown) => string;
   buildSubmitScript: (o?: { trustedInput?: boolean }) => string;
@@ -141,11 +141,33 @@ describe('Greenhouse guardrails', () => {
   });
 });
 
+describe('Company-hosted Greenhouse embeds (?gh_jid=)', () => {
+  it('parses embeds and marks them for board-slug resolution', () => {
+    const a = gh.parseLeverUrl('https://www.okta.com/company/careers/opportunity/8258803?gh_jid=8258803');
+    expect(a?.embed).toBe(true);
+    expect(a?.postingId).toBe('8258803');
+    expect(a?.canonical).toBe('https://www.okta.com/company/careers/opportunity/8258803?gh_jid=8258803');
+    // Foreign hosts WITHOUT a gh_jid stay rejected.
+    expect(gh.parseLeverUrl('https://example.com/careers')).toBeNull();
+    expect(gh.parseLeverUrl('https://example.com/careers?gh_jid=abc')).toBeNull();
+  });
+
+  it('session resolves the board slug from the embed iframe, then switches to the board URL', () => {
+    const session = read('desktop/main/browserSession.cjs');
+    expect(session).toContain('job-boards.greenhouse.io');
+    expect(session).toContain('embed'); // the iframe URL marker
+    expect(session).toContain('resolveDeadline = Date.now() + 15_000');
+    expect(session).toContain('JOB_UNAVAILABLE'); // dead embed → honest closed-job failure
+    // Identity is the POSTING (embed -> board switch keeps the same gh_jid).
+    expect(session).toContain('herr.postingId && planTarget.postingId && herr.postingId === planTarget.postingId');
+  });
+});
+
 describe('Redirected-host identity (boards → job-boards)', () => {
   it('identity compares the JOB (slug + posting id), not the hostname', () => {
     const session = read('desktop/main/browserSession.cjs');
-    expect(session).toContain('const samePosting = !!(herr && planTarget');
-    expect(session).toContain('herr.siteSlug === planTarget.siteSlug && herr.postingId === planTarget.postingId');
+    expect(session).toContain('const samePosting = !!(herr && planTarget && herr.postingId');
+    expect(session).toContain('herr.postingId === planTarget.postingId');
     // The live (redirected) canonical is adopted for later navigation checks.
     expect(session).toContain('this.canonical = herr.canonical; // adopt the REAL (redirected) host');
     // Both adapters parse both host forms to the same slug/id.

@@ -59,7 +59,13 @@ export function verifiedProviderActionUrl(provider: string, applyUrl: string | u
     return u.toString();
   }
   if (provider === 'greenhouse') {
-    if (u.hostname !== 'boards.greenhouse.io' && u.hostname !== 'job-boards.greenhouse.io') return null;
+    if (u.hostname !== 'boards.greenhouse.io' && u.hostname !== 'job-boards.greenhouse.io') {
+      // Company-hosted Greenhouse EMBEDS (e.g. okta.com/...?gh_jid=123) are
+      // valid targets: the posting id lives in the gh_jid parameter.
+      const jid = String(u.searchParams.get('gh_jid') || '');
+      if (/^[0-9]{4,20}$/.test(jid) && (!normalizedExternal || jid === normalizedExternal)) return u.toString();
+      return null;
+    }
     if (seg.length < 3 || seg[1] !== 'jobs') return null;
     const urlJobId = seg[2];
     if (normalizedExternal && urlJobId !== normalizedExternal) return null;

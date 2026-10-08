@@ -84,7 +84,11 @@ class Session {
     try { url = String((this.currentPlan && this.currentPlan.url) || ''); } catch { /* ignore */ }
     try { const live = this.wc && this.wc.getURL(); if (live) url = String(live); } catch { /* ignore */ }
     if (/ashbyhq\.com/i.test(url)) return ashbyAdapter;
-    return /greenhouse\.io/i.test(url) ? greenhouseAdapter : lever;
+    if (/greenhouse\.io/i.test(url)) return greenhouseAdapter;
+    // Company-hosted Greenhouse EMBEDS (?gh_jid=…) are NOT on a greenhouse
+    // host — ask the Greenhouse parser (Lever returns null for these).
+    if (/[?&]gh_jid=[0-9]{4,20}/i.test(url) && greenhouseAdapter.parseLeverUrl(url)) return greenhouseAdapter;
+    return lever;
   }
 
   alive() {
@@ -236,7 +240,7 @@ class Session {
       const ident = await wc.executeJavaScript(this.adapter.buildIdentityScript(), true);
       const herr = this.adapter.parseLeverUrl(ident.href);
       const planTarget2 = this.adapter.parseLeverUrl(this.currentPlan.url);
-      const samePosting2 = !!(herr && planTarget2 && herr.siteSlug === planTarget2.siteSlug && herr.postingId === planTarget2.postingId);
+      const samePosting2 = !!(herr && planTarget2 && herr.postingId && planTarget2.postingId && herr.postingId === planTarget2.postingId);
       if (!herr || (!samePosting2 && herr.canonical !== this.canonical)) {
         this.setState('FAILED');
         this.emit('JOB_MISMATCH', 'page identity differs from the frozen plan');
@@ -754,12 +758,64 @@ class Session {
       await wc.loadURL(target.isApplyPage ? this.currentPlan.url : `${this.canonical}${typeof this.adapter.applySuffix === 'function' ? this.adapter.applySuffix() : '/apply'}`);
       await loaded;
       this.emit('BROWSER_OPENED', this.canonical);
+      // COMPANY-HOSTED EMBED (?gh_jid=…): the Greenhouse form renders in a
+      // job-boards.greenhouse.io iframe. Resolve the board slug from it and
+      // switch to the canonical board URL — the same form on a host we fully
+      // support. A page with no iframe is a dead/closed posting.
+      if (target && target.embed) {
+        let liveParsed = null;
+        try { liveParsed = this.adapter.parseLeverUrl(String(wc.getURL() || '')); } catch { /* ignore */ }
+        if (!liveParsed || liveParsed.embed) {
+          // The Greenhouse board URL redirects BACK to the company embed —
+          // the form only exists in the job_app IFRAME. Load that iframe's
+          // full src top-level (it carries ?for=<board>&token=<gh_jid>); the
+          // same form renders standalone on a greenhouse host we support.
+          let iframeSrc = '';
+          const resolveDeadline = Date.now() + 15_000;
+          while (Date.now() < resolveDeadline && !iframeSrc) {
+            await new Promise((r) => setTimeout(r, 800));
+            iframeSrc = await wc.executeJavaScript(
+              `(() => {
+                const f = Array.from(document.querySelectorAll('iframe')).find((x) => /job-boards\\.greenhouse\\.io\\/embed\\/job_app/i.test(String(x.src || '')));
+                return f ? String(f.src) : '';
+              })()`, true
+            ).catch(() => '');
+          }
+          if (!iframeSrc) {
+            // Honest terminal: the posting is gone or the embed never rendered.
+            this.emit('RUN_FAILED', 'JOB_UNAVAILABLE');
+            this.setState('FAILED');
+            this.scheduleAutoClose(AUTO_CLOSE_FAILED_MS);
+            return { ok: false, code: 'JOB_UNAVAILABLE' };
+          }
+          this.canonical = iframeSrc;
+          const loaded2 = new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('NAVIGATION_TIMEOUT')), NAV_TIMEOUT_MS);
+            wc.once('did-finish-load', () => { clearTimeout(timer); resolve(); });
+            wc.once('did-fail-load', (_e, code, desc) => { clearTimeout(timer); reject(new Error(`NAVIGATION_FAILED:${code}:${String(desc).slice(0, 60)}`)); });
+          });
+          await wc.loadURL(iframeSrc);
+          await loaded2;
+          this.emit('BROWSER_OPENED', this.canonical);
+          // A dead posting redirects to /embed/job_board?error=true — name it.
+          let afterUrl = '';
+          try { afterUrl = String(wc.getURL() || ''); } catch { /* ignore */ }
+          if (/\/embed\/job_board/i.test(afterUrl)) {
+            this.emit('RUN_FAILED', 'JOB_UNAVAILABLE');
+            this.setState('FAILED');
+            this.scheduleAutoClose(AUTO_CLOSE_FAILED_MS);
+            return { ok: false, code: 'JOB_UNAVAILABLE' };
+          }
+        } else {
+          this.canonical = liveParsed.canonical; // the embed redirected itself
+        }
+      }
       const ident = await wc.executeJavaScript(this.adapter.buildIdentityScript(), true);
       const herr = this.adapter.parseLeverUrl(ident.href);
-      // Same JOB, possibly a redirected HOST (boards.greenhouse.io 301s to
-      // job-boards.greenhouse.io — comparing hosts failed every old-style URL).
+      // Same POSTING, possibly a different legitimate host (boards → job-boards
+      // redirects; embed → board switch). Posting-id equality is the identity.
       const planTarget = this.adapter.parseLeverUrl(this.currentPlan.url);
-      const samePosting = !!(herr && planTarget && herr.siteSlug === planTarget.siteSlug && herr.postingId === planTarget.postingId);
+      const samePosting = !!(herr && planTarget && herr.postingId && planTarget.postingId && herr.postingId === planTarget.postingId);
       if (!herr || (!samePosting && herr.canonical !== this.canonical)) {
         this.setState('FAILED');
         this.emit('JOB_MISMATCH', 'page identity differs from the frozen plan');
@@ -767,7 +823,7 @@ class Session {
         return { ok: false, code: 'JOB_MISMATCH' };
       }
       this.canonical = herr.canonical; // adopt the REAL (redirected) host
-      this.emit('LEVER_VERIFIED', `${herr.siteSlug}/${herr.postingId}`);
+      this.emit('LEVER_VERIFIED', `${herr.siteSlug || 'board'}/${herr.postingId}`);
       this.setState('INSPECTING');
       return await this.agentLoop();
     } catch (e) {

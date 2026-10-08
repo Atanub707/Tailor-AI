@@ -25,8 +25,31 @@ function parseLeverUrl(url) {
   }
   if (u.protocol !== 'https:') return null;
   const host = u.hostname.toLowerCase();
+  const ghJid = String(u.searchParams.get('gh_jid') || '');
+  const isGreenhouseHost = /^(job-boards|boards)(\.[a-z]{2})?\.greenhouse\.io$/.test(host);
+  // Company-hosted Greenhouse EMBED (e.g. okta.com/...?gh_jid=123): the form
+  // renders in a job-boards.greenhouse.io iframe. The runner resolves the
+  // board slug from that iframe and switches to the canonical board URL.
+  if (!isGreenhouseHost && /^[0-9]{4,20}$/.test(ghJid)) {
+    return {
+      canonical: `${u.origin}${u.pathname}?gh_jid=${ghJid}`,
+      siteSlug: '',
+      postingId: ghJid,
+      isApplyPage: true,
+      embed: true,
+    };
+  }
   if (!GREENHOUSE_HOSTS.includes(host) && !host.endsWith('.greenhouse.io')) return null;
   if (!/^(job-boards|boards)(\.[a-z]{2})?\.greenhouse\.io$/.test(host)) return null;
+  // The embed application page itself (job-boards.greenhouse.io/embed/job_app
+  // ?for=<board>&validityToken=…&token=<gh_jid>) — loaded top-level for
+  // company-hosted embeds. `token` carries the posting id.
+  if (/^\/embed\/job_app\/?$/.test(u.pathname)) {
+    const forSlug = String(u.searchParams.get('for') || '');
+    const tokenId = String(u.searchParams.get('token') || u.searchParams.get('gh_jid') || '');
+    if (!forSlug || !/^[0-9]{4,20}$/.test(tokenId)) return null;
+    return { canonical: u.toString(), siteSlug: forSlug, postingId: tokenId, isApplyPage: true, embedJob: true };
+  }
   const parts = u.pathname.split('/').filter(Boolean);
   const jobsIdx = parts.indexOf('jobs');
   if (jobsIdx !== 1 || !parts[0] || !parts[2]) return null;
