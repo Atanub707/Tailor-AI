@@ -11,6 +11,23 @@ import { TagInput } from './TagInput';
 // component so both look and behave identically (the score card is the only
 // extra on the Manual JD side, added outside this editor).
 
+interface EnrichItemT {
+  gap: string;
+  count: number;
+  verdict: 'supported' | 'adjacent' | 'unsupported';
+  basis: string;
+  category: string;
+  grounding: number;
+}
+
+interface EnrichProposalT {
+  id: string;
+  items: EnrichItemT[];
+  summaryRewrite: { text: string; reason: string } | null;
+  projectTags: { project: string; tag: string; basis: string }[];
+  stats: { gapsConsidered: number; supported: number; adjacent: number; unsupported: number };
+}
+
 interface MasterCvEditorProps {
   value: MasterCv;
   onChange: (next: MasterCv) => void;
@@ -49,6 +66,13 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
   const [showGaps, setShowGaps] = useState(false);
   const [gapsLoading, setGapsLoading] = useState(false);
   const [gapsAddedMsg, setGapsAddedMsg] = useState<string | null>(null);
+  const [enrichLoading, setEnrichLoading] = useState(false);
+  const [enrichApplying, setEnrichApplying] = useState(false);
+  const [enrichError, setEnrichError] = useState<string | null>(null);
+  const [proposal, setProposal] = useState<EnrichProposalT | null>(null);
+  const [acceptedSet, setAcceptedSet] = useState<Set<string>>(new Set());
+  const [acceptedTags, setAcceptedTags] = useState<Set<string>>(new Set());
+  const [applySummaryRewrite, setApplySummaryRewrite] = useState(false);
 
   const [summarySuggestions, setSummarySuggestions] = useState<{ label: string; text: string }[]>([]);
   const [isImprovingSummary, setIsImprovingSummary] = useState(false);
@@ -109,6 +133,88 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
       const next = new Set(prev);
       if (next.has(skill)) next.delete(skill);
       else next.add(skill);
+      return next;
+    });
+  };
+
+  const runEnrichment = async () => {
+    setEnrichLoading(true);
+    setEnrichError(null);
+    setProposal(null);
+    try {
+      const res = await fetch('/api/cv/market-gaps/enrich', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        setEnrichError(data.error || 'Failed to analyze market gaps.');
+        return;
+      }
+      const p: EnrichProposalT = data.proposal;
+      setProposal(p);
+      setAcceptedSet(new Set((p.items || []).filter((i) => i.verdict === 'supported').map((i) => i.gap)));
+      setAcceptedTags(new Set((p.projectTags || []).map((t) => `${t.project}::${t.tag}`)));
+      setApplySummaryRewrite(!!p.summaryRewrite);
+    } catch {
+      setEnrichError('AI request failed. Please try again.');
+    } finally {
+      setEnrichLoading(false);
+    }
+  };
+
+  const applyEnrichmentProposal = async () => {
+    if (!proposal) return;
+    setEnrichApplying(true);
+    setEnrichError(null);
+    try {
+      const res = await fetch('/api/cv/market-gaps/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          proposalId: proposal.id,
+          acceptedGaps: [...acceptedSet],
+          applySummary: applySummaryRewrite,
+          projectTags: [...acceptedTags].map((k) => {
+            const [project, tag] = k.split('::');
+            return { project, tag };
+          }),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setEnrichError(data.error || 'Failed to apply enrichment.');
+        return;
+      }
+      setFormData(data.masterCv);
+      setProposal(null);
+      setAcceptedSet(new Set());
+      setAcceptedTags(new Set());
+      const parts: string[] = [];
+      if (data.applied.skills.length) parts.push(`${data.applied.skills.length} skill${data.applied.skills.length > 1 ? 's' : ''}`);
+      if (data.applied.projectTags) parts.push(`${data.applied.projectTags} project tag${data.applied.projectTags > 1 ? 's' : ''}`);
+      if (data.applied.summary) parts.push('summary');
+      setGapsAddedMsg(`AI enrichment applied (${parts.join(' · ')}) and saved. A version backup was kept.`);
+      setTimeout(() => setGapsAddedMsg(null), 6000);
+      fetchSkillGaps();
+    } catch {
+      setEnrichError('Apply failed. Please try again.');
+    } finally {
+      setEnrichApplying(false);
+    }
+  };
+
+  const toggleAccepted = (gap: string) => {
+    setAcceptedSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(gap)) next.delete(gap);
+      else next.add(gap);
+      return next;
+    });
+  };
+
+  const toggleAcceptedTag = (key: string) => {
+    setAcceptedTags((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -786,6 +892,117 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
                   <div className="px-2 py-1.5 rounded bg-[var(--color-cta-soft)] border border-[var(--color-cta-line)] text-emerald-800 text-[11px] font-medium">{gapsAddedMsg}</div>
                 )}
                 <p className="text-[11px] text-[var(--color-faint)]">Skills most frequently missing across {skillGaps[0]?.totalScored || 0} scored jobs. Check the ones you have and add them to your CV.</p>
+
+                <button
+                  type="button"
+                  onClick={runEnrichment}
+                  disabled={enrichLoading || !onPersist}
+                  title={!onPersist ? 'Available on the Master CV screen' : undefined}
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-bold bg-[var(--color-ink)] hover:bg-[#14113B] text-white disabled:opacity-50 transition-colors cursor-pointer"
+                >
+                  {enrichLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-[var(--color-cta)]" />}
+                  {enrichLoading ? 'Analyzing your CV against the market…' : 'Enrich Master CV with AI'}
+                </button>
+                {enrichError && <div className="text-[11px] text-[var(--color-danger)]">{enrichError}</div>}
+
+                {proposal && (
+                  <div className="border border-[var(--color-hairline)] rounded-lg bg-white p-3 space-y-3">
+                    <div className="text-[11px] text-[var(--color-faint)] leading-relaxed">
+                      AI audited <b>{proposal.stats.gapsConsidered}</b> market gaps against your Master CV — <b>{proposal.stats.supported}</b> supported by your own evidence, <b>{proposal.stats.adjacent}</b> inferred (confirm below), <b>{proposal.stats.unsupported}</b> not evidenced (shown but not added).
+                    </div>
+
+                    {proposal.items.filter((i) => i.verdict === 'supported').length > 0 && (
+                      <div className="space-y-1">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Supported by your CV</div>
+                        {proposal.items.filter((i) => i.verdict === 'supported').map((item) => (
+                          <label key={item.gap} className="flex items-start space-x-2 px-2 py-1.5 rounded hover:bg-[var(--color-brand-soft)]/50 cursor-pointer">
+                            <input type="checkbox" checked={acceptedSet.has(item.gap)} onChange={() => toggleAccepted(item.gap)} className="mt-0.5 rounded border-[var(--color-hairline2)] cursor-pointer" />
+                            <span className="flex-1 min-w-0">
+                              <span className="text-xs font-semibold text-[var(--color-ink)]">{item.gap}</span>
+                              <span className="ml-1.5 text-[10px] font-semibold text-[var(--color-faint)]">{item.count} jobs → {item.category}</span>
+                              <span className="block text-[10px] text-[var(--color-faint)] truncate" title={item.basis}>{item.basis}</span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+
+                    {proposal.items.filter((i) => i.verdict === 'adjacent').length > 0 && (
+                      <div className="space-y-1">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-amber-700">Implied by your work — confirm you've really used these</div>
+                        {proposal.items.filter((i) => i.verdict === 'adjacent').map((item) => (
+                          <label key={item.gap} className="flex items-start space-x-2 px-2 py-1.5 rounded hover:bg-[#FFFBEB] cursor-pointer">
+                            <input type="checkbox" checked={acceptedSet.has(item.gap)} onChange={() => toggleAccepted(item.gap)} className="mt-0.5 rounded border-[var(--color-hairline2)] cursor-pointer" />
+                            <span className="flex-1 min-w-0">
+                              <span className="text-xs font-semibold text-[var(--color-ink)]">{item.gap}</span>
+                              <span className="ml-1.5 text-[10px] font-semibold text-[var(--color-faint)]">{item.count} jobs</span>
+                              <span className="block text-[10px] text-[var(--color-faint)] truncate" title={item.basis}>{item.basis}</span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+
+                    {proposal.items.filter((i) => i.verdict === 'unsupported').length > 0 && (
+                      <div className="space-y-1.5">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-faint)]">Not in your CV — worth learning or earning</div>
+                        <div className="flex flex-wrap gap-1">
+                          {proposal.items.filter((i) => i.verdict === 'unsupported').map((item) => (
+                            <span key={item.gap} className="px-1.5 py-0.5 rounded bg-[#F5F5F4] text-[var(--color-faint)] text-[10px] font-medium">{item.gap} · {item.count}×</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {proposal.summaryRewrite && (
+                      <label className="block px-2.5 py-2 rounded border border-[var(--color-hairline)] cursor-pointer hover:bg-[var(--color-brand-soft)]/40">
+                        <span className="flex items-center space-x-2">
+                          <input type="checkbox" checked={applySummaryRewrite} onChange={() => setApplySummaryRewrite((v) => !v)} className="rounded border-[var(--color-hairline2)] cursor-pointer" />
+                          <span className="text-xs font-semibold text-[var(--color-ink)]">Apply improved professional summary</span>
+                        </span>
+                        <span className="block mt-1.5 text-[11px] text-[var(--color-ink)] leading-relaxed">{proposal.summaryRewrite.text}</span>
+                        <span className="block mt-1 text-[10px] text-[var(--color-faint)]">{proposal.summaryRewrite.reason}</span>
+                      </label>
+                    )}
+
+                    {proposal.projectTags.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-faint)]">Project technologies to tag</div>
+                        {proposal.projectTags.map((t) => {
+                          const key = `${t.project}::${t.tag}`;
+                          return (
+                            <label key={key} className="flex items-start space-x-2 px-2 py-1.5 rounded hover:bg-[var(--color-brand-soft)]/50 cursor-pointer">
+                              <input type="checkbox" checked={acceptedTags.has(key)} onChange={() => toggleAcceptedTag(key)} className="mt-0.5 rounded border-[var(--color-hairline2)] cursor-pointer" />
+                              <span className="flex-1 min-w-0">
+                                <span className="text-xs font-semibold text-[var(--color-ink)]">{t.tag}</span>
+                                <span className="ml-1.5 text-[10px] text-[var(--color-faint)]">→ {t.project}</span>
+                                <span className="block text-[10px] text-[var(--color-faint)] truncate" title={t.basis}>{t.basis}</span>
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={applyEnrichmentProposal}
+                        disabled={enrichApplying || (acceptedSet.size === 0 && acceptedTags.size === 0 && !applySummaryRewrite)}
+                        className="flex-1 px-3 py-1.5 rounded-md text-xs font-bold bg-[var(--color-brand)] hover:bg-[var(--color-brand-strong)] text-white disabled:opacity-50 transition-colors cursor-pointer"
+                      >
+                        {enrichApplying ? 'Applying…' : `Apply selected to Master CV`}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setProposal(null)}
+                        className="px-3 py-1.5 rounded-md text-xs font-semibold border border-[var(--color-hairline)] text-[var(--color-ink)] hover:bg-[#FAFAF9] transition-colors cursor-pointer"
+                      >
+                        Discard
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div className="max-h-48 overflow-y-auto space-y-1">
                   {skillGaps.map((gap) => (
                     <label key={gap.skill} className="flex items-center space-x-2 px-2 py-1.5 rounded hover:bg-white cursor-pointer text-xs">

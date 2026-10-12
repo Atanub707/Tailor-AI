@@ -213,6 +213,13 @@ import { ask } from './server/llm/llmAdapter.js';
 import { askJson } from './server/llm/askJson.js';
 import { startInterview, askNextQuestion, scoreAnswer, buildScorecard, getInterviewSession, getRoleOptions, getJobsForRole } from './server/interview.js';
 import { saveInterviewSession, getInterviewHistory, getInterviewSessionRecord } from './server/storage/fileStorage.js';
+import {
+  aggregateMarketGapsFromJobs,
+  applyEnrichment,
+  buildEnrichmentProposal,
+  getEnrichProposal,
+  storeEnrichProposal,
+} from './server/cv/marketEnrich.js';
 import nodemailer from 'nodemailer';
 
 // Convert the stored Master CV into the TailoredCv shape the PDF generator
@@ -1294,30 +1301,61 @@ async function startServer() {
   // Skill Gaps - aggregate missing skills across all scored jobs
   app.get('/api/cv/skill-gaps', (req, res) => {
     try {
-      const allJobs = getAllJobs();
-      const scoredJobs = allJobs.filter((j) => j.gapAnalysis?.missingSkills?.length > 0);
-      const gapCounts: Record<string, { count: number; totalScored: number }> = {};
-
-      for (const job of scoredJobs) {
-        const allMissing = [
-          ...(job.gapAnalysis?.missingSkills || []),
-          ...(job.gapAnalysis?.missingKeywords || []),
-        ];
-        for (const skill of allMissing) {
-          const key = skill.toLowerCase().trim();
-          if (!key) continue;
-          if (!gapCounts[key]) gapCounts[key] = { count: 0, totalScored: scoredJobs.length };
-          gapCounts[key].count++;
-        }
-      }
-
-      const gaps = Object.entries(gapCounts)
-        .map(([skill, data]) => ({ skill, count: data.count, totalScored: data.totalScored }))
-        .sort((a, b) => b.count - a.count);
-
-      res.json({ gaps, totalScored: scoredJobs.length });
+      const { gaps, totalScored } = aggregateMarketGapsFromJobs(getAllJobs());
+      res.json({ gaps, totalScored });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Enrich with AI: market gaps → grounded proposal → user applies ──────
+  app.post('/api/cv/market-gaps/enrich', async (req, res) => {
+    if (!hasApiKeyConfigured()) {
+      res.status(428).json({ error: 'No API token configured — add your API key in Settings. This process will not run.', code: 'no_api_key' });
+      return;
+    }
+    try {
+      const { gaps } = aggregateMarketGapsFromJobs(getAllJobs());
+      if (!gaps.length) {
+        res.status(400).json({ error: 'No scored jobs yet — run match analysis or tailor a few jobs first.' });
+        return;
+      }
+      const cv = getMasterCv();
+      const proposal = await buildEnrichmentProposal(cv, gaps);
+      storeEnrichProposal(getCurrentUserId(), proposal);
+      res.json({ success: true, proposal });
+    } catch (err: any) {
+      const mapped = mapLlmError(err);
+      res.status(mapped.status).json({ error: mapped.message, code: mapped.code, retryAfterMs: (err as any)?.retryAfterMs });
+    }
+  });
+
+  app.post('/api/cv/market-gaps/apply', (req, res) => {
+    try {
+      const { proposalId, acceptedGaps, applySummary, projectTags } = req.body || {};
+      const proposal = getEnrichProposal(getCurrentUserId(), String(proposalId || ''));
+      if (!proposal) {
+        res.status(404).json({ error: 'This enrichment proposal has expired — run Enrich with AI again.' });
+        return;
+      }
+      const cv = getMasterCv();
+      const { next, applied } = applyEnrichment(cv, proposal, {
+        acceptedGaps: Array.isArray(acceptedGaps) ? acceptedGaps.map((s: unknown) => String(s)) : [],
+        applySummary: applySummary === true,
+        projectTags: Array.isArray(projectTags)
+          ? projectTags.map((t: any) => ({ project: String(t?.project || ''), tag: String(t?.tag || '') }))
+          : [],
+      });
+      if (!applied.skills.length && !applied.summary && !applied.projectTags) {
+        res.status(400).json({ error: 'Nothing selected to apply.' });
+        return;
+      }
+      saveCvVersion(cv, 'Before AI enrichment (market gaps)');
+      saveMasterCv(next);
+      res.json({ success: true, applied, masterCv: next });
+    } catch (err: any) {
+      console.error('Enrich apply error:', err);
+      res.status(500).json({ error: err.message || 'Failed to apply enrichment.' });
     }
   });
 
