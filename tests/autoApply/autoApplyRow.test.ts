@@ -351,12 +351,16 @@ describe('AA click never leaves the job list', () => {
     }
   });
 
-  it('auto-apply sources carry a visible "Auto Apply" label on the row', () => {
+  it('the SOURCE SELECTOR chips carry the small "Auto Apply" pin (not the job rows)', () => {
+    const bar = read('src/components/ScraperBar.tsx');
     const matrix = read('src/components/JobMatrix.tsx');
-    expect(matrix).toContain('{isAutoApplyJob(job) && (');
-    expect(matrix).toContain('Auto Apply');
-    expect(matrix).toContain('bg-violet-50 text-violet-700 border border-violet-200');
-    expect(matrix).toContain('This source supports Auto Apply');
+    // Pin lives on the selector chips for the three Auto Apply sources only.
+    expect(bar).toContain("(src === 'Greenhouse' || src === 'Lever' || src === 'Ashby')");
+    expect(bar).toContain('Auto Apply');
+    expect(bar).toContain('text-[8.5px] font-extrabold uppercase'); // small pin, same scale as 'Soon'
+    expect(bar).toContain('Auto Apply works here');
+    // Job rows stay clean — no pill there.
+    expect(matrix).not.toContain('This source supports Auto Apply');
   });
 
   it('the CHAT opens only when required answers are missing (no dry-run panel exists)', () => {

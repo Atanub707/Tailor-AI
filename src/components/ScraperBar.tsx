@@ -162,6 +162,16 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
       >
         <SourceIcon source={src} size={15} />
         <span>{src}</span>
+        {(src === 'Greenhouse' || src === 'Lever' || src === 'Ashby') && (
+          <span
+            title="Auto Apply works here — Taylor fills these applications and can submit them for you"
+            className={`text-[8.5px] font-extrabold uppercase tracking-wide rounded-full px-[7px] py-[2px] border ${
+              isSelected ? 'bg-white/20 text-white border-white/40' : 'bg-violet-50 text-violet-700 border-violet-200'
+            }`}
+          >
+            Auto Apply
+          </span>
+        )}
         {isComingSoon && (
           <span className="text-[8.5px] font-extrabold uppercase text-[var(--color-faint)] bg-white/60 border border-[var(--color-hairline)] rounded-full px-[7px] py-[2px]">Soon</span>
         )}
