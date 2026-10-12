@@ -116,6 +116,18 @@ describe('Pending flow wiring (static)', () => {
     expect(router).toContain('pending: answers.filter(isPendingQuestion)');
   });
 
+  it('the bank screen uses the shared hamburger header like every other screen', () => {
+    const screen = read('src/components/AnswerBankScreen.tsx');
+    expect(screen).toContain("import { HamburgerTrigger } from '../navigation'");
+    expect(screen).toContain('<HamburgerTrigger />');
+    // Same contextual-header conventions as the other screens.
+    expect(screen).toContain('bg-white/90 backdrop-blur-md');
+    expect(screen).toContain("text-[15px] font-extrabold leading-tight");
+    expect(screen).toContain('Application Answers');
+    // The old back-button-only shell is gone (hamburger + close now).
+    expect(screen).not.toContain('ArrowLeft');
+  });
+
   it('the bank screen shows "Waiting for your answer" and no common-questions section', () => {
     const screen = read('src/components/AnswerBankScreen.tsx');
     expect(screen).toContain('Waiting for your answer');

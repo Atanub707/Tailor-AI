@@ -1,11 +1,13 @@
-// Auto Apply — Application Answer Bank screen.
+// Auto Apply — Application Answers screen (the question bank).
 //
-// User-managed, user-scoped saved answers. Disabled (and explained) when the
-// experimental Answer Bank flag is off. No answers are ever shared or sent
-// anywhere except the local backend.
+// User-managed, user-scoped saved answers. Uses the SAME screen conventions as
+// the rest of the app: contextual header with the shared HamburgerTrigger
+// (src/navigation.tsx), hairline-bordered cards, local-only storage. No
+// answers are ever shared or sent anywhere except the local backend.
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, Plus, Trash2, RefreshCw } from 'lucide-react';
+import { HamburgerTrigger } from '../navigation';
+import { Plus, Trash2, RefreshCw, X } from 'lucide-react';
 
 interface BankAnswer {
   id: string;
@@ -181,208 +183,224 @@ export const AnswerBankScreen: React.FC<Props> = ({ isOpen, onClose }) => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="max-w-5xl mx-auto px-6 py-8">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <button onClick={onClose} className="inline-flex items-center gap-1.5 text-xs font-bold text-[var(--color-muted)] hover:text-[var(--color-ink)] cursor-pointer mb-2">
-              <ArrowLeft className="w-3.5 h-3.5" /> Back
-            </button>
-            <h1 className="text-xl font-black text-[var(--color-ink)]">Application Answer Bank</h1>
-            <p className="text-xs text-[var(--color-faint)] mt-1">
-              Answers you save here are reused for similar application questions — stored locally, scoped to your account.
-            </p>
-          </div>
-          <button onClick={() => void load()} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-[var(--color-hairline)] bg-white text-xs font-bold text-[var(--color-muted)] hover:bg-slate-50 cursor-pointer">
+    <div className="h-screen bg-[#F7F8FA] text-[var(--color-ink)] flex flex-col">
+      {/* Contextual header — same conventions as every other screen: the
+          shared hamburger opens the global drawer; actions on the right. */}
+      <header className="px-4 sm:px-6 py-3.5 border-b border-[var(--color-hairline)] bg-white/90 backdrop-blur-md flex items-center gap-3 shrink-0">
+        <HamburgerTrigger />
+        <div className="min-w-0">
+          <h1 className="text-[15px] font-extrabold leading-tight text-[var(--color-ink)]">Application Answers</h1>
+          <p className="text-[11px] font-medium text-[var(--color-faint)] truncate">
+            Answers saved here are reused for similar application questions — stored locally, scoped to your account
+          </p>
+        </div>
+        <div className="ml-auto flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => void load()}
+            title="Reload answers"
+            className="inline-flex items-center gap-1.5 h-9 px-3 rounded-[10px] border border-[var(--color-hairline)] bg-white text-xs font-bold text-[var(--color-muted)] hover:bg-[var(--color-brand-soft)] hover:border-[var(--color-brand-line)] transition-colors cursor-pointer"
+          >
             <RefreshCw className="w-3.5 h-3.5" /> Refresh
           </button>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            title="Close"
+            className="w-10 h-10 rounded-[10px] border border-[var(--color-hairline)] bg-white flex items-center justify-center text-[var(--color-muted)] hover:bg-[var(--color-brand-soft)] hover:border-[var(--color-brand-line)] transition-colors cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
+      </header>
 
-        {!enabled ? (
-          <div className="p-5 bg-amber-50 border border-amber-200 rounded-xl text-[12px] text-amber-800">
-            The Application Answer Bank is an experimental feature and is currently disabled.
-            Enable <code className="font-mono">AUTO_APPLY_ANSWER_BANK_ENABLED=true</code> (with Auto Apply enabled) to use it.
-          </div>
-        ) : (
-          <>
-            {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-[11.5px] text-red-800">{error}</div>}
-
-            {/* Waiting for your answer — questions collected from real runs */}
-            {pending.length > 0 && (
-              <div className="mb-6 bg-white border border-amber-200 rounded-xl p-4">
-                <h2 className="text-[12px] font-extrabold uppercase tracking-wider text-amber-700 mb-1">
-                  Waiting for your answer ({pending.length})
-                </h2>
-                <p className="text-[11px] text-[var(--color-faint)] mb-3">
-                  These questions came from your Auto Apply runs. Answer once — it is reused for every job that asks the same thing.
-                </p>
-                <div className="grid gap-3">
-                  {pending.map((p) => (
-                    <div key={p.id} className="grid gap-1.5">
-                      <div className="text-[11.5px] font-bold text-[var(--color-ink)]">{p.canonicalQuestion}</div>
-                      <div className="flex gap-2">
-                        {p.options && p.options.length > 0 ? (
-                          <select
-                            value={pendingDrafts[p.id] || ''}
-                            onChange={(e) => setPendingDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))}
-                            aria-label={`Answer for ${p.canonicalQuestion}`}
-                            className="flex-1 h-9 px-3 text-[12px] border border-[var(--color-hairline)] rounded-lg focus:border-[var(--color-brand)] outline-none bg-white"
-                          >
-                            <option value="">Select…</option>
-                            {p.options.map((o) => (
-                              <option key={o} value={o}>{o}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          <input
-                            value={pendingDrafts[p.id] || ''}
-                            onChange={(e) => setPendingDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))}
-                            placeholder="Your answer"
-                            aria-label={`Answer for ${p.canonicalQuestion}`}
-                            className="flex-1 h-9 px-3 text-[12px] border border-[var(--color-hairline)] rounded-lg focus:border-[var(--color-brand)] outline-none"
-                          />
-                        )}
-                        <button
-                          onClick={() => void savePending(p)}
-                          disabled={busy || !(pendingDrafts[p.id] || '').trim()}
-                          className="h-9 px-3 rounded-lg bg-[var(--color-brand)] text-white text-[11.5px] font-extrabold hover:bg-[var(--color-brand-strong)] disabled:opacity-50 cursor-pointer"
-                        >
-                          Save
-                        </button>
-                        <button
-                          onClick={() => void remove(p.id)}
-                          className="h-9 px-3 rounded-lg border border-[var(--color-hairline)] text-[11.5px] font-bold text-[var(--color-muted)] hover:bg-slate-50 cursor-pointer"
-                        >
-                          Skip
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Auto-submit preference (explicit opt-in, default OFF) */}
-            <div className="mb-6 bg-white border border-[var(--color-hairline)] rounded-xl p-4">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <div className="text-[12.5px] font-extrabold text-[var(--color-ink)]">Auto-submit verified applications</div>
-                  <p className="text-[11px] text-[var(--color-faint)] mt-0.5 max-w-[560px]">
-                    Tailor AI submits only after full verification: exact job, every required field checked, resume verified,
-                    no pending CAPTCHA/OTP/MFA, one server-authorized click, then it confirms the provider's success.
-                    CAPTCHA/OTP/MFA still require you.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={autoSubmit}
-                  aria-label="Auto-submit verified applications"
-                  onClick={() => void toggleAutoSubmit()}
-                  className={`relative h-6 w-11 rounded-full transition-colors cursor-pointer shrink-0 ${autoSubmit ? 'bg-emerald-600' : 'bg-slate-300'}`}
-                >
-                  <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${autoSubmit ? 'left-[22px]' : 'left-0.5'}`} />
-                </button>
-              </div>
-              {autoSubmitNote && <div className="text-[10.5px] text-[var(--color-muted)] mt-2">{autoSubmitNote}</div>}
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-5xl mx-auto px-6 py-6">
+          {!enabled ? (
+            <div className="p-5 bg-amber-50 border border-amber-200 rounded-xl text-[12px] text-amber-800">
+              The Application Answer Bank is an experimental feature and is currently disabled.
+              Enable <code className="font-mono">AUTO_APPLY_ANSWER_BANK_ENABLED=true</code> (with Auto Apply enabled) to use it.
             </div>
+          ) : (
+            <>
+              {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-[11.5px] text-red-800">{error}</div>}
 
-            {/* Add new */}
-            <div className="bg-white border border-[var(--color-hairline)] rounded-xl p-4 mb-6">
-              <h2 className="text-[12px] font-extrabold uppercase tracking-wider text-[var(--color-faint)] mb-3 flex items-center gap-1.5">
-                <Plus className="w-3.5 h-3.5" /> Add an answer
-              </h2>
-              <div className="grid gap-2">
-                <input
-                  value={newQuestion}
-                  onChange={(e) => setNewQuestion(e.target.value)}
-                  placeholder="Question (e.g. What is your notice period?)"
-                  className="w-full h-9 px-3 text-[12px] border border-[var(--color-hairline)] rounded-lg focus:border-[var(--color-brand)] outline-none"
-                />
-                <textarea
-                  value={newAnswer}
-                  onChange={(e) => setNewAnswer(e.target.value)}
-                  placeholder="Your answer"
-                  className="w-full min-h-[64px] p-3 text-[12px] border border-[var(--color-hairline)] rounded-lg focus:border-[var(--color-brand)] outline-none"
-                />
-                <div className="flex items-center justify-between">
-                  <label className="inline-flex items-center gap-2 text-[11.5px] text-[var(--color-muted)]">
-                    <input type="checkbox" checked={newReusable} onChange={(e) => setNewReusable(e.target.checked)} />
-                    Reuse for similar questions
-                  </label>
+              {/* Waiting for your answer — questions collected from real runs */}
+              {pending.length > 0 && (
+                <div className="mb-6 bg-white border border-amber-200 rounded-xl p-4">
+                  <h2 className="text-[12px] font-extrabold uppercase tracking-wider text-amber-700 mb-1">
+                    Waiting for your answer ({pending.length})
+                  </h2>
+                  <p className="text-[11px] text-[var(--color-faint)] mb-3">
+                    These questions came from your Auto Apply runs. Answer once — it is reused for every job that asks the same thing.
+                  </p>
+                  <div className="grid gap-3">
+                    {pending.map((p) => (
+                      <div key={p.id} className="grid gap-1.5">
+                        <div className="text-[11.5px] font-bold text-[var(--color-ink)]">{p.canonicalQuestion}</div>
+                        <div className="flex gap-2">
+                          {p.options && p.options.length > 0 ? (
+                            <select
+                              value={pendingDrafts[p.id] || ''}
+                              onChange={(e) => setPendingDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                              aria-label={`Answer for ${p.canonicalQuestion}`}
+                              className="flex-1 h-9 px-3 text-[12px] border border-[var(--color-hairline)] rounded-lg focus:border-[var(--color-brand)] outline-none bg-white"
+                            >
+                              <option value="">Select…</option>
+                              {p.options.map((o) => (
+                                <option key={o} value={o}>{o}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              value={pendingDrafts[p.id] || ''}
+                              onChange={(e) => setPendingDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                              placeholder="Your answer"
+                              aria-label={`Answer for ${p.canonicalQuestion}`}
+                              className="flex-1 h-9 px-3 text-[12px] border border-[var(--color-hairline)] rounded-lg focus:border-[var(--color-brand)] outline-none"
+                            />
+                          )}
+                          <button
+                            onClick={() => void savePending(p)}
+                            disabled={busy || !(pendingDrafts[p.id] || '').trim()}
+                            className="h-9 px-3 rounded-lg bg-[var(--color-brand)] text-white text-[11.5px] font-extrabold hover:bg-[var(--color-brand-strong)] disabled:opacity-50 cursor-pointer"
+                          >
+                            Save
+                          </button>
+                          <button
+                            onClick={() => void remove(p.id)}
+                            className="h-9 px-3 rounded-lg border border-[var(--color-hairline)] text-[11.5px] font-bold text-[var(--color-muted)] hover:bg-slate-50 cursor-pointer"
+                          >
+                            Skip
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Auto-submit preference (explicit opt-in, default OFF) */}
+              <div className="mb-6 bg-white border border-[var(--color-hairline)] rounded-xl p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-[12.5px] font-extrabold text-[var(--color-ink)]">Auto-submit verified applications</div>
+                    <p className="text-[11px] text-[var(--color-faint)] mt-0.5 max-w-[560px]">
+                      Tailor AI submits only after full verification: exact job, every required field checked, resume verified,
+                      no pending CAPTCHA/OTP/MFA, one server-authorized click, then it confirms the provider's success.
+                      CAPTCHA/OTP/MFA still require you.
+                    </p>
+                  </div>
                   <button
-                    onClick={() => void saveNew()}
-                    disabled={busy || !newQuestion.trim() || !newAnswer.trim()}
-                    className="h-9 px-4 rounded-lg bg-[var(--color-brand)] text-white text-xs font-extrabold hover:bg-[var(--color-brand-strong)] disabled:opacity-50 cursor-pointer"
+                    type="button"
+                    role="switch"
+                    aria-checked={autoSubmit}
+                    aria-label="Auto-submit verified applications"
+                    onClick={() => void toggleAutoSubmit()}
+                    className={`relative h-6 w-11 rounded-full transition-colors cursor-pointer shrink-0 ${autoSubmit ? 'bg-emerald-600' : 'bg-slate-300'}`}
                   >
-                    Save answer
+                    <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${autoSubmit ? 'left-[22px]' : 'left-0.5'}`} />
                   </button>
                 </div>
+                {autoSubmitNote && <div className="text-[10.5px] text-[var(--color-muted)] mt-2">{autoSubmitNote}</div>}
               </div>
-            </div>
 
-            {/* Stored answers */}
-            <div className="bg-white border border-[var(--color-hairline)] rounded-xl overflow-hidden">
-              <table className="w-full text-[11.5px]">
-                <thead>
-                  <tr className="bg-[#FAFAF9] text-[9px] uppercase tracking-wide text-[var(--color-faint)]">
-                    <th className="text-left font-bold px-3 py-2">Question</th>
-                    <th className="text-left font-bold px-3 py-2">Saved answer</th>
-                    <th className="text-left font-bold px-3 py-2">Status</th>
-                    <th className="text-left font-bold px-3 py-2">Used</th>
-                    <th className="text-left font-bold px-3 py-2">Reusable</th>
-                    <th className="text-right font-bold px-3 py-2">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {answers.length === 0 && (
-                    <tr><td colSpan={6} className="px-3 py-6 text-center text-[var(--color-faint)]">No saved answers yet.</td></tr>
-                  )}
-                  {answers.filter((a) => !(a.source === 'AUTO_COLLECTED' && a.verificationStatus === 'REVIEW_REQUIRED')).map((a) => (
-                    <tr key={a.id} className="border-t border-[var(--color-hairline)] align-top">
-                      <td className="px-3 py-2 font-semibold text-[var(--color-ink)] max-w-[220px]">{a.canonicalQuestion}</td>
-                      <td className="px-3 py-2 text-[var(--color-muted)] max-w-[260px]">
-                        {editingId === a.id ? (
-                          <div className="flex items-center gap-1.5">
-                            <input
-                              value={editValue}
-                              onChange={(e) => setEditValue(e.target.value)}
-                              className="w-full h-8 px-2 text-[11.5px] border border-[var(--color-hairline)] rounded-md outline-none focus:border-[var(--color-brand)]"
-                            />
-                            <button onClick={() => void saveEdit(a.id)} disabled={busy} className="text-[10px] font-bold text-[var(--color-brand)] cursor-pointer">Save</button>
-                            <button onClick={() => setEditingId(null)} className="text-[10px] font-bold text-[var(--color-faint)] cursor-pointer">Cancel</button>
-                          </div>
-                        ) : (
-                          <span className="break-words">{displayValue(a.answerValue)}</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2">{statusChip(a.verificationStatus)}</td>
-                      <td className="px-3 py-2 text-[var(--color-faint)]">{a.usageCount}×</td>
-                      <td className="px-3 py-2">
-                        <input type="checkbox" checked={a.reusable} onChange={() => void toggleReusable(a)} aria-label={`Reusable: ${a.canonicalQuestion}`} />
-                      </td>
-                      <td className="px-3 py-2 text-right whitespace-nowrap">
-                        <button
-                          onClick={() => { setEditingId(a.id); setEditValue(displayValue(a.answerValue)); }}
-                          className="text-[10px] font-bold text-[var(--color-brand)] mr-2 cursor-pointer"
-                        >
-                          Edit
-                        </button>
-                        <button onClick={() => void remove(a.id)} aria-label={`Delete ${a.canonicalQuestion}`} className="text-red-600 hover:text-red-700 cursor-pointer align-middle">
-                          <Trash2 className="w-3.5 h-3.5 inline" />
-                        </button>
-                      </td>
+              {/* Add new */}
+              <div className="bg-white border border-[var(--color-hairline)] rounded-xl p-4 mb-6">
+                <h2 className="text-[12px] font-extrabold uppercase tracking-wider text-[var(--color-faint)] mb-3 flex items-center gap-1.5">
+                  <Plus className="w-3.5 h-3.5" /> Add an answer
+                </h2>
+                <div className="grid gap-2">
+                  <input
+                    value={newQuestion}
+                    onChange={(e) => setNewQuestion(e.target.value)}
+                    placeholder="Question (e.g. What is your notice period?)"
+                    className="w-full h-9 px-3 text-[12px] border border-[var(--color-hairline)] rounded-lg focus:border-[var(--color-brand)] outline-none"
+                  />
+                  <textarea
+                    value={newAnswer}
+                    onChange={(e) => setNewAnswer(e.target.value)}
+                    placeholder="Your answer"
+                    className="w-full min-h-[64px] p-3 text-[12px] border border-[var(--color-hairline)] rounded-lg focus:border-[var(--color-brand)] outline-none"
+                  />
+                  <div className="flex items-center justify-between">
+                    <label className="inline-flex items-center gap-2 text-[11.5px] text-[var(--color-muted)]">
+                      <input type="checkbox" checked={newReusable} onChange={(e) => setNewReusable(e.target.checked)} />
+                      Reuse for similar questions
+                    </label>
+                    <button
+                      onClick={() => void saveNew()}
+                      disabled={busy || !newQuestion.trim() || !newAnswer.trim()}
+                      className="h-9 px-4 rounded-lg bg-[var(--color-brand)] text-white text-xs font-extrabold hover:bg-[var(--color-brand-strong)] disabled:opacity-50 cursor-pointer"
+                    >
+                      Save answer
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Stored answers */}
+              <div className="bg-white border border-[var(--color-hairline)] rounded-xl overflow-hidden">
+                <table className="w-full text-[11.5px]">
+                  <thead>
+                    <tr className="bg-[#FAFAF9] text-[9px] uppercase tracking-wide text-[var(--color-faint)]">
+                      <th className="text-left font-bold px-3 py-2">Question</th>
+                      <th className="text-left font-bold px-3 py-2">Saved answer</th>
+                      <th className="text-left font-bold px-3 py-2">Status</th>
+                      <th className="text-left font-bold px-3 py-2">Used</th>
+                      <th className="text-left font-bold px-3 py-2">Reusable</th>
+                      <th className="text-right font-bold px-3 py-2">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {answers.length === 0 && (
+                      <tr><td colSpan={6} className="px-3 py-6 text-center text-[var(--color-faint)]">No saved answers yet.</td></tr>
+                    )}
+                    {answers.filter((a) => !(a.source === 'AUTO_COLLECTED' && a.verificationStatus === 'REVIEW_REQUIRED')).map((a) => (
+                      <tr key={a.id} className="border-t border-[var(--color-hairline)] align-top">
+                        <td className="px-3 py-2 font-semibold text-[var(--color-ink)] max-w-[220px]">{a.canonicalQuestion}</td>
+                        <td className="px-3 py-2 text-[var(--color-muted)] max-w-[260px]">
+                          {editingId === a.id ? (
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                value={editValue}
+                                onChange={(e) => setEditValue(e.target.value)}
+                                className="w-full h-8 px-2 text-[11.5px] border border-[var(--color-hairline)] rounded-md outline-none focus:border-[var(--color-brand)]"
+                              />
+                              <button onClick={() => void saveEdit(a.id)} disabled={busy} className="text-[10px] font-bold text-[var(--color-brand)] cursor-pointer">Save</button>
+                              <button onClick={() => setEditingId(null)} className="text-[10px] font-bold text-[var(--color-faint)] cursor-pointer">Cancel</button>
+                            </div>
+                          ) : (
+                            <span className="break-words">{displayValue(a.answerValue)}</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">{statusChip(a.verificationStatus)}</td>
+                        <td className="px-3 py-2 text-[var(--color-faint)]">{a.usageCount}×</td>
+                        <td className="px-3 py-2">
+                          <input type="checkbox" checked={a.reusable} onChange={() => void toggleReusable(a)} aria-label={`Reusable: ${a.canonicalQuestion}`} />
+                        </td>
+                        <td className="px-3 py-2 text-right whitespace-nowrap">
+                          <button
+                            onClick={() => { setEditingId(a.id); setEditValue(displayValue(a.answerValue)); }}
+                            className="text-[10px] font-bold text-[var(--color-brand)] mr-2 cursor-pointer"
+                          >
+                            Edit
+                          </button>
+                          <button onClick={() => void remove(a.id)} aria-label={`Delete ${a.canonicalQuestion}`} className="text-red-600 hover:text-red-700 cursor-pointer align-middle">
+                            <Trash2 className="w-3.5 h-3.5 inline" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
 
-            <p className="text-[10.5px] text-[var(--color-faint)] mt-3">
-              Stale or sensitive answers are never reused silently — Tailor AI always asks you to confirm them during an application.
-            </p>
-          </>
-        )}
+              <p className="text-[10.5px] text-[var(--color-faint)] mt-3">
+                Stale or sensitive answers are never reused silently — Tailor AI always asks you to confirm them during an application.
+              </p>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
