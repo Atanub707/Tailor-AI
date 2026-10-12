@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Source selector — Auto Apply label explorations</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --brand:#2563EB; --ink:#0F172A; --muted:#475569; --faint:#64748B;
+    --hairline:#E2E8F0; --violet:#7C3AED; --violet-soft:#F5F3FF; --violet-line:#E9D5FF;
+    --canvas:#F7F8FA; --cta:#059669;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--canvas); color:var(--ink);
+    font-family:'Plus Jakarta Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:48px 32px 80px}
+  h1{font-size:22px; font-weight:800; letter-spacing:-0.02em; margin:0 0 6px}
+  .sub{font-size:13px; color:var(--faint); margin:0 0 8px; max-width:640px; line-height:1.55}
+  .rule{height:1px; background:var(--hairline); margin:28px 0}
+
+  .variant{margin:0 0 40px}
+  .vhead{display:flex; align-items:baseline; gap:10px; margin:0 0 4px}
+  .vlabel{font-size:14px; font-weight:800}
+  .vrec{font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.08em;
+    color:#065F46; background:#ECFDF5; border:1px solid #A7F3D0; border-radius:999px; padding:2px 8px}
+  .vwhy{font-size:12px; color:var(--faint); margin:0 0 14px; line-height:1.55; max-width:720px}
+  .rowlabel{font-size:9.5px; font-weight:800; text-transform:uppercase; letter-spacing:.08em;
+    color:var(--faint); margin:14px 0 8px}
+
+  /* The real chip shell from ScraperBar.tsx */
+  .sources{display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+    background:#fff; border:1px solid var(--hairline); border-radius:14px; padding:14px 16px}
+  .chip{
+    display:inline-flex; align-items:center; gap:8px; padding:7px 12px 7px 10px;
+    border-radius:999px; font-size:11.5px; font-weight:600; border:1.5px solid var(--hairline);
+    background:#fff; color:var(--muted); white-space:nowrap; transition:all .2s;
+    position:relative;
+  }
+  .chip.selected{background:var(--brand); border-color:var(--brand); color:#fff; font-weight:700;
+    box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  .ico{width:15px; height:15px; border-radius:4px; display:inline-flex; align-items:center; justify-content:center;
+    font-size:8.5px; font-weight:800; color:#fff; flex-shrink:0}
+  .li{background:#0A66C2}.gh{background:#1F9D6B}.lv{background:#5A4FF3}.ab{background:#5D51E8}
+  .nk{background:#4A6CF7}.rg{background:#6B7280}
+
+  /* V0 — current text pin */
+  .pin{font-size:8.5px; font-weight:800; text-transform:uppercase; letter-spacing:.04em;
+    border-radius:999px; padding:2px 7px; border:1px solid var(--violet-line);
+    background:var(--violet-soft); color:var(--violet)}
+  .chip.selected .pin{background:rgba(255,255,255,.2); border-color:rgba(255,255,255,.4); color:#fff}
+
+  /* V1 — sparkle suffix + legend */
+  .sparkle{color:var(--violet); font-size:11px; line-height:1; margin-left:-2px}
+  .chip.selected .sparkle{color:#fff}
+  .legend{display:inline-flex; align-items:center; gap:5px; font-size:10px; font-weight:700;
+    color:var(--faint); margin-left:6px}
+  .legend .sparkle,.legend .dot{color:var(--violet)}
+
+  /* V2 — dot before name */
+  .dot{width:6px; height:6px; border-radius:999px; background:var(--violet); flex-shrink:0; display:inline-block}
+  .chip.selected .dot{background:#fff}
+
+  /* V3 — AA micro-badge */
+  .aa{font-size:7.5px; font-weight:800; letter-spacing:.02em; border-radius:4px; padding:1.5px 4px;
+    background:var(--violet-soft); border:1px solid var(--violet-line); color:var(--violet)}
+  .chip.selected .aa{background:rgba(255,255,255,.2); border-color:rgba(255,255,255,.4); color:#fff}
+
+  /* V4 — underline accent */
+  .chip.underline::after{content:''; position:absolute; left:12px; right:12px; bottom:3px; height:2px;
+    border-radius:2px; background:var(--violet)}
+  .chip.selected.underline::after{background:rgba(255,255,255,.75)}
+
+  /* V5 — left rail */
+  .chip.rail{border-left-width:1.5px}
+  .chip.rail::before{content:''; position:absolute; left:3px; top:7px; bottom:7px; width:3px;
+    border-radius:2px; background:var(--violet)}
+  .chip.selected.rail::before{background:rgba(255,255,255,.8)}
+
+  /* V6 — corner dot */
+  .chip.corner::after{content:''; position:absolute; top:-2px; right:-1px; width:7px; height:7px;
+    border-radius:999px; background:var(--violet); border:1.5px solid #fff}
+  .chip.selected.corner::after{background:#fff; border-color:var(--brand)}
+
+  .note{font-size:11px; color:var(--faint); margin:10px 0 0}
+  code{background:#F1F5F9; border:1px solid var(--hairline); border-radius:6px; padding:1px 6px;
+    font-size:10.5px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .foot{margin-top:36px; font-size:11.5px; color:var(--faint); line-height:1.6}
+  .foot b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Source selector — “Auto Apply” label explorations</h1>
+  <p class="sub">
+    Same chip shell as the app (ScraperBar). Goal: a small, modern, low-key indicator on the
+    <b>Greenhouse · Lever · Ashby</b> source chips only — understandable without eating row space.
+    Hover any chip to see the tooltip.
+  </p>
+
+  <div class="variant">
+    <div class="vhead"><span class="vlabel">V0 — Current: text pin</span></div>
+    <p class="vwhy">What we shipped yesterday. Readable, but wide: each chip grows ~70px and the row wraps sooner.</p>
+    <div class="sources">
+      <span class="chip"><span class="ico li">in</span>LinkedIn</span>
+      <span class="chip"><span class="ico gh">G</span>Greenhouse <span class="pin">Auto Apply</span></span>
+      <span class="chip"><span class="ico lv">L</span>Lever <span class="pin">Auto Apply</span></span>
+      <span class="chip"><span class="ico ab">A</span>Ashby <span class="pin">Auto Apply</span></span>
+      <span class="chip"><span class="ico nk">N</span>Naukri</span>
+    </div>
+  </div>
+
+  <div class="rule"></div>
+
+  <div class="variant">
+    <div class="vhead"><span class="vlabel">V1 — Sparkle + row legend</span><span class="vrec">Recommended</span></div>
+    <p class="vwhy">One thin violet ✦ after the name (≈10px) and a tiny legend at the end of the SOURCES row:
+      “✦ Auto Apply”. Self-explanatory, nearly zero space, calm at rest.</p>
+    <div class="sources">
+      <span class="chip" title="Auto Apply works here — Taylor fills these applications and can submit them for you"><span class="ico gh">G</span>Greenhouse <span class="sparkle">✦</span></span>
+      <span class="chip selected" title="Auto Apply works here"><span class="ico gh">G</span>Greenhouse <span class="sparkle">✦</span></span>
+      <span class="chip" title="Auto Apply works here"><span class="ico lv">L</span>Lever <span class="sparkle">✦</span></span>
+      <span class="chip" title="Auto Apply works here"><span class="ico ab">A</span>Ashby <span class="sparkle">✦</span></span>
+      <span class="chip"><span class="ico nk">N</span>Naukri</span>
+      <span class="legend"><span class="sparkle">✦</span> Auto Apply</span>
+    </div>
+  </div>
+
+  <div class="variant">
+    <div class="vhead"><span class="vlabel">V2 — Dot before the name + row legend</span></div>
+    <p class="vwhy">A 6px violet dot like an availability indicator, plus the same end-of-row legend “● Auto Apply”.
+      The most low-tech of all; reads as a status, not a tag.</p>
+    <div class="sources">
+      <span class="chip" title="Auto Apply works here"><span class="ico gh">G</span><span class="dot"></span>Greenhouse</span>
+      <span class="chip selected" title="Auto Apply works here"><span class="ico gh">G</span><span class="dot"></span>Greenhouse</span>
+      <span class="chip" title="Auto Apply works here"><span class="ico lv">L</span><span class="dot"></span>Lever</span>
+      <span class="chip" title="Auto Apply works here"><span class="ico ab">A</span><span class="dot"></span>Ashby</span>
+      <span class="chip"><span class="ico rg">R</span>Reed</span>
+      <span class="legend"><span class="dot"></span> Auto Apply</span>
+    </div>
+  </div>
+
+  <div class="rule"></div>
+
+  <div class="variant">
+    <div class="vhead"><span class="vlabel">V3 — “AA” micro-badge</span></div>
+    <p class="vwhy">Sixteen-pixel badge after the name. Very compact; meaning comes from the tooltip + legend.</p>
+    <div class="sources">
+      <span class="chip" title="Auto Apply works here"><span class="ico gh">G</span>Greenhouse <span class="aa">AA</span></span>
+      <span class="chip selected" title="Auto Apply works here"><span class="ico gh">G</span>Greenhouse <span class="aa">AA</span></span>
+      <span class="chip" title="Auto Apply works here"><span class="ico lv">L</span>Lever <span class="aa">AA</span></span>
+      <span class="chip" title="Auto Apply works here"><span class="ico ab">A</span>Ashby <span class="aa">AA</span></span>
+      <span class="chip"><span class="ico nk">N</span>Naukri</span>
+    </div>
+  </div>
+
+  <div class="variant">
+    <div class="vhead"><span class="vlabel">V4 — Underline accent</span></div>
+    <p class="vwhy">No extra glyph at all: a 2px violet underline marks the chip. Zero width cost —
+      but subtle; needs the legend or tooltip to be understood.</p>
+    <div class="sources">
+      <span class="chip underline" title="Auto Apply works here"><span class="ico gh">G</span>Greenhouse</span>
+      <span class="chip selected underline" title="Auto Apply works here"><span class="ico gh">G</span>Greenhouse</span>
+      <span class="chip underline" title="Auto Apply works here"><span class="ico lv">L</span>Lever</span>
+      <span class="chip underline" title="Auto Apply works here"><span class="ico ab">A</span>Ashby</span>
+      <span class="chip"><span class="ico nk">N</span>Naukri</span>
+      <span class="legend"><span class="sparkle">✦</span> Auto Apply</span>
+    </div>
+  </div>
+
+  <div class="variant">
+    <div class="vhead"><span class="vlabel">V5 — Left accent rail</span></div>
+    <p class="vwhy">A 3px violet rail inside the left edge. Reads like a “featured” marker; zero added width.</p>
+    <div class="sources">
+      <span class="chip rail" title="Auto Apply works here"><span class="ico gh">G</span>Greenhouse</span>
+      <span class="chip selected rail" title="Auto Apply works here"><span class="ico gh">G</span>Greenhouse</span>
+      <span class="chip rail" title="Auto Apply works here"><span class="ico lv">L</span>Lever</span>
+      <span class="chip rail" title="Auto Apply works here"><span class="ico ab">A</span>Ashby</span>
+      <span class="chip"><span class="ico nk">N</span>Naukri</span>
+    </div>
+  </div>
+
+  <div class="variant">
+    <div class="vhead"><span class="vlabel">V6 — Corner dot</span></div>
+    <p class="vwhy">A 7px dot pinned to the chip’s top-right corner (like a notification pip). Extremely small —
+      the least obtrusive, the least self-explanatory alone.</p>
+    <div class="sources">
+      <span class="chip corner" title="Auto Apply works here"><span class="ico gh">G</span>Greenhouse</span>
+      <span class="chip selected corner" title="Auto Apply works here"><span class="ico gh">G</span>Greenhouse</span>
+      <span class="chip corner" title="Auto Apply works here"><span class="ico lv">L</span>Lever</span>
+      <span class="chip corner" title="Auto Apply works here"><span class="ico ab">A</span>Ashby</span>
+      <span class="chip"><span class="ico nk">N</span>Naukri</span>
+    </div>
+  </div>
+
+  <p class="foot">
+    <b>My pick:</b> <b>V1</b> (sparkle + legend) — one glyph, calm, and the legend at the end of the row makes it
+    self-teaching without a tooltip. <b>V2</b> is the most “low-tech” alternative.<br/>
+    Sizing math: V0 adds ~70px per chip; V1 ≈ 14px; V2 ≈ 15px; V3 ≈ 20px; V4/V5/V6 add 0px of width.<br/>
+    The legend appears once, at the end of the SOURCES row (works for every variant).
+  </p>
+</div>
+</body>
+</html>
