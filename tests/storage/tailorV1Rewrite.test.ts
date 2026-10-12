@@ -98,7 +98,7 @@ describe('V1 engine — tailoring must actually tailor', () => {
 
   it('FAILS CLOSED when the LLM echoes the master bullets verbatim (no rewrite, no keyword added)', async () => {
     stubLlm(verbatimDraft());
-    await expect(runWithUser(USER, () => tailorJob(getJobById('v1-rw1')!, { userId: USER })))
+    await expect(runWithUser(USER, () => tailorJob(getJobById('v1-rw1')!, { userId: USER, includeSkills: ['Python', 'Prometheus'] })))
       .rejects.toMatchObject({ name: 'TailorVerificationFailedError' });
   });
 
@@ -110,7 +110,7 @@ describe('V1 engine — tailoring must actually tailor', () => {
       inSkills: [],
       technicalSkills: [{ category: 'Languages', skills: [] }],
     });
-    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-rw1')!, { userId: USER }));
+    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-rw1')!, { userId: USER, includeSkills: ['Python', 'Prometheus'] }));
     const audit = r.tailoredCv.audit!;
     // Python + Prometheus genuinely woven in -> score moves; C++ NOT added.
     expect(audit.afterScore).toBeGreaterThan(audit.beforeScore);
@@ -135,7 +135,9 @@ describe('V1 engine — tailoring must actually tailor', () => {
       inSkills: [],
       technicalSkills: [{ category: 'Languages', skills: [] }],
     });
-    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-rw1')!, { userId: USER }));
+    // C++ is woven into the SUMMARY -> it must be consented for that to be
+    // credited (a named tech the user explicitly selected).
+    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-rw1')!, { userId: USER, includeSkills: ['Python', 'Prometheus', 'C++'] }));
     const audit = r.tailoredCv.audit!;
     expect(audit.afterScore).toBeGreaterThan(audit.beforeScore);
     expect(audit.addedAfter.keywordsInSummary).toContain('C++');

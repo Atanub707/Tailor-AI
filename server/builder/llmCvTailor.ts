@@ -26,6 +26,64 @@ export function isUnsupportedClaim(term: string): boolean {
   return UNSUPPORTED_CLAIM_PATTERNS.some((re) => re.test(t));
 }
 
+// ── Consent gate: named tools/technologies (frozen product decision) ────
+// A JD asking for "Linux" or "Datadog" is not evidence the candidate has it.
+// Auto paths may only weave GENERIC capability wording (all words from the
+// allowlist below — e.g. "incident readiness", "CI/CD"); named products,
+// languages and acronyms are consent-gated: the user must explicitly select
+// them (Manual JD checkboxes) before the engine will claim them.
+const GENERIC_STOPWORDS = new Set(['and', 'or', 'of', 'for', 'with', 'to', 'the', 'a', 'an', 'in', 'on']);
+const GENERIC_WORDS = new Set([
+  // delivery & engineering
+  'ci', 'cd', 'cicd', 'devops', 'devsecops', 'automation', 'automated', 'build', 'release',   'delivery', 'deployment',
+  'deployments', 'pipeline', 'pipelines', 'tooling', 'workflow', 'workflows', 'process', 'processes', 'engineering',
+  'development', 'operations', 'integration', 'implementation', 'provisioning', 'configuration', 'orchestration',
+  'containerization', 'virtualization', 'migration', 'migrations', 'modernization', 'optimization', 'optimisation',
+  'scaling', 'capacity', 'forecasting', 'tuning', 'hardening', 'testing', 'quality', 'documentation', 'standards',
+  'best', 'practices', 'frameworks', 'methodologies', 'principles', 'patterns', 'strategies', 'strategy', 'roadmap',
+  // security & compliance
+  'security', 'secure', 'compliance', 'governance', 'risk', 'audit', 'audits', 'controls', 'control', 'policies',
+  'policy', 'vulnerability', 'vulnerabilities', 'threat', 'threats', 'incident', 'incidents', 'response', 'readiness',
+  'remediation', 'resilience', 'integrity', 'signing', 'scanning', 'scan', 'sbom', 'zero', 'trust', 'least',
+  'privilege', 'defense', 'defence', 'depth', 'shift', 'left', 'supply', 'chain', 'artifact', 'artifacts', 'access',
+  'identity', 'authorization', 'authentication', 'encryption', 'secrets',
+  // platform & ops
+  'cloud', 'platform', 'infrastructure', 'infra', 'systems', 'system', 'networking',
+  'network', 'storage', 'backup', 'recovery', 'availability', 'reliability', 'performance', 'observability',
+  'monitoring', 'alerting', 'logging', 'telemetry', 'dashboards', 'metrics', 'analytics', 'analysis', 'reporting',
+  'data', 'databases', 'toil', 'oncall', 'on-call', 'sre', 'gitops', 'microservices', 'serverless', 'distributed',
+  // management & collaboration
+  'management', 'stakeholder', 'stakeholders', 'communication', 'collaboration', 'leadership', 'mentoring',
+  'coaching', 'training', 'enablement', 'ownership', 'planning', 'roadmaps', 'prioritization',
+  'agile', 'scrum', 'kanban', 'solutions', 'solution', 'services', 'service', 'request',
+  'requests', 'change', 'support', 'maintenance', 'guidance', 'cost', 'finops',
+]);
+
+export function isNamedTechTerm(term: string): boolean {
+  const words = String(term || '')
+    .toLowerCase()
+    .split(/[\s/&()+,\-–]+/)
+    .filter(Boolean);
+  if (!words.length) return false;
+  return words.some((w) => !GENERIC_WORDS.has(w) && !GENERIC_STOPWORDS.has(w));
+}
+
+/** Terms that must NOT appear in the output unless explicitly selected. */
+export function namedTermLeaks(parsed: any, terms: string[]): string[] {
+  if (!terms.length) return [];
+  const text = outputSurfaceText(parsed);
+  return [...new Set(terms.filter((t) => t && containsKeyword(text, t)))];
+}
+
+function outputSurfaceText(parsed: any): string {
+  return [
+    String(parsed?.professionalSummary || ''),
+    ...(parsed?.coreCompetencies || []),
+    ...(parsed?.technicalSkills || []).flatMap((t: any) => [t?.category, ...(t?.skills || [])]),
+    ...(parsed?.workExperience || []).flatMap((w: any) => w?.highlights || []),
+  ].filter(Boolean).join(' \n ');
+}
+
 /** Scan the LLM output for credential/tenure/title claims the candidate's
  *  own data does not contain. Returns the offending phrases (deduped).
  *  Hard facts (credentials, tenure) are scanned everywhere; role titles are
@@ -90,17 +148,31 @@ export class LlmCvTailor extends BaseCvBuilder {
     // are FACTS, not skills. Planting them fabricates the candidate's
     // record. They stay visible as gaps (notIntegrable) instead.
     const blockedClaims = allMissingRaw.filter((k) => isUnsupportedClaim(k));
-    const allMissing = allMissingRaw.filter((k) => !isUnsupportedClaim(k));
+    const afterClaims = allMissingRaw.filter((k) => !isUnsupportedClaim(k));
+
+    // CONSENT GATE — named tools/technologies/languages (everything that is
+    // not generic capability wording) are only woven when the user explicitly
+    // selected them (Manual JD checkboxes). Auto paths leave them as gaps.
+    const consentRequired = afterClaims.filter((k) => isNamedTechTerm(k));
+    const autoWeavable = afterClaims.filter((k) => !isNamedTechTerm(k));
 
     // User-controlled tailoring: when an explicit selection is provided
     // (Manual JD), only the selected missing items are incorporated and
     // anything not selected is explicitly skipped. Without a selection
-    // (job-card Tailor / Re-Tailor), EVERYTHING missing is integrated.
+    // (job-card Tailor / Re-Tailor), only GENERIC wording is integrated —
+    // named tools stay as honest gaps.
     const hasSelection = Array.isArray(opts?.includeSkills) && opts.includeSkills.length > 0;
     const allowList = (opts?.includeSkills || []).map((s) => s.trim().toLowerCase()).filter(Boolean);
     const allowedSet = new Set(allowList);
-    const selectedList = hasSelection ? allMissing.filter((s) => allowedSet.has(s.toLowerCase())) : allMissing;
-    const excludedList = hasSelection ? allMissing.filter((s) => !allowedSet.has(s.toLowerCase())) : [];
+    const selectedList = hasSelection ? afterClaims.filter((s) => allowedSet.has(s.toLowerCase())) : autoWeavable;
+    const excludedList = hasSelection ? afterClaims.filter((s) => !allowedSet.has(s.toLowerCase())) : [];
+    const gapClaims = [...blockedClaims, ...(hasSelection ? excludedList : consentRequired)];
+    const selectedLower = new Set(selectedList.map((s) => s.toLowerCase()));
+    // Leak enforcement covers NAMED tech only — generic words are too common
+    // for reliable text matching (an excluded "security" would false-positive).
+    const namedMustNotAppear = (hasSelection ? afterClaims.filter((t) => isNamedTechTerm(t)) : consentRequired).filter(
+      (t) => !selectedLower.has(t.toLowerCase())
+    );
 
     const missingKeywordsStr = selectedList.length > 0
       ? selectedList.map((k) => `  - ${k}`).join('\n')
@@ -122,7 +194,7 @@ IMPACT & ACCURACY RULES (recruiters scan your resume for 6-7 seconds):
 - When the job description names a specific tool or technology, use the job description's EXACT phrasing (never a synonym).
 - ${selectedList.length > 0
       ? `INCORPORATE ONLY these selected missing keywords: ${selectedList.join(', ')} — DO NOT add or mention any other missing keyword.`
-      : 'Integrate all missing keywords identified in the JD.'}
+      : 'DO NOT add or mention ANY missing keyword — none are approved for this resume. Reword the candidate\'s own experience only.'}
 ${excludedList.length > 0 ? `- EXCLUDED (do NOT add, do NOT mention): ${excludedList.join(', ')}` : ''}
 
 MISSING JD KEYWORDS TO INTEGRATE:
@@ -217,6 +289,7 @@ Return valid JSON only — NO markdown, NO code fences, pure JSON:
     let retried = false;
     let dropped: string[] = [];
     let claimsLeak: string[] = [];
+    let namedLeak: string[] = [];
     for (let attempt = 0; attempt <= 1; attempt++) {
       const keywordRetry = attempt > 0 && selectedList.length > 0
         ? `\n- No genuinely-missing keyword (${selectedList.join(', ')}) appears anywhere in the output, and/or every bullet was returned unchanged.
@@ -228,22 +301,31 @@ Return valid JSON only — NO markdown, NO code fences, pure JSON:
       const claimsRetry = attempt > 0 && claimsLeak.length > 0
         ? `\n- Your previous rewrite CLAIMED facts the candidate's CV does not contain: ${claimsLeak.join(', ')}. Certifications, licenses, years-of-experience numbers and job titles are NOT skills — REMOVE every one of them from the summary, skills and bullets. They are honest gaps, not to be filled.`
         : '';
+      const namedRetry = attempt > 0 && namedLeak.length > 0
+        ? `\n- Your previous rewrite added tools/technologies the candidate NEVER listed and that were NOT selected: ${namedLeak.join(', ')}. REMOVE them completely — mention only the candidate's own tools and the approved keywords. An ATS cannot be satisfied by claiming skills the candidate does not have.`
+        : '';
       const prompt = attempt === 0 ? basePrompt : `${basePrompt}
 
 RETRY — your previous resume was rejected:
-${keywordRetry}${metricRetry}${claimsRetry}
+${keywordRetry}${metricRetry}${claimsRetry}${namedRetry}
 - Return the corrected JSON between the markers.`;
       parsed = await askJson<any>(prompt, { temperature: 0.2 });
       dropped = droppedMetrics(parsed);
       claimsLeak = unsupportedClaimLeaks(parsed, masterText);
+      namedLeak = namedTermLeaks(parsed, namedMustNotAppear);
       const gainOk = selectedList.length === 0 || outputHasGain(parsed);
       const rewriteOk = selectedList.length === 0 || bulletsActuallyChanged(parsed) || summaryChanged(parsed);
-      if (gainOk && rewriteOk && dropped.length === 0 && claimsLeak.length === 0) break;
+      if (gainOk && rewriteOk && dropped.length === 0 && claimsLeak.length === 0 && namedLeak.length === 0) break;
       retried = attempt === 0;
     }
     if (claimsLeak.length > 0) {
       throw new TailorVerificationFailedError(
         `The tailoring pass tried to claim credentials, experience years or titles that are not in your CV (${claimsLeak.slice(0, 4).join(', ')}). It was stopped so nothing untrue is published — add real certifications to your Master CV, or try again.`
+      );
+    }
+    if (namedLeak.length > 0) {
+      throw new TailorVerificationFailedError(
+        `The tailoring pass tried to add tools the candidate never listed (${namedLeak.slice(0, 4).join(', ')}). It was stopped so nothing untrue is published — add them to your Master CV if you genuinely use them, or select them in Manual JD to opt in.`
       );
     }
     if (selectedList.length > 0 && (!outputHasGain(parsed) || (!bulletsActuallyChanged(parsed) && !summaryChanged(parsed)))) {
@@ -270,9 +352,13 @@ ${keywordRetry}${metricRetry}${claimsRetry}
     const verifiedInSkills = selectedList.filter((kw: string) => containsKeyword(skillsText, kw));
     const verifiedAll = [...new Set([...verifiedInExperience, ...verifiedInSummary, ...verifiedInSkills])];
 
-    // Credential/tenure/title terms are honest GAPS: never integrated, but
-    // counted and surfaced so the user can learn/earn them for real.
-    const notIntegrable = [...selectedList.filter((kw: string) => !verifiedAll.includes(kw)), ...blockedClaims];
+    // Credential/tenure/title terms and unselected named tools are honest
+    // GAPS: never integrated, but counted and surfaced so the user can learn,
+    // earn or explicitly opt in to them for real.
+    const notIntegrable = [
+      ...selectedList.filter((kw: string) => !verifiedAll.includes(kw)),
+      ...gapClaims.filter((c) => !selectedLower.has(c.toLowerCase())),
+    ];
 
     const totalMissing = selectedList.length || 1;
     const expWeight = verifiedInExperience.length;

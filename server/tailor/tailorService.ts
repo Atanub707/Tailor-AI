@@ -107,10 +107,10 @@ export function buildTailorAudit(job: Job, draft: TailorDraft, jdTerms: string[]
 }
 
 /** The one canonical user-facing tailoring entry point (V1). V1 integrates
- *  the JD's missing keywords into bullets/skills — the score boost is its
- *  whole purpose. The informative audit fields are enriched deterministically
- *  so the UI (What changed / Keyword placement) keeps working unchanged. */
-export async function tailorJob(job: Job, opts: { userId?: string; mode?: 'strict' | 'enhanced' } = {}): Promise<TailorJobResult> {
+ *  the JD wording the candidate's evidence supports — generic capability
+ *  phrasing automatically, named tools/languages only when the user
+ *  explicitly selected them (Manual JD consent). Never credentials/tenure. */
+export async function tailorJob(job: Job, opts: { userId?: string; mode?: 'strict' | 'enhanced'; includeSkills?: string[] } = {}): Promise<TailorJobResult> {
   const userId = opts.userId || getCurrentUserId();
   const fullJob = await resolveJobDescription(job);
   const jd = fullJob.description || '';
@@ -125,7 +125,7 @@ export async function tailorJob(job: Job, opts: { userId?: string; mode?: 'stric
   }
 
   const { LlmCvTailor } = await import('../builder/llmCvTailor.js');
-  const tailoredCv = await new LlmCvTailor().tailorCv(fullJob, masterCv);
+  const tailoredCv = await new LlmCvTailor().tailorCv(fullJob, masterCv, { includeSkills: opts.includeSkills });
 
   // Recruiter-first ordering (deterministic): within each role the bullets
   // that cover the most job-description terms come first, and JD-named

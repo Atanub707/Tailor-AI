@@ -3661,10 +3661,13 @@ const sanitizeAttemptDryRun = (a: any) => ({
       const mode = req.body?.mode === 'strict' ? 'strict' : 'enhanced';
       // Manual JD Tailor runs the SAME canonical V2 pipeline. The manual JD
       // is DATA ONLY — it can influence emphasis and gap reporting, never
-      // candidate facts. includeSkills (user's chip selection) is accepted
-      // for API compatibility; unsupported selections surface as
-      // notIntegrable gaps because the verifier rejects JD-only facts.
-      const tailoredResult = await tailorJob(virtualJob, { mode });
+      // candidate facts. includeSkills (the user's explicit chip selection)
+      // is the CONSENT signal: selected named tools/languages may be woven;
+      // anything unselected, and all credentials/tenure/titles, stay gaps.
+      const consentSkills = Array.isArray(includeSkills)
+        ? includeSkills.map((s: unknown) => String(s)).filter(Boolean)
+        : undefined;
+      const tailoredResult = await tailorJob(virtualJob, { mode, includeSkills: consentSkills });
       const tailoredCv = tailoredResult.tailoredCv;
 
       const token = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

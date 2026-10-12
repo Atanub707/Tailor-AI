@@ -133,7 +133,7 @@ describe('V1 engine — recruiter-first quality (order, skills priority, metric 
 
   it('reorders bullets so the most JD-relevant real bullet is first, keeping diff pairing exact', async () => {
     stubLlmQueue([impactDraft(SOURCE_ORDER_REWRITES)]);
-    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-impact-1')!, { userId: USER }));
+    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-impact-1')!, { userId: USER, includeSkills: ['Python', 'Prometheus'] }));
     const highlights = r.tailoredCv.workExperience[0].highlights;
 
     // Kubernetes bullet (source index 1 -> 'Managed GKE and EKS...') is now first.
@@ -157,7 +157,7 @@ describe('V1 engine — recruiter-first quality (order, skills priority, metric 
 
   it('prioritizes JD-named skills first (stable) in competencies and grouped skills', async () => {
     stubLlmQueue([impactDraft(SOURCE_ORDER_REWRITES)]);
-    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-impact-1')!, { userId: USER }));
+    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-impact-1')!, { userId: USER, includeSkills: ['Python', 'Prometheus'] }));
     // Docker is not in the JD -> sinks to the end; JD-named tools lead.
     expect(r.tailoredCv.coreCompetencies[0]).toBe('Kubernetes');
     expect(r.tailoredCv.coreCompetencies[r.tailoredCv.coreCompetencies.length - 1]).toBe('Docker');
@@ -167,7 +167,7 @@ describe('V1 engine — recruiter-first quality (order, skills priority, metric 
 
   it('reports the honest impact audit (quantified bullets, no dropped metrics)', async () => {
     stubLlmQueue([impactDraft(SOURCE_ORDER_REWRITES)]);
-    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-impact-1')!, { userId: USER }));
+    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-impact-1')!, { userId: USER, includeSkills: ['Python', 'Prometheus'] }));
     const impact = r.tailoredCv.audit!.impactAudit!;
     expect(impact.bullets).toBe(3);
     expect(impact.quantified).toBe(2); // '70%' and '4 junior engineers'
@@ -195,7 +195,7 @@ describe('V1 engine — recruiter-first quality (order, skills priority, metric 
       'DevSecOps engineer (7+ years) with CI/CD automation depth and Python/Prometheus tooling.'
     );
     const calls = stubLlmQueue([droppedMetricDraft, restored], (body) => prompts.push(body));
-    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-impact-1')!, { userId: USER }));
+    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-impact-1')!, { userId: USER, includeSkills: ['Python', 'Prometheus'] }));
 
     expect(calls()).toBe(2);
     expect(prompts[1]).toContain('DROPPED these real numbers');
@@ -214,7 +214,7 @@ describe('V1 engine — recruiter-first quality (order, skills priority, metric 
       'DevSecOps engineer (7+ years) with CI/CD automation depth and Python/Prometheus tooling.'
     );
     stubLlmQueue([droppedMetricDraft, droppedMetricDraft]);
-    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-impact-1')!, { userId: USER }));
+    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-impact-1')!, { userId: USER, includeSkills: ['Python', 'Prometheus'] }));
 
     expect(r.tailoredCv.audit!.impactAudit!.metricDropped).toEqual(['70%']);
     expect(r.tailoredCv.audit!.auditNotes.some((n) => n.includes('did not keep these real numbers (70%)'))).toBe(true);
@@ -223,7 +223,7 @@ describe('V1 engine — recruiter-first quality (order, skills priority, metric 
   it('INTEGRITY: never plants credentials/tenure — retries, cleans the output, and reports them as gaps', async () => {
     const prompts: string[] = [];
     const calls = stubLlmQueue([LEAKY_DRAFT, CLEAN_DRAFT], (body) => prompts.push(body));
-    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-impact-2')!, { userId: USER }));
+    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-impact-2')!, { userId: USER, includeSkills: ['Python'] }));
     const cvOut = r.tailoredCv;
 
     expect(calls()).toBe(2);
@@ -250,7 +250,33 @@ describe('V1 engine — recruiter-first quality (order, skills priority, metric 
 
   it('INTEGRITY: fails closed (nothing published) when the LLM keeps claiming unheld credentials', async () => {
     stubLlmQueue([LEAKY_DRAFT, LEAKY_DRAFT]);
-    await expect(runWithUser(USER, () => tailorJob(getJobById('v1-impact-2')!, { userId: USER })))
+    await expect(runWithUser(USER, () => tailorJob(getJobById('v1-impact-2')!, { userId: USER, includeSkills: ['Python'] })))
       .rejects.toMatchObject({ name: 'TailorVerificationFailedError' });
+  });
+
+  it('CONSENT GATE: named tools not explicitly selected (Python/Prometheus) stay honest gaps in auto paths', async () => {
+    const cleanDraft = {
+      ...impactDraft(SOURCE_ORDER_REWRITES, 'DevSecOps engineer with 7+ years of experience and CI/CD automation depth.'),
+      coreCompetencies: ['Docker', 'Kubernetes', 'AWS', 'Terraform'],
+      technicalSkills: [{ category: 'Cloud', skills: ['Docker', 'Terraform', 'Kubernetes'] }],
+    };
+    stubLlmQueue([cleanDraft]);
+    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-impact-1')!, { userId: USER }));
+    const audit = r.tailoredCv.audit!;
+
+    // Generic wording (CI/CD) is integrated automatically…
+    expect(audit.addedAfter.keywordsIncorporated).toContain('CI/CD');
+    // …but named tools the user never selected stay gaps, never claims.
+    expect(audit.addedAfter.keywordsIncorporated).not.toContain('Python');
+    expect(audit.addedAfter.keywordsIncorporated).not.toContain('Prometheus');
+    expect(audit.notIntegrable).toEqual(expect.arrayContaining(['Python', 'Prometheus']));
+    const claimSurface = [
+      r.tailoredCv.professionalSummary,
+      ...r.tailoredCv.coreCompetencies,
+      ...(r.tailoredCv.technicalSkills || []).flatMap((g: any) => [g.category, ...(g.skills || [])]),
+      ...r.tailoredCv.workExperience.flatMap((w: any) => w.highlights || []),
+    ].join(' \n ');
+    expect(claimSurface).not.toContain('Python');
+    expect(claimSurface).not.toContain('Prometheus');
   });
 });

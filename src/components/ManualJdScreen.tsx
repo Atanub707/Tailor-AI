@@ -851,7 +851,7 @@ export const ManualJdScreen: React.FC<ManualJdScreenProps> = ({ isOpen, onClose,
                         )}
                       </div>
 
-                      <p className="text-xs text-[var(--color-faint)]">Tap a chip to include or exclude it. Only your selected additions are applied — never all keywords.</p>
+                      <p className="text-xs text-[var(--color-faint)]">Select only skills you genuinely have — your selection is what gets woven in. Unselected tools stay listed as gaps, and credentials are never claimed for you.</p>
                     </div>
 
                     <div className="shrink-0 pt-3 mt-3 border-t border-[var(--color-hairline)]/80">

@@ -1,6 +1,8 @@
 // V1 user-facing engine — the production tailoring engine (product decision
-// 2026-09-03). V1 integrates the JD's missing keywords into bullets/skills
-// so the score MOVES — that is the entire requirement. V2 remains dormant.
+// 2026-09-03; consent-gated 2026-10-13). Generic capability wording is
+// integrated automatically; NAMED tools/languages (Python, Prometheus) are
+// woven only when the user explicitly selected them (Manual JD consent).
+// Credentials/tenure/titles are never integrated. V2 remains dormant.
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -64,7 +66,7 @@ describe('V1 engine — the production tailoring engine', () => {
   afterEach(() => vi.unstubAllGlobals());
   afterAll(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
 
-  it('KEYWORDS ARE ADDED: missing JD keywords land in the resume and the score MOVES', async () => {
+  it('KEYWORDS ARE ADDED (with consent): selected missing keywords land in the resume and the score MOVES', async () => {
     // V1 prompt expects a TailoredCv-shaped JSON with workExperience, technicalSkills, etc.
     stubLlm({
       candidateName: 'Atanu Biswas',
@@ -81,7 +83,9 @@ describe('V1 engine — the production tailoring engine', () => {
       afterScore: 72,
       auditNotes: ['Integrated Python and Prometheus from the JD'],
     });
-    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-j1')!, { userId: USER }));
+    // Python/Prometheus are NAMED tech -> the user's explicit selection is
+    // the consent signal (Manual JD checkbox semantics).
+    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-j1')!, { userId: USER, includeSkills: ['Python', 'Prometheus'] }));
     expect(r.tailoredCv.audit?.addedAfter?.keywordsIncorporated ?? []).toContain('Python');
     expect(r.tailoredCv.audit?.afterScore ?? 0).toBeGreaterThan(r.tailoredCv.audit?.beforeScore ?? 0);
     const text = JSON.stringify(r.tailoredCv).toLowerCase();
