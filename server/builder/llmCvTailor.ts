@@ -5,6 +5,57 @@ import { containsKeyword } from '../tailor/keywordMatch.js';
 import { extractDraftNumbers, extractNumericTokens } from '../tailor/generatedTextSafety.js';
 import { TailorVerificationFailedError } from '../tailor/tailorTypes.js';
 
+// ── Integrity gate (frozen invariant: never invent values) ──────────────
+// Credentials, tenure numbers and role titles are verifiable FACTS, not
+// skills. The JD may ask for them, the CV must never claim them unless the
+// candidate's own data already says so.
+const HARD_CLAIM_PATTERNS: RegExp[] = [
+  /\bcertified\b/i,
+  /\bcertification(?:s)?\b/i,
+  /\bCKA\b|\bCKAD\b|\bCKS\b|\bCCNSE\b|\bCISA\b|\bCISSP\b|\bCEH\b/i,
+  /\b(?:AZ|DVA|DP|AI|PL|SC|MD|MS)-\d{2,4}\b/i,
+  /\bpractitioner\b/i,
+  /\b\d{1,2}\s*\+?\s*(?:years?|yrs?)\b/i,
+];
+const ROLE_TITLE_PATTERN = /\b(?:engineer|developer|architect|manager|analyst|specialist|consultant|administrator|professional|associate|expert)\b/i;
+const UNSUPPORTED_CLAIM_PATTERNS: RegExp[] = [...HARD_CLAIM_PATTERNS, ROLE_TITLE_PATTERN];
+
+export function isUnsupportedClaim(term: string): boolean {
+  const t = String(term || '').trim();
+  if (!t) return false;
+  return UNSUPPORTED_CLAIM_PATTERNS.some((re) => re.test(t));
+}
+
+/** Scan the LLM output for credential/tenure/title claims the candidate's
+ *  own data does not contain. Returns the offending phrases (deduped).
+ *  Hard facts (credentials, tenure) are scanned everywhere; role titles are
+ *  scanned only in the skills sections (where junk titles get planted) so
+ *  ordinary bullet wording doesn't trigger false positives. */
+export function unsupportedClaimLeaks(parsed: any, masterText: string): string[] {
+  const summaryText = String(parsed?.professionalSummary || '');
+  const skillsText = [
+    ...(parsed?.coreCompetencies || []),
+    ...(parsed?.technicalSkills || []).flatMap((t: any) => [t?.category, ...(t?.skills || [])]),
+  ].filter(Boolean).join(' \n ');
+  const expText = (parsed?.workExperience || []).flatMap((w: any) => w?.highlights || []).filter(Boolean).join(' \n ');
+  const allText = `${summaryText} \n ${skillsText} \n ${expText}`;
+  const allowed = (phrase: string) => containsKeyword(masterText, phrase) || masterText.toLowerCase().includes(phrase.toLowerCase());
+  const out: string[] = [];
+  const scan = (text: string, patterns: RegExp[]) => {
+    for (const re of patterns) {
+      const matches = text.match(new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g'));
+      if (!matches) continue;
+      for (const raw of matches) {
+        const phrase = String(raw).trim();
+        if (!allowed(phrase)) out.push(phrase);
+      }
+    }
+  };
+  scan(allText, HARD_CLAIM_PATTERNS);
+  scan(skillsText, [ROLE_TITLE_PATTERN]);
+  return [...new Set(out)];
+}
+
 export class LlmCvTailor extends BaseCvBuilder {
   async tailorCv(
     job: Job,
@@ -27,12 +78,19 @@ export class LlmCvTailor extends BaseCvBuilder {
     // (e.g. "CI/CD" while a bullet says "CI/CD pipeline"). Only genuinely
     // absent keywords are "missing" — present ones are already_present and
     // must never be re-fed to the LLM as something to add.
-    const allMissing = [
+    const allMissingRaw = [
       ...new Set([
         ...(job.gapAnalysis?.missingSkills || []),
         ...(job.gapAnalysis?.missingKeywords || []),
       ]),
     ].filter((k) => k && !containsKeyword(masterText, k));
+
+    // INTEGRITY GATE — claims the engine may NEVER plant, even when the JD
+    // asks for them: verifiable credentials, tenure numbers and role titles
+    // are FACTS, not skills. Planting them fabricates the candidate's
+    // record. They stay visible as gaps (notIntegrable) instead.
+    const blockedClaims = allMissingRaw.filter((k) => isUnsupportedClaim(k));
+    const allMissing = allMissingRaw.filter((k) => !isUnsupportedClaim(k));
 
     // User-controlled tailoring: when an explicit selection is provided
     // (Manual JD), only the selected missing items are incorporated and
@@ -52,6 +110,7 @@ export class LlmCvTailor extends BaseCvBuilder {
 
 STRICT RULES:
 - NEVER fabricate companies, dates, degrees, or work experience.
+- NEVER claim certifications, licenses, years-of-experience numbers or job titles the candidate's CV does not state. Those are honest gaps the user can fill themselves — they are NOT keyword slots.
 - The candidate's actual job title ("${candidateTitle}") MUST remain exactly as stated.
 - You MUST REWRITE every experience bullet: no bullet may be returned word-for-word identical to the source. Rephrase it to sound natural AND weave in the missing keywords that fit it.
 - You MUST REWRITE the professionalSummary so it differs from the source summary and weaves in up to 3 of the most relevant missing keywords that genuinely match the candidate's experience — never invent claims the CV does not support.
@@ -157,6 +216,7 @@ Return valid JSON only — NO markdown, NO code fences, pure JSON:
     let parsed: any;
     let retried = false;
     let dropped: string[] = [];
+    let claimsLeak: string[] = [];
     for (let attempt = 0; attempt <= 1; attempt++) {
       const keywordRetry = attempt > 0 && selectedList.length > 0
         ? `\n- No genuinely-missing keyword (${selectedList.join(', ')}) appears anywhere in the output, and/or every bullet was returned unchanged.
@@ -165,17 +225,26 @@ Return valid JSON only — NO markdown, NO code fences, pure JSON:
       const metricRetry = attempt > 0 && dropped.length > 0
         ? `\n- Your previous rewrite DROPPED these real numbers from the candidate's bullets: ${dropped.join(', ')}. Every number that exists in a source bullet MUST survive the rewrite EXACTLY (same value, same unit). Restore them inside the rewritten bullets.`
         : '';
+      const claimsRetry = attempt > 0 && claimsLeak.length > 0
+        ? `\n- Your previous rewrite CLAIMED facts the candidate's CV does not contain: ${claimsLeak.join(', ')}. Certifications, licenses, years-of-experience numbers and job titles are NOT skills — REMOVE every one of them from the summary, skills and bullets. They are honest gaps, not to be filled.`
+        : '';
       const prompt = attempt === 0 ? basePrompt : `${basePrompt}
 
 RETRY — your previous resume was rejected:
-${keywordRetry}${metricRetry}
+${keywordRetry}${metricRetry}${claimsRetry}
 - Return the corrected JSON between the markers.`;
       parsed = await askJson<any>(prompt, { temperature: 0.2 });
       dropped = droppedMetrics(parsed);
+      claimsLeak = unsupportedClaimLeaks(parsed, masterText);
       const gainOk = selectedList.length === 0 || outputHasGain(parsed);
       const rewriteOk = selectedList.length === 0 || bulletsActuallyChanged(parsed) || summaryChanged(parsed);
-      if (gainOk && rewriteOk && dropped.length === 0) break;
+      if (gainOk && rewriteOk && dropped.length === 0 && claimsLeak.length === 0) break;
       retried = attempt === 0;
+    }
+    if (claimsLeak.length > 0) {
+      throw new TailorVerificationFailedError(
+        `The tailoring pass tried to claim credentials, experience years or titles that are not in your CV (${claimsLeak.slice(0, 4).join(', ')}). It was stopped so nothing untrue is published — add real certifications to your Master CV, or try again.`
+      );
     }
     if (selectedList.length > 0 && (!outputHasGain(parsed) || (!bulletsActuallyChanged(parsed) && !summaryChanged(parsed)))) {
       throw new TailorVerificationFailedError(
@@ -201,7 +270,9 @@ ${keywordRetry}${metricRetry}
     const verifiedInSkills = selectedList.filter((kw: string) => containsKeyword(skillsText, kw));
     const verifiedAll = [...new Set([...verifiedInExperience, ...verifiedInSummary, ...verifiedInSkills])];
 
-    const notIntegrable = selectedList.filter((kw: string) => !verifiedAll.includes(kw));
+    // Credential/tenure/title terms are honest GAPS: never integrated, but
+    // counted and surfaced so the user can learn/earn them for real.
+    const notIntegrable = [...selectedList.filter((kw: string) => !verifiedAll.includes(kw)), ...blockedClaims];
 
     const totalMissing = selectedList.length || 1;
     const expWeight = verifiedInExperience.length;

@@ -94,6 +94,28 @@ const SOURCE_ORDER_REWRITES = [
   'Mentored 4 junior engineers',
 ];
 
+function job2(): Job {
+  return {
+    id: 'v1-impact-2', externalId: '2', title: 'Cloud Security Engineer', company: 'StrictCo', companyId: 'StrictCo', location: 'Remote',
+    description: JD, atsPlatform: 'greenhouse', jobUrl: 'https://x/2', applyUrl: 'https://x/2', url: 'https://x/2',
+    source: 'Greenhouse', state: 'pending', matchScore: 45,
+    gapAnalysis: { matchScore: 45, missingSkills: ['AWS Certified Solutions Architect', 'Python'], missingKeywords: ['CI/CD'], matchingSkills: ['Kubernetes', 'AWS', 'Terraform'] },
+  } as unknown as Job;
+}
+
+const LEAKY_DRAFT = {
+  ...impactDraft(SOURCE_ORDER_REWRITES, 'DevSecOps engineer with 6+ years of experience and CI/CD automation depth.'),
+  technicalSkills: [
+    { category: 'Certifications & Training', skills: ['AWS Certified Solutions Architect', 'Certified Kubernetes Administrator (CKA)'] },
+    { category: 'Cloud', skills: ['Docker', 'Terraform', 'Kubernetes'] },
+  ],
+};
+
+const CLEAN_DRAFT = {
+  ...impactDraft(SOURCE_ORDER_REWRITES, 'DevSecOps engineer with 7+ years of experience and CI/CD automation depth.'),
+  technicalSkills: [{ category: 'Cloud', skills: ['Docker', 'Terraform', 'Kubernetes'] }],
+};
+
 describe('V1 engine — recruiter-first quality (order, skills priority, metric preservation)', () => {
   beforeAll(() => {
     ensureV2Tables();
@@ -103,6 +125,7 @@ describe('V1 engine — recruiter-first quality (order, skills priority, metric 
       saveMasterCv(cv, USER);
       saveApplicantProfile(defaultApplicantProfile(), USER);
       getDb().prepare('INSERT INTO jobs (id, user_id, data) VALUES (?, ?, ?)').run('v1-impact-1', USER, JSON.stringify(job()));
+      getDb().prepare('INSERT INTO jobs (id, user_id, data) VALUES (?, ?, ?)').run('v1-impact-2', USER, JSON.stringify(job2()));
     });
   });
   afterEach(() => vi.unstubAllGlobals());
@@ -195,5 +218,39 @@ describe('V1 engine — recruiter-first quality (order, skills priority, metric 
 
     expect(r.tailoredCv.audit!.impactAudit!.metricDropped).toEqual(['70%']);
     expect(r.tailoredCv.audit!.auditNotes.some((n) => n.includes('did not keep these real numbers (70%)'))).toBe(true);
+  });
+
+  it('INTEGRITY: never plants credentials/tenure — retries, cleans the output, and reports them as gaps', async () => {
+    const prompts: string[] = [];
+    const calls = stubLlmQueue([LEAKY_DRAFT, CLEAN_DRAFT], (body) => prompts.push(body));
+    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-impact-2')!, { userId: USER }));
+    const cvOut = r.tailoredCv;
+
+    expect(calls()).toBe(2);
+    expect(prompts[1]).toContain('CLAIMED facts the candidate');
+
+    // No fabricated credential survives anywhere on the claim surface
+    // (audit gap lists are allowed to NAME the unheld credential).
+    const claimSurface = [
+      cvOut.professionalSummary,
+      ...cvOut.coreCompetencies,
+      ...(cvOut.technicalSkills || []).flatMap((g: any) => [g.category, ...(g.skills || [])]),
+      ...cvOut.workExperience.flatMap((w: any) => w.highlights || []),
+    ].join(' \n ');
+    expect(claimSurface).not.toMatch(/Certified|Certifications/i);
+    expect(cvOut.professionalSummary).not.toContain('6+ years');
+
+    // The unheld credential is an honest gap, visible in the audit.
+    expect(r.tailoredCv.audit!.notIntegrable).toContain('AWS Certified Solutions Architect');
+    expect(r.tailoredCv.audit!.addedAfter.keywordsIncorporated).not.toContain('AWS Certified Solutions Architect');
+
+    // Real keyword work still happened.
+    expect(r.tailoredCv.audit!.addedAfter.keywordsIncorporated).toContain('Python');
+  });
+
+  it('INTEGRITY: fails closed (nothing published) when the LLM keeps claiming unheld credentials', async () => {
+    stubLlmQueue([LEAKY_DRAFT, LEAKY_DRAFT]);
+    await expect(runWithUser(USER, () => tailorJob(getJobById('v1-impact-2')!, { userId: USER })))
+      .rejects.toMatchObject({ name: 'TailorVerificationFailedError' });
   });
 });
