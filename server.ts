@@ -220,6 +220,7 @@ import {
   getEnrichProposal,
   storeEnrichProposal,
 } from './server/cv/marketEnrich.js';
+import { organizeSkills } from './server/cv/skillTaxonomy.js';
 import nodemailer from 'nodemailer';
 
 // Convert the stored Master CV into the TailoredCv shape the PDF generator
@@ -1338,7 +1339,7 @@ async function startServer() {
 
   app.post('/api/cv/market-gaps/apply', (req, res) => {
     try {
-      const { proposalId, acceptedGaps, applySummary, projectTags } = req.body || {};
+      const { proposalId, acceptedGaps, applySummary, projectTags, bulletEdits } = req.body || {};
       const proposal = getEnrichProposal(getCurrentUserId(), String(proposalId || ''));
       if (!proposal) {
         res.status(404).json({ error: 'This enrichment proposal has expired — run Enrich with AI again.' });
@@ -1351,8 +1352,11 @@ async function startServer() {
         projectTags: Array.isArray(projectTags)
           ? projectTags.map((t: any) => ({ project: String(t?.project || ''), tag: String(t?.tag || '') }))
           : [],
+        bulletEdits: Array.isArray(bulletEdits)
+          ? bulletEdits.map((b: any) => ({ expIndex: Number(b?.expIndex), hIndex: Number(b?.hIndex), gap: String(b?.gap || '') }))
+          : [],
       });
-      if (!applied.skills.length && !applied.summary && !applied.projectTags) {
+      if (!applied.skills.length && !applied.summary && !applied.projectTags && !applied.bullets) {
         res.status(400).json({ error: 'Nothing selected to apply.' });
         return;
       }
@@ -1362,6 +1366,27 @@ async function startServer() {
     } catch (err: any) {
       console.error('Enrich apply error:', err);
       res.status(500).json({ error: err.message || 'Failed to apply enrichment.' });
+    }
+  });
+
+  // Deterministic skill reorganization: canonical placement (AWS services,
+  // databases, networking, practices, systems) + display casing. No LLM.
+  app.post('/api/cv/skills/organize', (req, res) => {
+    try {
+      const cv = getMasterCv();
+      const { skills, moves } = organizeSkills(cv.skills);
+      const changed = moves.length > 0 || JSON.stringify(skills) !== JSON.stringify(cv.skills || []);
+      if (!changed) {
+        res.json({ success: true, moves: [], masterCv: cv, unchanged: true });
+        return;
+      }
+      const next = { ...cv, skills };
+      saveCvVersion(cv, 'Before skill reorganization');
+      saveMasterCv(next);
+      res.json({ success: true, moves, masterCv: next });
+    } catch (err: any) {
+      console.error('Skill organize error:', err);
+      res.status(500).json({ error: err.message || 'Failed to reorganize skills.' });
     }
   });
 

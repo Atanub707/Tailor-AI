@@ -26,6 +26,7 @@ interface EnrichProposalT {
   items: EnrichItemT[];
   summaryRewrite: { text: string; reason: string } | null;
   projectTags: { project: string; tag: string; basis: string }[];
+  bulletEdits: { expIndex: number; hIndex: number; before: string; after: string; gap: string; basis: string }[];
   stats: { gapsConsidered: number; supported: number; adjacent: number; unsupported: number };
 }
 
@@ -73,6 +74,7 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
   const [proposal, setProposal] = useState<EnrichProposalT | null>(null);
   const [acceptedSet, setAcceptedSet] = useState<Set<string>>(new Set());
   const [acceptedTags, setAcceptedTags] = useState<Set<string>>(new Set());
+  const [acceptedEdits, setAcceptedEdits] = useState<Set<string>>(new Set());
   const [applySummaryRewrite, setApplySummaryRewrite] = useState(false);
 
   const [summarySuggestions, setSummarySuggestions] = useState<{ label: string; text: string }[]>([]);
@@ -162,6 +164,9 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
         .map((i) => i.gap);
       setAcceptedSet(new Set(preChecked));
       setAcceptedTags(new Set((p.projectTags || []).map((t) => `${t.project}::${t.tag}`)));
+      // Grounded bullet upgrades are minimal by construction — pre-approved,
+      // each shown as a before → after the user can uncheck.
+      setAcceptedEdits(new Set((p.bulletEdits || []).map((b) => `${b.expIndex}:${b.hIndex}:${b.gap}`)));
       setApplySummaryRewrite(!!p.summaryRewrite);
     } catch {
       setEnrichError('AI request failed. Please try again.');
@@ -186,6 +191,10 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
             const [project, tag] = k.split('::');
             return { project, tag };
           }),
+          bulletEdits: [...acceptedEdits].map((k) => {
+            const [expIndex, hIndex, gap] = k.split(':');
+            return { expIndex: Number(expIndex), hIndex: Number(hIndex), gap };
+          }),
         }),
       });
       const data = await res.json();
@@ -197,9 +206,11 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
       setProposal(null);
       setAcceptedSet(new Set());
       setAcceptedTags(new Set());
+      setAcceptedEdits(new Set());
       setSelectedGaps(new Set());
       const parts: string[] = [];
       if (data.applied.skills.length) parts.push(`${data.applied.skills.length} skill${data.applied.skills.length > 1 ? 's' : ''}`);
+      if (data.applied.bullets) parts.push(`${data.applied.bullets} experience bullet${data.applied.bullets > 1 ? 's' : ''}`);
       if (data.applied.projectTags) parts.push(`${data.applied.projectTags} project tag${data.applied.projectTags > 1 ? 's' : ''}`);
       if (data.applied.summary) parts.push('summary');
       setGapsAddedMsg(`AI enrichment applied (${parts.join(' · ')}) and saved. A version backup was kept.`);
@@ -223,6 +234,15 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
 
   const toggleAcceptedTag = (key: string) => {
     setAcceptedTags((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleAcceptedEdit = (key: string) => {
+    setAcceptedEdits((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
@@ -997,6 +1017,25 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
                       </label>
                     )}
 
+                    {proposal.bulletEdits.length > 0 && (
+                      <div className="space-y-1.5">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-violet-700">Experience bullet upgrades — your real work, now named precisely</div>
+                        {proposal.bulletEdits.map((b) => {
+                          const key = `${b.expIndex}:${b.hIndex}:${b.gap}`;
+                          return (
+                            <label key={key} className="block px-2.5 py-2 rounded border border-[var(--color-hairline)] cursor-pointer hover:bg-[var(--color-brand-soft)]/40">
+                              <span className="flex items-center space-x-2">
+                                <input type="checkbox" checked={acceptedEdits.has(key)} onChange={() => toggleAcceptedEdit(key)} className="rounded border-[var(--color-hairline2)] cursor-pointer" />
+                                <span className="text-xs font-semibold text-[var(--color-ink)]">Add “{b.gap}” to a real accomplishment</span>
+                              </span>
+                              <span className="block mt-1.5 text-[11px] text-[var(--color-faint)] line-through decoration-[var(--color-hairline2)]">{b.before}</span>
+                              <span className="block mt-1 text-[11px] text-[var(--color-ink)] leading-relaxed">{b.after}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+
                     {proposal.projectTags.length > 0 && (
                       <div className="space-y-1">
                         <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-faint)]">Project technologies to tag</div>
@@ -1020,7 +1059,7 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
                       <button
                         type="button"
                         onClick={applyEnrichmentProposal}
-                        disabled={enrichApplying || (acceptedSet.size === 0 && acceptedTags.size === 0 && !applySummaryRewrite)}
+                        disabled={enrichApplying || (acceptedSet.size === 0 && acceptedTags.size === 0 && acceptedEdits.size === 0 && !applySummaryRewrite)}
                         className="flex-1 px-3 py-1.5 rounded-md text-xs font-bold bg-[var(--color-brand)] hover:bg-[var(--color-brand-strong)] text-white disabled:opacity-50 transition-colors cursor-pointer"
                       >
                         {enrichApplying ? 'Applying…' : `Apply selected to Master CV`}

@@ -20,6 +20,7 @@ import { askJson } from '../llm/askJson.js';
 import { isUnsupportedClaim, unsupportedClaimLeaks } from '../builder/llmCvTailor.js';
 import { containsKeyword } from '../tailor/keywordMatch.js';
 import { extractNumericTokens } from '../tailor/generatedTextSafety.js';
+import { normalizeSkillDisplay, resolveSkillCategory } from './skillTaxonomy.js';
 
 export interface MarketGap {
   skill: string;
@@ -37,6 +38,15 @@ export interface EnrichItem {
   grounding: number;
 }
 
+export interface BulletEdit {
+  expIndex: number;
+  hIndex: number;
+  before: string;
+  after: string;
+  gap: string;
+  basis: string;
+}
+
 export interface EnrichProposal {
   id: string;
   createdAt: string;
@@ -45,6 +55,7 @@ export interface EnrichProposal {
   items: EnrichItem[];
   summaryRewrite: { text: string; reason: string } | null;
   projectTags: Array<{ project: string; tag: string; basis: string }>;
+  bulletEdits: BulletEdit[];
   stats: {
     scannedJobs: number;
     gapsConsidered: number;
@@ -168,8 +179,11 @@ export function groundEnrichItems(
     if (verdict === 'supported' && grounding < 0.6) verdict = grounding >= 0.3 ? 'adjacent' : 'unsupported';
     else if (verdict === 'adjacent' && grounding < 0.3) verdict = 'unsupported';
     const suggested = String(raw?.category || '').trim();
-    const category = categories.find((c) => c.toLowerCase() === suggested.toLowerCase()) || 'Core Competencies';
-    items.push({ gap, count: candidate.count, verdict, basis, category, grounding: Math.round(grounding * 100) / 100 });
+    // Deterministic placement: canonical buckets (AWS Services, Databases,
+    // Networking, Practices, Systems) win; then the LLM's suggestion (existing
+    // category or a sane new one); then Core Competencies.
+    const category = resolveSkillCategory(gap, suggested, categories);
+    items.push({ gap: normalizeSkillDisplay(gap), count: candidate.count, verdict, basis, category, grounding: Math.round(grounding * 100) / 100 });
   }
   // Present in market order, useful and stable for the UI.
   items.sort((a, b) => b.count - a.count);
@@ -209,6 +223,51 @@ function groundProjectTags(raw: any[], cv: MasterCv, evidenceText: string): Enri
   return out;
 }
 
+/** Deterministic verification of proposed experience-bullet upgrades: the
+ *  "before" must be the CURRENT bullet text, the gap must genuinely appear in
+ *  the rewrite, every number of the original must survive exactly, and no
+ *  credential/tenure/title claims may sneak in. */
+export function groundBulletEdits(rawEdits: any[], cv: MasterCv, evidenceText: string): BulletEdit[] {
+  const out: BulletEdit[] = [];
+  const seen = new Set<string>();
+  for (const raw of rawEdits || []) {
+    const expIndex = Number(raw?.expIndex);
+    const hIndex = Number(raw?.hIndex);
+    const exp = (cv.experiences || [])[expIndex];
+    if (!exp) continue;
+    const current = (exp.responsibilities || [])[hIndex];
+    if (typeof current !== 'string' || !current.trim()) continue;
+    const after = String(raw?.after || '').trim();
+    const gap = String(raw?.gap || '').trim();
+    if (!after || !gap || after === current.trim()) continue;
+    if (!containsKeyword(after, gap)) continue;
+    const beforeNums = new Set(extractNumericTokens(current));
+    const afterNums = new Set(extractNumericTokens(after));
+    let lostNumber = false;
+    for (const n of beforeNums) {
+      if (!afterNums.has(n)) {
+        lostNumber = true;
+        break;
+      }
+    }
+    if (lostNumber) continue; // metrics are untouchable
+    if (unsupportedClaimLeaks({ workExperience: [{ highlights: [after] }] }, evidenceText).length > 0) continue;
+    if (after.split(/\s+/).length > current.split(/\s+/).length * 1.8 + 6) continue; // keep it tight
+    const key = `${expIndex}:${hIndex}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      expIndex,
+      hIndex,
+      before: current,
+      after,
+      gap: normalizeSkillDisplay(gap),
+      basis: String(raw?.basis || '').slice(0, 220),
+    });
+  }
+  return out;
+}
+
 // ── proposal building ────────────────────────────────────────────────────
 
 export async function buildEnrichmentProposal(
@@ -231,6 +290,7 @@ export async function buildEnrichmentProposal(
       items: [],
       summaryRewrite: null,
       projectTags: [],
+      bulletEdits: [],
       stats: { scannedJobs: totalScored, gapsConsidered: 0, supported: 0, adjacent: 0, unsupported: 0, droppedClaims: 0 },
     };
   }
@@ -262,23 +322,27 @@ For EACH market gap above, classify it:
 HARD RULES:
 - basis is REQUIRED for supported/adjacent and must come from the CV text — never invented, never from the job market.
 - NEVER propose certifications, licenses, experience-years or job titles.
-- category: place supported/adjacent gaps into one of the CV's EXISTING skill categories: ${JSON.stringify(categories)} (or "Core Competencies" if none fits).
+- PLACEMENT TAXONOMY (critical): provider platforms (AWS, GCP, Azure) live in a cloud-platforms category. NAMED PROVIDER SERVICES (EC2, VPC, S3, RDS, Lambda, SQS, Route 53, CloudFront…) belong TOGETHER in an "AWS Services" style category — never mixed into the provider list. PRACTICES and concepts (SLO, SLI, on-call, error budgets, distributed systems, capacity planning, disaster recovery, change management, cost optimization…) belong in a reliability/practices category — they are not tools. Databases (PostgreSQL, MySQL, MongoDB, Kafka…) belong in a databases category. OS/network fundamentals (Linux, Windows, DNS, VPN, TCP/IP) belong in systems/networking categories.
+- category: use one of the CV's EXISTING categories when it genuinely fits (${JSON.stringify(categories)}); otherwise create ONE new category name (2-4 words, Title Case) — do not dump into "Core Competencies" when a clear category exists or should exist.
 
 Then, optionally:
 - "summaryRewrite": ONLY if the current summary can be strengthened by mentioning supported skills — realize it with 2-3 lines (30-80 words), keeping every number EXACTLY as in the CV, adding no new facts. Otherwise null.
 - "projectTags": for supported technologies that belong to an existing project but are missing from its technologies list; only when the project text evidences it.
+- "bulletEdits": for supported/adjacent gaps ONLY, where an EXISTING experience bullet already describes that exact work, propose a MINIMAL rewrite that names the skill naturally (e.g. a bullet about container builds may gain "Linux" or "Kaniko"). HARD RULES for bulletEdits: "before" MUST be the bullet text EXACTLY as it appears in the CV; every number and named tool in the bullet must survive unchanged; the rewrite adds at most a few words; never invent responsibilities; skip the gap entirely if an honest mention does not fit an existing bullet.
 
 Return valid JSON only — NO markdown:
 {
   "items": [ { "gap": string, "verdict": "supported" | "adjacent" | "unsupported", "basis": string, "category": string } ],
   "summaryRewrite": { "text": string, "reason": string } | null,
-  "projectTags": [ { "project": string, "tag": string, "basis": string } ]
+  "projectTags": [ { "project": string, "tag": string, "basis": string } ],
+  "bulletEdits": [ { "expIndex": number, "hIndex": number, "before": string, "after": string, "gap": string, "basis": string } ]
 }`;
 
   const parsed = await askJson<any>(prompt, { temperature: 0.2 });
   const { items, droppedClaims } = groundEnrichItems(parsed?.items, candidates, evidenceText, categories);
   const summaryRewrite = groundSummaryRewrite(parsed?.summaryRewrite, cv, evidenceText);
   const projectTags = groundProjectTags(parsed?.projectTags, cv, evidenceText);
+  const bulletEdits = groundBulletEdits(parsed?.bulletEdits, cv, evidenceText);
 
   return {
     id: `enrich-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -287,6 +351,7 @@ Return valid JSON only — NO markdown:
     items,
     summaryRewrite,
     projectTags,
+    bulletEdits,
     stats: {
       scannedJobs: totalScored,
       gapsConsidered: candidates.length,
@@ -304,15 +369,16 @@ export interface ApplyEnrichOptions {
   acceptedGaps: string[];
   applySummary?: boolean;
   projectTags?: Array<{ project: string; tag: string }>;
+  bulletEdits?: Array<{ expIndex: number; hIndex: number; gap: string }>;
 }
 
 export function applyEnrichment(
   cv: MasterCv,
   proposal: EnrichProposal,
   opts: ApplyEnrichOptions
-): { next: MasterCv; applied: { skills: string[]; summary: boolean; projectTags: number } } {
+): { next: MasterCv; applied: { skills: string[]; summary: boolean; projectTags: number; bullets: number } } {
   const next: MasterCv = JSON.parse(JSON.stringify(cv));
-  const applied = { skills: [] as string[], summary: false, projectTags: 0 };
+  const applied = { skills: [] as string[], summary: false, projectTags: 0, bullets: 0 };
   const accepted = new Set((opts.acceptedGaps || []).map((s) => String(s).toLowerCase()));
   const itemByGap = new Map(proposal.items.map((i) => [i.gap.toLowerCase(), i]));
 
@@ -334,6 +400,19 @@ export function applyEnrichment(
   if (opts.applySummary && proposal.summaryRewrite?.text) {
     next.summary = proposal.summaryRewrite.text;
     applied.summary = true;
+  }
+
+  // Experience-bullet upgrades: only when the LIVE bullet still matches the
+  // proposal's "before" (stale edits are silently skipped, never force-applied).
+  for (const wanted of opts.bulletEdits || []) {
+    const edit = (proposal.bulletEdits || []).find(
+      (b) => b.expIndex === Number(wanted.expIndex) && b.hIndex === Number(wanted.hIndex) && b.gap.toLowerCase() === String(wanted.gap || '').toLowerCase()
+    );
+    if (!edit) continue;
+    const exp = (next.experiences || [])[edit.expIndex];
+    if (!exp || (exp.responsibilities || [])[edit.hIndex] !== edit.before) continue;
+    exp.responsibilities[edit.hIndex] = edit.after;
+    applied.bullets++;
   }
 
   const proposalTags = new Set(proposal.projectTags.map((t) => `${t.project.toLowerCase()}::${t.tag.toLowerCase()}`));

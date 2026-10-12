@@ -96,12 +96,13 @@ describe('market-gap AI enrichment — propose, ground, apply', () => {
       cv.skills.map((s) => s.category)
     );
     const byGap = new Map(items.map((i) => [i.gap, i]));
-    expect(byGap.get('linux')!.verdict).toBe('supported');
-    expect(byGap.get('linux')!.grounding).toBe(1);
-    expect(byGap.get('datadog')!.verdict).not.toBe('supported'); // invented basis demoted
+    expect(byGap.get('Linux')!.verdict).toBe('supported');
+    expect(byGap.get('Linux')!.grounding).toBe(1);
+    expect(byGap.get('Datadog')!.verdict).not.toBe('supported'); // invented basis demoted
     expect(byGap.get('Secrets Manager')!.verdict).not.toBe('supported');
-    // unknown category falls back to Core Competencies
-    expect(byGap.get('datadog')!.category).toBe('Core Competencies');
+    // LLM-suggested new category is allowed when sane (creates a proper
+    // tooling section instead of dumping into Core Competencies).
+    expect(byGap.get('Datadog')!.category).toBe('Observability');
   });
 
   it('buildEnrichmentProposal: LLM summary rewrites are rejected when they contain numbers the CV never had', async () => {    stubLlm({
@@ -133,8 +134,8 @@ describe('market-gap AI enrichment — propose, ground, apply', () => {
     expect(proposal.picked).toBe(true);
     // credential + already-present skill dropped; duplicate collapses
     expect(proposal.stats.gapsConsidered).toBe(2);
-    expect(proposal.items.map((i) => i.gap).sort()).toEqual(['datadog', 'linux']);
-    expect(proposal.items.find((i) => i.gap === 'linux')!.verdict).toBe('supported');
+    expect(proposal.items.map((i) => i.gap).sort()).toEqual(['Datadog', 'Linux']);
+    expect(proposal.items.find((i) => i.gap === 'Linux')!.verdict).toBe('supported');
   });
 
   it('applyEnrichment: user-approved items only, placed into existing categories, deduped, immutable source', () => {
@@ -149,15 +150,29 @@ describe('market-gap AI enrichment — propose, ground, apply', () => {
       ],
       summaryRewrite: { text: 'Senior DevSecOps Engineer with 4+ years building secure CI/CD platforms.', reason: 'r' },
       projectTags: [{ project: 'Netflix DevSecOps Pipeline', tag: 'Kaniko', basis: 'b' }],
+      bulletEdits: [
+        {
+          expIndex: 0,
+          hIndex: 0,
+          before: 'Moved container builds on GitLab CI/CD to a rootless, non-privileged setup using Kaniko and BuildKit inside Minikube',
+          after: 'Moved container builds on Linux-based GitLab CI/CD runners to a rootless, non-privileged setup using Kaniko and BuildKit inside Minikube',
+          gap: 'Linux',
+          basis: 'b',
+        },
+      ],
       stats: { scannedJobs: 128, gapsConsidered: 3, supported: 2, adjacent: 1, unsupported: 0, droppedClaims: 0 },
     };
     const { next, applied } = applyEnrichment(cv, proposal, {
       acceptedGaps: ['linux', 'datadog', 'go', 'ghost-skill'],
       applySummary: true,
       projectTags: [{ project: 'Netflix DevSecOps Pipeline', tag: 'Kaniko' }],
+      bulletEdits: [{ expIndex: 0, hIndex: 0, gap: 'Linux' }],
     });
 
     expect(applied.skills).toEqual(['linux', 'datadog']); // unsupported + unknown never applied
+    expect(applied.bullets).toBe(1);
+    expect(next.experiences[0].responsibilities[0]).toContain('Linux-based GitLab CI/CD');
+    expect(cv.experiences[0].responsibilities[0]).not.toContain('Linux-based'); // source untouched
     expect(next.skills.find((s) => s.category === 'Security & Compliance')!.items).toContain('linux');
     expect(next.skills.find((s) => s.category === 'Observability')).toBeTruthy();
     expect(next.summary).toContain('4+ years building secure CI/CD');
@@ -184,5 +199,61 @@ describe('market-gap AI enrichment — propose, ground, apply', () => {
     expect(totalScored).toBe(2);
     expect(agg.find((g) => g.skill === 'linux')!.count).toBe(3);
     expect(agg.find((g) => g.skill === 'datadog')!.count).toBe(1);
+  });
+
+  it('TAXONOMY: normalizes display casing and classifies canonical buckets', async () => {
+    const { normalizeSkillDisplay, classifySkillBucket, organizeSkills } = await import('../../server/cv/skillTaxonomy.js');
+    expect(normalizeSkillDisplay('ec2')).toBe('EC2');
+    expect(normalizeSkillDisplay('slo')).toBe('SLO');
+    expect(normalizeSkillDisplay('javascript')).toBe('JavaScript');
+    expect(normalizeSkillDisplay('github copilot')).toBe('GitHub Copilot');
+    expect(normalizeSkillDisplay('dynamodb')).toBe('DynamoDB');
+    expect(normalizeSkillDisplay('Kubernetes')).toBe('Kubernetes');
+    expect(classifySkillBucket('ec2')).toBe('AWS Services');
+    expect(classifySkillBucket('s3')).toBe('AWS Services');
+    expect(classifySkillBucket('dns')).toBe('Networking');
+    expect(classifySkillBucket('slo')).toBe('Site Reliability Practices');
+    expect(classifySkillBucket('postgresql')).toBe('Databases & Data Stores');
+    expect(classifySkillBucket('linux')).toBe('Systems & OS');
+    expect(classifySkillBucket('kubernetes')).toBeNull();
+
+    // Organizer: services leave Cloud Platforms, everything normalized.
+    const { skills, moves } = organizeSkills([
+      { category: 'Cloud Platforms', items: ['AWS', 'GCP', 'Azure', 'ec2', 'vpc', 's3', 'dns', 'networking'] },
+      { category: 'Observability', items: ['Prometheus', 'slo', 'sli', 'Datadog'] },
+      { category: 'Core Competencies', items: ['postgresql', 'linux'] },
+    ]);
+    const byCat = new Map(skills.map((g) => [g.category, g.items]));
+    expect(byCat.get('AWS Services')).toEqual(['EC2', 'VPC', 'S3']);
+    expect(byCat.get('Networking')).toEqual(['DNS']); // 'networking' item is redundant with its category name
+    expect(byCat.get('Cloud Platforms')).toEqual(['AWS', 'GCP', 'Azure']);
+    expect(byCat.get('Observability')).toEqual(['Prometheus', 'Datadog']);
+    expect(byCat.get('Site Reliability Practices')).toEqual(['SLO', 'SLI']);
+    expect(byCat.get('Databases & Data Stores')).toEqual(['PostgreSQL']);
+    expect(byCat.get('Systems & OS')).toEqual(['Linux']);
+    expect(moves.some((m) => m.item === 'EC2' && m.from === 'Cloud Platforms' && m.to === 'AWS Services')).toBe(true);
+  });
+
+  it('BULLET EDITS: grounded minimal rewrites only — lost numbers or fabricated mentions are rejected', async () => {
+    const { groundBulletEdits } = await import('../../server/cv/marketEnrich.js');
+    const evidence = masterCvEvidenceText(cv);
+    const current = cv.experiences[0].responsibilities[0]; // "...rootless, non-privileged setup using Kaniko and BuildKit inside Minikube"
+    const edits = groundBulletEdits(
+      [
+        // valid: names Linux, keeps every fact
+        { expIndex: 0, hIndex: 0, gap: 'linux', before: current, after: current.replace('container builds on GitLab CI/CD', 'container builds on Linux-based GitLab CI/CD'), basis: 'Linux runners' },
+        // invalid: drops a number (the metric test bullet)
+        { expIndex: 0, hIndex: 1, gap: 'slo', before: cv.experiences[0].responsibilities[1], after: 'Hardened Kubernetes clusters with IAM and RBAC policies', basis: 'x' },
+        // invalid: gap not actually named in the rewrite
+        { expIndex: 0, hIndex: 1, gap: 'terraform', before: cv.experiences[0].responsibilities[1], after: cv.experiences[0].responsibilities[1] + ' and more', basis: 'x' },
+        // invalid: before is not the live bullet
+        { expIndex: 0, hIndex: 0, gap: 'linux', before: 'some other text', after: current + ' on Linux', basis: 'x' },
+      ],
+      cv,
+      evidence
+    );
+    expect(edits.length).toBe(1);
+    expect(edits[0].gap).toBe('Linux');
+    expect(edits[0].after).toContain('Linux-based');
   });
 });
