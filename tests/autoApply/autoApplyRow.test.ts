@@ -351,6 +351,14 @@ describe('AA click never leaves the job list', () => {
     }
   });
 
+  it('auto-apply sources carry a visible "Auto Apply" label on the row', () => {
+    const matrix = read('src/components/JobMatrix.tsx');
+    expect(matrix).toContain('{isAutoApplyJob(job) && (');
+    expect(matrix).toContain('Auto Apply');
+    expect(matrix).toContain('bg-violet-50 text-violet-700 border border-violet-200');
+    expect(matrix).toContain('This source supports Auto Apply');
+  });
+
   it('the CHAT opens only when required answers are missing (no dry-run panel exists)', () => {
     expect(button).toContain("onClick={() => void (attention ? handleAttentionClick() : handleAaClick())}");
     expect(button).toContain('{open && (chatQuestions.length > 0 || midRunBrowser.length > 0 || !!midRunReview) && (');

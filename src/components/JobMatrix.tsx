@@ -183,6 +183,14 @@ const JobCard = React.memo(function JobCard({
             <span>{job.source}</span>
             <ExternalLink className="w-2.5 h-2.5 text-blue-500 ml-0.5" />
           </a>
+          {isAutoApplyJob(job) && (
+            <span
+              title="This source supports Auto Apply — Taylor fills the application and can submit it for you."
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wide bg-violet-50 text-violet-700 border border-violet-200"
+            >
+              <Sparkles className="w-2.5 h-2.5" /> Auto Apply
+            </span>
+          )}
           {timeAgoStr && (
             <span className="inline-flex items-center space-x-1 text-[11px] text-slate-500 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
               <Calendar className="w-3 h-3 text-slate-400" />
