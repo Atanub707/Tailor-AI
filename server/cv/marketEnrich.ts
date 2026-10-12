@@ -40,6 +40,8 @@ export interface EnrichItem {
 export interface EnrichProposal {
   id: string;
   createdAt: string;
+  /** true when the user explicitly picked the gaps (their claim = consent) */
+  picked: boolean;
   items: EnrichItem[];
   summaryRewrite: { text: string; reason: string } | null;
   projectTags: Array<{ project: string; tag: string; basis: string }>;
@@ -116,6 +118,27 @@ export function selectGapsForEnrichment(gaps: MarketGap[], evidenceText: string,
     .slice(0, max);
 }
 
+/** Candidates for a USER-PICKED enrichment: the user checked these gaps, so
+ *  their selection is the claim — still drop never-claim facts and anything
+ *  the CV already states; unknown names keep a count of 0. */
+export function selectGapsFromPick(gaps: MarketGap[], pick: string[], evidenceText: string, max = 60): MarketGap[] {
+  const byName = new Map(gaps.map((g) => [g.skill.toLowerCase(), g]));
+  const totalScored = gaps[0]?.totalScored || 0;
+  const seen = new Set<string>();
+  const out: MarketGap[] = [];
+  for (const raw of pick) {
+    const name = String(raw || '').trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (isUnsupportedClaim(name)) continue;
+    if (containsKeyword(evidenceText, name)) continue;
+    out.push(byName.get(key) || { skill: name, count: 0, totalScored });
+  }
+  return out.sort((a, b) => b.count - a.count).slice(0, max);
+}
+
 /** Deterministic re-verification of LLM verdicts. */
 export function groundEnrichItems(
   rawItems: any[],
@@ -188,16 +211,23 @@ function groundProjectTags(raw: any[], cv: MasterCv, evidenceText: string): Enri
 
 // ── proposal building ────────────────────────────────────────────────────
 
-export async function buildEnrichmentProposal(cv: MasterCv, gaps: MarketGap[]): Promise<EnrichProposal> {
+export async function buildEnrichmentProposal(
+  cv: MasterCv,
+  gaps: MarketGap[],
+  opts?: { pick?: string[] }
+): Promise<EnrichProposal> {
   const evidenceText = masterCvEvidenceText(cv);
   const totalScored = gaps[0]?.totalScored || 0;
-  const candidates = selectGapsForEnrichment(gaps, evidenceText);
+  const pick = (opts?.pick || []).map((s) => String(s || '').trim()).filter(Boolean);
+  const picked = pick.length > 0;
+  const candidates = picked ? selectGapsFromPick(gaps, pick, evidenceText) : selectGapsForEnrichment(gaps, evidenceText);
   const categories = (cv.skills || []).map((g) => g.category);
 
   if (!candidates.length) {
     return {
       id: `enrich-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       createdAt: new Date().toISOString(),
+      picked,
       items: [],
       summaryRewrite: null,
       projectTags: [],
@@ -206,8 +236,11 @@ export async function buildEnrichmentProposal(cv: MasterCv, gaps: MarketGap[]): 
   }
 
   const gapLines = candidates.map((g) => `  - ${g.skill} — missing from ${g.count} of ${g.totalScored} scored jobs`).join('\n');
+  const pickupNote = picked
+    ? '\nThe candidate EXPLICITLY SELECTED every gap below because they believe they have it — your job is to find the CV evidence that confirms it (goal: "supported"), or explain which real work implies it ("adjacent"). Only say "unsupported" if the CV truly shows nothing.\n'
+    : '';
   const prompt = `You are a meticulous career-data auditor. You are enriching a candidate's MASTER CV with skills the job market most frequently asks for — but ONLY where the candidate's own CV already evidences the skill. You never invent.
-
+${pickupNote}
 MARKET GAPS (most frequent first):
 ${gapLines}
 
@@ -250,6 +283,7 @@ Return valid JSON only — NO markdown:
   return {
     id: `enrich-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     createdAt: new Date().toISOString(),
+    picked,
     items,
     summaryRewrite,
     projectTags,

@@ -104,8 +104,7 @@ describe('market-gap AI enrichment — propose, ground, apply', () => {
     expect(byGap.get('datadog')!.category).toBe('Core Competencies');
   });
 
-  it('buildEnrichmentProposal: LLM summary rewrites are rejected when they contain numbers the CV never had', async () => {
-    stubLlm({
+  it('buildEnrichmentProposal: LLM summary rewrites are rejected when they contain numbers the CV never had', async () => {    stubLlm({
       items: [
         { gap: 'linux', verdict: 'supported', basis: '"Moved container builds on GitLab CI/CD to a rootless, non-privileged setup"', category: 'Security & Compliance' },
       ],
@@ -119,10 +118,30 @@ describe('market-gap AI enrichment — propose, ground, apply', () => {
     expect(proposal.stats.supported).toBe(1);
   });
 
+  it('pick mode: analyzes exactly the user-selected gaps (credentials filtered, CV-present dropped)', async () => {
+    stubLlm({
+      items: [
+        { gap: 'linux', verdict: 'supported', basis: '"Moved container builds on GitLab CI/CD to a rootless, non-privileged setup"', category: 'Security & Compliance' },
+        { gap: 'datadog', verdict: 'adjacent', basis: 'Monitored system logs and triaged issues proactively across production environments.', category: 'Observability' },
+      ],
+      summaryRewrite: null,
+      projectTags: [],
+    });
+    const proposal = await buildEnrichmentProposal(cv, gaps, {
+      pick: ['linux', 'datadog', 'AWS Certified Solutions Architect', 'kubernetes', 'linux'],
+    });
+    expect(proposal.picked).toBe(true);
+    // credential + already-present skill dropped; duplicate collapses
+    expect(proposal.stats.gapsConsidered).toBe(2);
+    expect(proposal.items.map((i) => i.gap).sort()).toEqual(['datadog', 'linux']);
+    expect(proposal.items.find((i) => i.gap === 'linux')!.verdict).toBe('supported');
+  });
+
   it('applyEnrichment: user-approved items only, placed into existing categories, deduped, immutable source', () => {
     const proposal: EnrichProposal = {
       id: 'p-test',
       createdAt: new Date().toISOString(),
+      picked: false,
       items: [
         { gap: 'linux', count: 56, verdict: 'supported', basis: '', category: 'Security & Compliance', grounding: 1 },
         { gap: 'datadog', count: 36, verdict: 'adjacent', basis: '', category: 'Observability', grounding: 0.4 },

@@ -22,6 +22,7 @@ interface EnrichItemT {
 
 interface EnrichProposalT {
   id: string;
+  picked?: boolean;
   items: EnrichItemT[];
   summaryRewrite: { text: string; reason: string } | null;
   projectTags: { project: string; tag: string; basis: string }[];
@@ -142,7 +143,11 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
     setEnrichError(null);
     setProposal(null);
     try {
-      const res = await fetch('/api/cv/market-gaps/enrich', { method: 'POST' });
+      const res = await fetch('/api/cv/market-gaps/enrich', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pick: [...selectedGaps] }),
+      });
       const data = await res.json();
       if (!res.ok) {
         setEnrichError(data.error || 'Failed to analyze market gaps.');
@@ -150,7 +155,12 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
       }
       const p: EnrichProposalT = data.proposal;
       setProposal(p);
-      setAcceptedSet(new Set((p.items || []).filter((i) => i.verdict === 'supported').map((i) => i.gap)));
+      // User-picked flow: their selection IS the claim, so adjacent items are
+      // pre-approved too; auto flow pre-approves only CV-supported items.
+      const preChecked = (p.items || [])
+        .filter((i) => i.verdict === 'supported' || (p.picked && i.verdict === 'adjacent'))
+        .map((i) => i.gap);
+      setAcceptedSet(new Set(preChecked));
       setAcceptedTags(new Set((p.projectTags || []).map((t) => `${t.project}::${t.tag}`)));
       setApplySummaryRewrite(!!p.summaryRewrite);
     } catch {
@@ -187,6 +197,7 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
       setProposal(null);
       setAcceptedSet(new Set());
       setAcceptedTags(new Set());
+      setSelectedGaps(new Set());
       const parts: string[] = [];
       if (data.applied.skills.length) parts.push(`${data.applied.skills.length} skill${data.applied.skills.length > 1 ? 's' : ''}`);
       if (data.applied.projectTags) parts.push(`${data.applied.projectTags} project tag${data.applied.projectTags > 1 ? 's' : ''}`);
@@ -891,7 +902,17 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
                 {gapsAddedMsg && (
                   <div className="px-2 py-1.5 rounded bg-[var(--color-cta-soft)] border border-[var(--color-cta-line)] text-emerald-800 text-[11px] font-medium">{gapsAddedMsg}</div>
                 )}
-                <p className="text-[11px] text-[var(--color-faint)]">Skills most frequently missing across {skillGaps[0]?.totalScored || 0} scored jobs. Check the ones you have and add them to your CV.</p>
+                <p className="text-[11px] text-[var(--color-faint)]">Skills most frequently missing across {skillGaps[0]?.totalScored || 0} scored jobs. Check the skills you genuinely have — AI verifies them against your CV and sets them up in the right places.</p>
+
+                <div className="max-h-48 overflow-y-auto space-y-1">
+                  {skillGaps.map((gap) => (
+                    <label key={gap.skill} className="flex items-center space-x-2 px-2 py-1.5 rounded hover:bg-white cursor-pointer text-xs">
+                      <input type="checkbox" checked={selectedGaps.has(gap.skill)} onChange={() => toggleGap(gap.skill)} className="rounded border-[var(--color-hairline2)] cursor-pointer" />
+                      <span className="flex-1 font-medium text-[var(--color-ink)]">{gap.skill}</span>
+                      <span className="text-[10px] font-semibold text-[var(--color-faint)]">{gap.count}/{gap.totalScored} jobs</span>
+                    </label>
+                  ))}
+                </div>
 
                 <button
                   type="button"
@@ -901,14 +922,25 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
                   className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-bold bg-[var(--color-ink)] hover:bg-[#14113B] text-white disabled:opacity-50 transition-colors cursor-pointer"
                 >
                   {enrichLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-[var(--color-cta)]" />}
-                  {enrichLoading ? 'Analyzing your CV against the market…' : 'Enrich Master CV with AI'}
+                  {enrichLoading
+                    ? 'AI is analyzing and setting up…'
+                    : selectedGaps.size > 0
+                      ? `AI Setup with ${selectedGaps.size} selected skill${selectedGaps.size > 1 ? 's' : ''}`
+                      : 'Enrich Master CV with AI (auto-picks top gaps)'}
                 </button>
+                {selectedGaps.size > 0 && (
+                  <button type="button" onClick={addSelectedGapsToCv} className="w-full px-3 py-1.5 rounded-md text-xs font-semibold border border-[var(--color-hairline)] text-[var(--color-ink)] hover:bg-white transition-colors cursor-pointer">
+                    Add {selectedGaps.size} selected without AI
+                  </button>
+                )}
                 {enrichError && <div className="text-[11px] text-[var(--color-danger)]">{enrichError}</div>}
 
                 {proposal && (
                   <div className="border border-[var(--color-hairline)] rounded-lg bg-white p-3 space-y-3">
                     <div className="text-[11px] text-[var(--color-faint)] leading-relaxed">
-                      AI audited <b>{proposal.stats.gapsConsidered}</b> market gaps against your Master CV — <b>{proposal.stats.supported}</b> supported by your own evidence, <b>{proposal.stats.adjacent}</b> inferred (confirm below), <b>{proposal.stats.unsupported}</b> not evidenced (shown but not added).
+                      {proposal.picked
+                        ? <>AI analyzed your <b>{proposal.stats.gapsConsidered}</b> selected skills against your Master CV — <b>{proposal.stats.supported}</b> verified by your own evidence, <b>{proposal.stats.adjacent}</b> inferred from your work (pre-approved, uncheck any you didn't really use), <b>{proposal.stats.unsupported}</b> not evidenced and left out.</>
+                        : <>AI audited <b>{proposal.stats.gapsConsidered}</b> market gaps against your Master CV — <b>{proposal.stats.supported}</b> supported by your own evidence, <b>{proposal.stats.adjacent}</b> inferred (confirm below), <b>{proposal.stats.unsupported}</b> not evidenced (shown but not added).</>}
                     </div>
 
                     {proposal.items.filter((i) => i.verdict === 'supported').length > 0 && (
@@ -945,7 +977,7 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
 
                     {proposal.items.filter((i) => i.verdict === 'unsupported').length > 0 && (
                       <div className="space-y-1.5">
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-faint)]">Not in your CV — worth learning or earning</div>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-faint)]">{proposal.picked ? 'Selected but not evidenced — left out' : 'Not in your CV — worth learning or earning'}</div>
                         <div className="flex flex-wrap gap-1">
                           {proposal.items.filter((i) => i.verdict === 'unsupported').map((item) => (
                             <span key={item.gap} className="px-1.5 py-0.5 rounded bg-[#F5F5F4] text-[var(--color-faint)] text-[10px] font-medium">{item.gap} · {item.count}×</span>
@@ -1002,20 +1034,6 @@ export const MasterCvEditor: React.FC<MasterCvEditorProps> = ({ value, onChange,
                       </button>
                     </div>
                   </div>
-                )}
-                <div className="max-h-48 overflow-y-auto space-y-1">
-                  {skillGaps.map((gap) => (
-                    <label key={gap.skill} className="flex items-center space-x-2 px-2 py-1.5 rounded hover:bg-white cursor-pointer text-xs">
-                      <input type="checkbox" checked={selectedGaps.has(gap.skill)} onChange={() => toggleGap(gap.skill)} className="rounded border-[var(--color-hairline2)] cursor-pointer" />
-                      <span className="flex-1 font-medium text-[var(--color-ink)]">{gap.skill}</span>
-                      <span className="text-[10px] font-semibold text-[var(--color-faint)]">{gap.count}/{gap.totalScored} jobs</span>
-                    </label>
-                  ))}
-                </div>
-                {selectedGaps.size > 0 && (
-                  <button type="button" onClick={addSelectedGapsToCv} className="w-full px-3 py-1.5 rounded-md text-xs font-semibold bg-[var(--color-brand)] hover:bg-[var(--color-brand-strong)] text-white transition-colors cursor-pointer">
-                    Add {selectedGaps.size} Skill{selectedGaps.size > 1 ? 's' : ''} to CV
-                  </button>
                 )}
               </>
             )}

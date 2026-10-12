@@ -1321,7 +1321,13 @@ async function startServer() {
         return;
       }
       const cv = getMasterCv();
-      const proposal = await buildEnrichmentProposal(cv, gaps);
+      // User-picked gaps (checked boxes) are the primary flow: the AI
+      // analyzes exactly those. With no selection it auto-picks the top
+      // market gaps instead.
+      const pick = Array.isArray(req.body?.pick)
+        ? req.body.pick.map((s: unknown) => String(s)).filter(Boolean)
+        : undefined;
+      const proposal = await buildEnrichmentProposal(cv, gaps, { pick });
       storeEnrichProposal(getCurrentUserId(), proposal);
       res.json({ success: true, proposal });
     } catch (err: any) {
