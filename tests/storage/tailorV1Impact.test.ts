@@ -19,6 +19,7 @@ const { getDb, runWithUser, saveMasterCv, getJobById } = await import('../../ser
 const { ensureV2Tables } = await import('../../server/storage/v2Tables.js');
 const { ensureApplicantProfileSchema, defaultApplicantProfile, saveApplicantProfile } = await import('../../server/storage/applicantProfile.js');
 const { tailorJob } = await import('../../server/tailor/tailorService.js');
+const { isUnsupportedClaim, isNamedTechTerm } = await import('../../server/builder/llmCvTailor.js');
 import type { MasterCv, Job } from '../../src/types.js';
 
 const USER = 'v1-impact-user';
@@ -278,5 +279,24 @@ describe('V1 engine — recruiter-first quality (order, skills priority, metric 
     ].join(' \n ');
     expect(claimSurface).not.toContain('Python');
     expect(claimSurface).not.toContain('Prometheus');
+  });
+
+  it('CLASSIFIERS: credentials/titles are never-claim; "Secrets Manager" is a consentable product, not a title', () => {
+    // Never-claim (facts the user must own): credentials, tenure, role titles.
+    expect(isUnsupportedClaim('AWS Certified Solutions Architect')).toBe(true);
+    expect(isUnsupportedClaim('Certified Kubernetes Administrator (CKA)')).toBe(true);
+    expect(isUnsupportedClaim('AZ-104')).toBe(true);
+    expect(isUnsupportedClaim('6+ years experience')).toBe(true);
+    expect(isUnsupportedClaim('Senior DevOps Engineer')).toBe(true);
+    expect(isUnsupportedClaim('Site Reliability Engineer')).toBe(true);
+    expect(isUnsupportedClaim('Project Manager')).toBe(true);
+    // Products ending in "-manager" are named tech (consentable), NOT titles.
+    expect(isUnsupportedClaim('AWS Secrets Manager')).toBe(false);
+    expect(isNamedTechTerm('AWS Secrets Manager')).toBe(true);
+    // Generic capability wording auto-weaves; named tech needs consent.
+    expect(isNamedTechTerm('incident readiness')).toBe(false);
+    expect(isNamedTechTerm('change management')).toBe(false);
+    expect(isNamedTechTerm('Linux')).toBe(true);
+    expect(isNamedTechTerm('Go')).toBe(true);
   });
 });

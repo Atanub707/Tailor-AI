@@ -17,7 +17,7 @@ const HARD_CLAIM_PATTERNS: RegExp[] = [
   /\bpractitioner\b/i,
   /\b\d{1,2}\s*\+?\s*(?:years?|yrs?)\b/i,
 ];
-const ROLE_TITLE_PATTERN = /\b(?:engineer|developer|architect|manager|analyst|specialist|consultant|administrator|professional|associate|expert)\b/i;
+const ROLE_TITLE_PATTERN = /\b(?:engineer|developer|architect|analyst|specialist|consultant|administrator|professional|associate|expert)\b|(?<!secrets? |certificate |key |access |package |endpoint |device )\bmanager\b/i;
 const UNSUPPORTED_CLAIM_PATTERNS: RegExp[] = [...HARD_CLAIM_PATTERNS, ROLE_TITLE_PATTERN];
 
 export function isUnsupportedClaim(term: string): boolean {
