@@ -127,11 +127,10 @@ export async function tailorJob(job: Job, opts: { userId?: string; mode?: 'stric
   const { LlmCvTailor } = await import('../builder/llmCvTailor.js');
   const tailoredCv = await new LlmCvTailor().tailorCv(fullJob, masterCv);
 
-  // Informative audit (deterministic) — the UI reads audit.bulletDiffs /
-  // keywordStatus; compute from the output so nothing changes in the UI.
-  const draft = tailoredCvToDraft(tailoredCv);
-  // JD terms for the informative audit: prefer the deterministic parse, but
-  // fall back to the match's gap-analysis keywords.
+  // Recruiter-first ordering (deterministic): within each role the bullets
+  // that cover the most job-description terms come first, and JD-named
+  // skills float to the front of the skills lists. Real content only —
+  // order changes, never wording.
   const parsedTerms = jdSkillTerms(jd);
   const gapTerms = [
     ...(fullJob.gapAnalysis?.missingSkills || []),
@@ -139,7 +138,13 @@ export async function tailorJob(job: Job, opts: { userId?: string; mode?: 'stric
     ...(fullJob.gapAnalysis?.matchingSkills || []),
   ];
   const jdTerms = [...new Set([...parsedTerms, ...gapTerms])];
-  const bulletDiffs = computeBulletDiffs(masterCv, draft);
+  const bulletPerms = reorderBulletsByJdRelevance(tailoredCv, jdTerms);
+  prioritizeSkillsByJdRelevance(tailoredCv, jdTerms);
+
+  // Informative audit (deterministic) — the UI reads audit.bulletDiffs /
+  // keywordStatus; compute from the output so nothing changes in the UI.
+  const draft = tailoredCvToDraft(tailoredCv);
+  const bulletDiffs = computeBulletDiffs(permuteSourceForDiffs(masterCv, bulletPerms), draft);
   for (const d of bulletDiffs) {
     d.addedTerms = jdTerms.filter((t) => containsKeyword(d.rewritten, t));
   }
@@ -147,6 +152,16 @@ export async function tailorJob(job: Job, opts: { userId?: string; mode?: 'stric
   if (tailoredCv.audit) {
     tailoredCv.audit.bulletDiffs = bulletDiffs;
     tailoredCv.audit.keywordStatus = keywordStatus;
+    const impact = tailoredCv.audit.impactAudit;
+    if (impact && impact.bullets > 0) {
+      tailoredCv.audit.auditNotes = [
+        ...(tailoredCv.audit.auditNotes || []),
+        `${impact.quantified} of ${impact.bullets} experience bullets (${impact.quantifiedPct}%) carry a measurable outcome — recruiters scan for real numbers in the first 6-7 seconds. Add numbers from your actual work to the Master CV to strengthen the next tailor.`,
+        ...(impact.metricDropped.length > 0
+          ? [`The rewrite did not keep these real numbers (${impact.metricDropped.join(', ')}) — double-check those bullets.`]
+          : []),
+      ];
+    }
   }
 
   return {
@@ -157,6 +172,66 @@ export async function tailorJob(job: Job, opts: { userId?: string; mode?: 'stric
     pdfOk: true,
     audit: tailoredCv.audit as TailoringAudit,
   };
+}
+
+/** Deterministic recruiter-first ordering: within each role, bullets that
+ *  cover the most job-description terms come first (stable — ties keep the
+ *  original order). Only the ORDER of the candidate's real bullets changes;
+ *  no wording is touched. Returns the per-role permutation so the
+ *  before→after diff pairing can be preserved. */
+export function reorderBulletsByJdRelevance(tailoredCv: TailoredCv, jdTerms: string[]): Array<number[]> {
+  const terms = jdTerms.filter((t) => String(t || '').trim());
+  const perms: Array<number[]> = [];
+  for (const w of tailoredCv.workExperience || []) {
+    const highlights = w.highlights || [];
+    const identity = highlights.map((_, i) => i);
+    if (highlights.length < 2 || terms.length === 0) {
+      perms.push(identity);
+      continue;
+    }
+    const perm = highlights
+      .map((h, i) => ({ i, score: terms.filter((t) => containsKeyword(h, t)).length }))
+      .sort((a, b) => (b.score - a.score) || (a.i - b.i))
+      .map((s) => s.i);
+    perms.push(perm);
+    w.highlights = perm.map((idx) => highlights[idx]);
+  }
+  return perms;
+}
+
+/** Apply the SAME permutation to the Master CV's source bullets so the
+ *  before→after bullet-diff pairing stays exact after reordering. */
+function permuteSourceForDiffs(masterCv: MasterCv, perms: Array<number[]>): MasterCv {
+  return {
+    ...masterCv,
+    experiences: (masterCv.experiences || []).map((e, expIndex) => {
+      const resp = e.responsibilities || [];
+      const perm = perms[expIndex];
+      if (!perm || perm.length !== resp.length) return e;
+      return { ...e, responsibilities: perm.map((idx) => resp[idx]) };
+    }),
+  };
+}
+
+/** Deterministic skills prioritization: JD-named skills first (stable), both
+ *  in the flat core competencies and inside each grouped skills list. */
+export function prioritizeSkillsByJdRelevance(tailoredCv: TailoredCv, jdTerms: string[]): void {
+  const terms = jdTerms.filter((t) => String(t || '').trim());
+  if (!terms.length) return;
+  const score = (s: string) => terms.filter((t) => containsKeyword(s, t)).length;
+  const stableSort = (arr: string[]) =>
+    arr
+      .map((s, i) => ({ s, i, sc: score(s) }))
+      .sort((a, b) => (b.sc - a.sc) || (a.i - b.i))
+      .map((x) => x.s);
+  if (Array.isArray(tailoredCv.coreCompetencies) && tailoredCv.coreCompetencies.length > 1) {
+    tailoredCv.coreCompetencies = stableSort(tailoredCv.coreCompetencies);
+  }
+  for (const g of tailoredCv.technicalSkills || []) {
+    if (Array.isArray(g.skills) && g.skills.length > 1) {
+      g.skills = stableSort(g.skills);
+    }
+  }
 }
 
 /** Re-group the tailored flat skill list into the Master CV's skill

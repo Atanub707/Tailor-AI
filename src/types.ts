@@ -129,6 +129,16 @@ export interface TailoringAudit {
   };
   notIntegrable: string[];
   auditNotes: string[];
+  /** Deterministic impact audit (recruiter 7-second scan): how many bullets
+   *  carry a measurable outcome, and which real metrics the rewrite dropped. */
+  impactAudit?: {
+    bullets: number;
+    quantified: number;
+    quantifiedPct: number;
+    /** Numbers present in the Master CV bullets that did NOT survive the
+     *  rewrite (honest, never fabricated — flagged for manual repair). */
+    metricDropped: string[];
+  };
 }
 
 export interface TailoredCv {

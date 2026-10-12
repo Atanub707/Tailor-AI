@@ -45,6 +45,21 @@ export function extractDraftNumbers(text: string): string[] {
   return extractDraftNumbersRaw(text);
 }
 
+/** Digit-only metric tokens (no word-numbers) — used to verify that a
+ *  rewrite never DROPS a real number from a source bullet. Date years are
+ *  exempt; currency symbols are not part of the token. */
+export function extractNumericTokens(text: string): string[] {
+  const out: string[] = [];
+  let m: RegExpExecArray | null;
+  METRIC_TOKEN_RE.lastIndex = 0;
+  while ((m = METRIC_TOKEN_RE.exec(String(text || ''))) !== null) {
+    if (!/\d/.test(m[1])) continue;
+    const n = normalizeNumberToken(m[1]);
+    if (n && /\d/.test(n)) out.push(n);
+  }
+  return out;
+}
+
 export async function checkGeneratedTextSafety(text: string, cv: MasterCv, profile: ApplicantProfile): Promise<{ ok: boolean; issues: string[] }> {
   const ledger = buildCandidateFactLedger(cv, profile);
   const sourceText = JSON.stringify({ cv, profile }).toLowerCase();

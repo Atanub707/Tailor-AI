@@ -2,6 +2,7 @@ import { BaseCvBuilder } from './baseBuilder.js';
 import { Job, MasterCv, TailoredCv } from '../../src/types.js';
 import { askJson } from '../llm/askJson.js';
 import { containsKeyword } from '../tailor/keywordMatch.js';
+import { extractDraftNumbers, extractNumericTokens } from '../tailor/generatedTextSafety.js';
 import { TailorVerificationFailedError } from '../tailor/tailorTypes.js';
 
 export class LlmCvTailor extends BaseCvBuilder {
@@ -54,6 +55,12 @@ STRICT RULES:
 - The candidate's actual job title ("${candidateTitle}") MUST remain exactly as stated.
 - You MUST REWRITE every experience bullet: no bullet may be returned word-for-word identical to the source. Rephrase it to sound natural AND weave in the missing keywords that fit it.
 - You MUST REWRITE the professionalSummary so it differs from the source summary and weaves in up to 3 of the most relevant missing keywords that genuinely match the candidate's experience — never invent claims the CV does not support.
+
+IMPACT & ACCURACY RULES (recruiters scan your resume for 6-7 seconds):
+- Every rewritten bullet MUST keep EVERY number, percentage, currency amount and named tool from its source bullet EXACTLY (e.g. "70%" stays "70%", "$2M" stays "$2M"). NEVER invent a number the source does not contain.
+- Lead each bullet with a strong action verb and frame the OUTCOME ("did X, which delivered Y") using only facts already present in the source bullet. "What changed because you did this?" — that is the test every bullet must pass.
+- The professionalSummary MUST be 2-3 lines (35-60 words): who the candidate is (seniority + years), 1-2 REAL quantified achievements already present in the CV, and why they fit THIS role.
+- When the job description names a specific tool or technology, use the job description's EXACT phrasing (never a synonym).
 - ${selectedList.length > 0
       ? `INCORPORATE ONLY these selected missing keywords: ${selectedList.join(', ')} — DO NOT add or mention any other missing keyword.`
       : 'Integrate all missing keywords identified in the JD.'}
@@ -137,18 +144,37 @@ Return valid JSON only — NO markdown, NO code fences, pure JSON:
       });
     };
 
+    // ---- Metric preservation (deterministic, honest): a rewrite must never
+    // DROP a real number from the candidate's bullets. Numbers may be
+    // rephrased around, but the values themselves must survive verbatim.
+    const sourceMetricTokens = extractNumericTokens(sourceBullets.join(' '));
+    const droppedMetrics = (p: any): string[] => {
+      const outText = (p.workExperience || []).flatMap((w: any) => w.highlights || []).join(' ');
+      const outTokens = new Set(extractNumericTokens(outText));
+      return sourceMetricTokens.filter((t) => !outTokens.has(t));
+    };
+
     let parsed: any;
     let retried = false;
+    let dropped: string[] = [];
     for (let attempt = 0; attempt <= 1; attempt++) {
+      const keywordRetry = attempt > 0 && selectedList.length > 0
+        ? `\n- No genuinely-missing keyword (${selectedList.join(', ')}) appears anywhere in the output, and/or every bullet was returned unchanged.
+- You MUST rewrite the bullets so the keywords above appear inside them (or in skills), and the bullet text must differ from the source.`
+        : '';
+      const metricRetry = attempt > 0 && dropped.length > 0
+        ? `\n- Your previous rewrite DROPPED these real numbers from the candidate's bullets: ${dropped.join(', ')}. Every number that exists in a source bullet MUST survive the rewrite EXACTLY (same value, same unit). Restore them inside the rewritten bullets.`
+        : '';
       const prompt = attempt === 0 ? basePrompt : `${basePrompt}
 
-RETRY — your previous resume was rejected because it did not actually tailor anything:
-${attempt > 0 ? `- No genuinely-missing keyword (${selectedList.join(', ')}) appears anywhere in the output, and/or every bullet was returned unchanged.
-- You MUST rewrite the bullets so the keywords above appear inside them (or in skills), and the bullet text must differ from the source.
-- Return the corrected JSON between the markers.` : ''}`;
+RETRY — your previous resume was rejected:
+${keywordRetry}${metricRetry}
+- Return the corrected JSON between the markers.`;
       parsed = await askJson<any>(prompt, { temperature: 0.2 });
-      if (selectedList.length === 0) break; // nothing to integrate
-      if (outputHasGain(parsed) && (bulletsActuallyChanged(parsed) || summaryChanged(parsed))) break;
+      dropped = droppedMetrics(parsed);
+      const gainOk = selectedList.length === 0 || outputHasGain(parsed);
+      const rewriteOk = selectedList.length === 0 || bulletsActuallyChanged(parsed) || summaryChanged(parsed);
+      if (gainOk && rewriteOk && dropped.length === 0) break;
       retried = attempt === 0;
     }
     if (selectedList.length > 0 && (!outputHasGain(parsed) || (!bulletsActuallyChanged(parsed) && !summaryChanged(parsed)))) {
@@ -191,6 +217,16 @@ ${attempt > 0 ? `- No genuinely-missing keyword (${selectedList.join(', ')}) app
     const rephrasedCount = (parsed.workExperience || []).reduce(
       (acc: number, item: any) => acc + (item.highlights?.length || 0), 0
     );
+
+    // ---- Deterministic impact audit (recruiter 7-second scan) ----
+    const outBullets = (parsed.workExperience || []).flatMap((w: any) => w.highlights || []);
+    const quantifiedCount = outBullets.filter((h: string) => extractDraftNumbers(String(h)).length > 0).length;
+    const impactAudit = {
+      bullets: outBullets.length,
+      quantified: quantifiedCount,
+      quantifiedPct: outBullets.length > 0 ? Math.round((quantifiedCount / outBullets.length) * 100) : 0,
+      metricDropped: dropped,
+    };
 
     const auditNotes = [
       `Maintained candidate's title as "${candidateTitle}" (not changed to "${job.title}").`,
@@ -248,6 +284,7 @@ ${attempt > 0 ? `- No genuinely-missing keyword (${selectedList.join(', ')}) app
         },
         notIntegrable,
         auditNotes,
+        impactAudit,
       },
     };
   }
