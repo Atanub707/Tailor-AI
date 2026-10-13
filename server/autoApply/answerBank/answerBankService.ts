@@ -29,6 +29,9 @@ export interface BankQuestionResolution {
   confidence: number;
   requiresReview: boolean;
   matchedAnswerId?: string;
+  /** Canonical key the match was made under (from the stored answer, or
+   *  derived from the question) — the intent harness scopes matches with it. */
+  canonicalKey?: string;
   reason?: string;
 }
 
@@ -48,6 +51,7 @@ export function resolveQuestionsFromBank(userId: string, questions: BankQuestion
       return {
         providerFieldId: q.providerFieldId, label: q.label, matchStatus: 'NONE',
         value: null, source: null, confidence: match.confidence, requiresReview: false,
+        canonicalKey: q.canonicalKey,
       };
     }
     return {
@@ -59,6 +63,7 @@ export function resolveQuestionsFromBank(userId: string, questions: BankQuestion
       confidence: match.confidence,
       requiresReview: match.requiresReview,
       matchedAnswerId: match.matchedAnswerId,
+      canonicalKey: match.answer.canonicalKey ?? canonicalKeyForQuestion(match.answer.canonicalQuestion),
       reason: match.reason,
     };
   });

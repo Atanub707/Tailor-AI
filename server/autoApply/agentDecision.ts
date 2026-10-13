@@ -14,6 +14,13 @@
 
 import { resolveQuestionsFromBank } from './answerBank/answerBankService.js';
 import { answerBankConfigFromEnv, listAnswers, listRunAnswers } from './answerBank/answerBankStore.js';
+import {
+  classifyQuestionIntent,
+  intentAllowsBankMatch,
+  intentAllowsSelfIdentity,
+  intentBlocksCanonical,
+  type QuestionIntent,
+} from './questionIntents.js';
 import { layaConfigFromEnv } from './decisionEngine.js';
 import { LayaDecisionEngine } from './layaDecisionEngine.js';
 import { getMasterCv, runWithUser } from '../storage/fileStorage.js';
@@ -382,6 +389,16 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
   const values = new Map<string, string>();
   const candidates = fields.filter((f) => !isConsentField(f) && f.kind !== 'file');
   if (!candidates.length) return values;
+
+  // QUESTION-INTENT harness: every field is classified BEFORE value
+  // resolution. Non-SELF entities (referrer/emergency/spouse/…) can never be
+  // answered with the applicant's own identity; exactOnly/conditional/EEO
+  // questions never resolve from generic stages.
+  const intents = new Map<string, QuestionIntent>();
+  for (const f of candidates) {
+    intents.set(f.ref, classifyQuestionIntent({ label: f.label, name: f.name, groupLabel: f.groupLabel }));
+  }
+  const intentOf = (f: ObservedField): QuestionIntent => intents.get(f.ref)!;
   // RUN-SCOPED answers ("Remember" OFF) resolve first — this job only.
   const runRecords = jobId ? listRunAnswers(userId, jobId) : [];
   const allRecords = () => [...runRecords, ...listAnswers(userId)];
@@ -396,6 +413,10 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
   }) as { links?: { linkedin?: string; github?: string; website?: string }; contact?: { phone?: string; country?: string }; personal?: { phone?: string } } | null;
   if (std) {
     const stdValue = (f: ObservedField): string | undefined => {
+      const intent = intentOf(f);
+      // Identity may only answer SELF questions — never a referrer/emergency/
+      // spouse question, and never a conditional/EEO follow-up.
+      if (!intentAllowsSelfIdentity(intent)) return undefined;
       const s = `${f.label || ''} ${f.name || ''}`;
       if (/\be-?mail\b/i.test(s)) return std.email;
       // Phone-number fields ONLY — never the dial-code/country-code pickers
@@ -428,21 +449,29 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
       const records = allRecords();
       for (const f of stillUnmatched) {
         if (isConditionalFreeText(f)) continue; // conditional follow-ups stay empty
-        const keys = bankKeysForLabel(matchText(f));
+        const intent = intentOf(f);
+        if (intent.exactOnly) continue; // EEO/conditional/visa: exact answers only
+        const keys = bankKeysForLabel(matchText(f)).filter((k) => !intentBlocksCanonical(intent, k));
         if (!keys.length) continue;
-        const isSalary = keys.includes('expectedSalary');
-        const rec = records.find(
-          (r) =>
-            keys.includes(r.canonicalKey) &&
-            r.verificationStatus === 'VERIFIED' &&
-            (r.sensitivity === 'NORMAL' || r.sensitivity === 'PERSONAL' || r.source === 'USER_PROVIDED') &&
-            r.answerValue !== null &&
-            r.answerValue !== undefined &&
-            String(r.answerValue).trim() !== '' &&
-            // A salary answer must look like an amount — guards against
-            // mis-classified yes/no bank rows (a real poison we hit).
-            (!isSalary || /[\d]/.test(String(r.answerValue))),
-        );
+        // Key-preference order: e.g. expectedSalary beats currentSalary for a
+        // generic "salary" question (was: whichever row updated most recently).
+        let rec: (typeof records)[number] | undefined;
+        for (const key of keys) {
+          const isSalary = key.includes('alary');
+          rec = records.find(
+            (r) =>
+              r.canonicalKey === key &&
+              r.verificationStatus === 'VERIFIED' &&
+              (r.sensitivity === 'NORMAL' || r.sensitivity === 'PERSONAL' || r.source === 'USER_PROVIDED') &&
+              r.answerValue !== null &&
+              r.answerValue !== undefined &&
+              String(r.answerValue).trim() !== '' &&
+              // A salary answer must look like an amount — guards against
+              // mis-classified yes/no bank rows (a real poison we hit).
+              (!isSalary || /[\d]/.test(String(r.answerValue))),
+          );
+          if (rec) break;
+        }
         if (!rec) continue;
         // Concept ownership is claimed ONLY when it actually resolves —
         // otherwise the field is starved from exact/prefix matching.
@@ -465,9 +494,12 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
       const norm = (t: string) => String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
       for (const f of prefixUnmatched) {
         if (isConditionalFreeText(f)) continue; // conditional follow-ups stay empty
+        const intent = intentOf(f);
+        if (intent.exactOnly) continue;
         const label = norm(matchText(f));
         if (label.length < 12) continue; // short labels: exact/alias logic owns them
         const rec = records.find((r) => {
+          if (intentBlocksCanonical(intent, r.canonicalKey)) return false;
           if (r.verificationStatus !== 'VERIFIED') return false;
           if (!(r.sensitivity === 'NORMAL' || r.sensitivity === 'PERSONAL' || r.source === 'USER_PROVIDED')) return false;
           if (r.answerValue === null || r.answerValue === undefined || String(r.answerValue).trim() === '') return false;
@@ -497,6 +529,13 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
     for (const r of resolved) {
       if (r.matchStatus === 'NONE' || r.value === null || r.value === undefined) continue;
       if (r.requiresReview) continue; // uncertain/stale/sensitive → never auto
+      const field = remaining.find((x) => x.ref === r.providerFieldId);
+      if (field) {
+        const intent = intentOf(field);
+        // Generic matches must respect the intent policy; EXACT (the user
+        // answered THIS question) always passes.
+        if (!intentAllowsBankMatch(intent, r.canonicalKey, r.matchStatus)) continue;
+      }
       values.set(r.providerFieldId, Array.isArray(r.value) ? r.value.join(', ') : String(r.value));
     }
   }
@@ -507,6 +546,8 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
     const engine = new LayaDecisionEngine({ url: layaCfg.url, timeoutMs: layaCfg.timeoutMs });
     const records = allRecords();
     for (const f of unmatched.slice(0, layaCfg.maxFields)) {
+      const intent = intentOf(f);
+      if (intent.exactOnly) continue; // EEO/conditional/visa never auto-engine
       const result = await engine.classifyField({
         label: matchText(f),
         type: kindToBankType(f.kind),
@@ -515,6 +556,9 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
       });
       if (!result || !result.canonicalKey) continue;
       if (result.confidence < layaCfg.reviewConfidence) continue;
+      // Entity scoping: a referrer/emergency question may only reuse its own
+      // canonical keys — never fullName/firstName/email/… (the own-name bug).
+      if (!intentAllowsBankMatch(intent, result.canonicalKey, 'SEMANTIC')) continue;
       const rec = records.find(
         (r) =>
           r.canonicalKey === result.canonicalKey &&
