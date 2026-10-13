@@ -8,17 +8,38 @@
 
 export const CANONICAL_BUCKETS = {
   awsServices: 'AWS Services',
+  gcpServices: 'GCP Services',
+  azureServices: 'Azure Services',
   databases: 'Databases & Data Stores',
   networking: 'Networking',
   practices: 'Site Reliability Practices',
+  securityPractices: 'Security Practices',
   systems: 'Systems & OS',
 } as const;
 
-// AWS service names that belong together (security/IaC/CI-CD/container AWS
-// services are excluded — they live in their specialized existing sections).
+// Provider services belong together per provider (never mixed into the
+// provider-platform list). Managed-K8s (EKS/GKE/AKS) stays in the CV's
+// Containers section; security/IaC/CI-CD/AI provider services stay in their
+// specialized sections.
 const AWS_SERVICE_ITEMS = new Set([
   'ec2', 'vpc', 's3', 'rds', 'dynamodb', 'lambda', 'sqs', 'sns', 'route 53', 'route53',
   'cloudfront', 'ecr', 'efs', 'aurora', 'elasticache', 'direct connect', 'elb', 'alb', 'nlb',
+]);
+
+const GCP_SERVICE_ITEMS = new Set([
+  'bigquery', 'cloud run', 'cloud functions', 'cloud storage', 'gcs', 'pub/sub', 'pubsub',
+  'cloud build', 'cloud deploy', 'cloud sql', 'cloud spanner', 'cloud dns', 'cloud cdn',
+  'cloud armor', 'cloud kms', 'cloud logging', 'cloud monitoring', 'firestore', 'dataflow',
+  'dataproc', 'vertex ai', 'artifact registry', 'secret manager', 'memorystore', 'anthos',
+  'cloud scheduler', 'cloud tasks', 'cloud composer', 'datastream', 'looker',
+]);
+
+const AZURE_SERVICE_ITEMS = new Set([
+  'azure functions', 'app service', 'azure sql', 'cosmos db', 'cosmosdb', 'blob storage',
+  'azure blob', 'azure storage', 'entra id', 'azure ad', 'key vault', 'front door',
+  'vnet', 'virtual network', 'expressroute', 'logic apps', 'event hubs', 'service bus',
+  'azure service bus', 'azure cache', 'azure container apps', 'azure arc', 'azure backup',
+  'azure site recovery', 'azure firewall', 'azure bastion', 'azure policy', 'azure synapse',
 ]);
 
 const DATABASE_ITEMS = new Set([
@@ -37,6 +58,11 @@ const PRACTICE_ITEMS = new Set([
   'chaos engineering', 'cost optimization', 'change management', 'rollback', 'incident response',
 ]);
 
+const SECURITY_PRACTICE_ITEMS = new Set([
+  'threat modeling', 'penetration testing', 'red team', 'blue team', 'vulnerability management',
+  'secure sdlc', 'secure code review', 'security architecture', 'risk assessment',
+]);
+
 const SYSTEM_ITEMS = new Set(['linux', 'windows', 'operating systems', 'unix', 'macos']);
 
 /** Canonical bucket name for an item, or null when it is not bucketable. */
@@ -44,8 +70,11 @@ export function classifySkillBucket(raw: string): string | null {
   const key = String(raw || '').toLowerCase().trim();
   if (!key) return null;
   if (AWS_SERVICE_ITEMS.has(key)) return CANONICAL_BUCKETS.awsServices;
+  if (GCP_SERVICE_ITEMS.has(key)) return CANONICAL_BUCKETS.gcpServices;
+  if (AZURE_SERVICE_ITEMS.has(key)) return CANONICAL_BUCKETS.azureServices;
   if (DATABASE_ITEMS.has(key)) return CANONICAL_BUCKETS.databases;
   if (NETWORKING_ITEMS.has(key)) return CANONICAL_BUCKETS.networking;
+  if (SECURITY_PRACTICE_ITEMS.has(key)) return CANONICAL_BUCKETS.securityPractices;
   if (PRACTICE_ITEMS.has(key)) return CANONICAL_BUCKETS.practices;
   if (SYSTEM_ITEMS.has(key)) return CANONICAL_BUCKETS.systems;
   return null;
@@ -77,6 +106,31 @@ const DISPLAY_OVERRIDES: Record<string, string> = {
   'incident response': 'Incident Response', rollback: 'Rollback', networking: 'Networking',
   go: 'Go', golang: 'Golang', java: 'Java', ruby: 'Ruby', rust: 'Rust', swift: 'Swift', kotlin: 'Kotlin',
   bash: 'Bash', python: 'Python', iis: 'IIS', nist: 'NIST', hipaa: 'HIPAA', pci: 'PCI',
+  // GCP services
+  bigquery: 'BigQuery', 'cloud run': 'Cloud Run', 'cloud functions': 'Cloud Functions',
+  'cloud storage': 'Cloud Storage', gcs: 'GCS', 'pub/sub': 'Pub/Sub', pubsub: 'Pub/Sub',
+  'cloud build': 'Cloud Build', 'cloud deploy': 'Cloud Deploy', 'cloud sql': 'Cloud SQL',
+  'cloud spanner': 'Cloud Spanner', 'cloud dns': 'Cloud DNS', 'cloud cdn': 'Cloud CDN',
+  'cloud armor': 'Cloud Armor', 'cloud kms': 'Cloud KMS', 'cloud logging': 'Cloud Logging',
+  'cloud monitoring': 'Cloud Monitoring', firestore: 'Firestore', dataflow: 'Dataflow',
+  dataproc: 'Dataproc', 'vertex ai': 'Vertex AI', 'artifact registry': 'Artifact Registry',
+  'secret manager': 'Secret Manager', memorystore: 'Memorystore', anthos: 'Anthos',
+  'cloud scheduler': 'Cloud Scheduler', 'cloud tasks': 'Cloud Tasks', 'cloud composer': 'Cloud Composer',
+  datastream: 'Datastream', looker: 'Looker',
+  // Azure services
+  'azure functions': 'Azure Functions', 'app service': 'App Service', 'azure sql': 'Azure SQL',
+  'cosmos db': 'Cosmos DB', cosmosdb: 'Cosmos DB', 'blob storage': 'Blob Storage',
+  'azure blob': 'Azure Blob Storage', 'azure storage': 'Azure Storage', 'entra id': 'Entra ID',
+  'azure ad': 'Azure AD', 'key vault': 'Key Vault', 'front door': 'Front Door', vnet: 'VNet',
+  'virtual network': 'Virtual Network', expressroute: 'ExpressRoute', 'logic apps': 'Logic Apps',
+  'event hubs': 'Event Hubs', 'service bus': 'Service Bus', 'azure service bus': 'Azure Service Bus',
+  'azure cache': 'Azure Cache', 'azure container apps': 'Azure Container Apps', 'azure arc': 'Azure Arc',
+  'azure backup': 'Azure Backup', 'azure site recovery': 'Azure Site Recovery', 'azure firewall': 'Azure Firewall',
+  'azure bastion': 'Azure Bastion', 'azure policy': 'Azure Policy', 'azure synapse': 'Azure Synapse',
+  // security practices
+  'red team': 'Red Team', 'blue team': 'Blue Team', 'vulnerability management': 'Vulnerability Management',
+  'secure sdlc': 'Secure SDLC', 'secure code review': 'Secure Code Review', 'security architecture': 'Security Architecture',
+  'risk assessment': 'Risk Assessment',
 };
 
 /** Display casing for a skill: overrides first, otherwise title-case plain

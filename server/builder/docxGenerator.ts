@@ -253,17 +253,15 @@ function generateAtanuPdf(cv: TailoredCv): Promise<Buffer> {
     const NAME_SIZE = 24;
     const NAME_SPACING = 0.5;
     doc.font('HelveticaEmbed-Bold').fontSize(NAME_SIZE);
-    let nameWidth = 0;
-    for (const ch of Array.from(name)) nameWidth += doc.widthOfString(ch) + NAME_SPACING;
-    nameWidth -= NAME_SPACING;
+    // Single text run with tracking — identical look, but the ATS text layer
+    // keeps the name as ONE string (per-character drawing splits it apart).
+    const nameGlyphWidth = doc.widthOfString(name);
+    const nameCharCount = Array.from(name).length;
+    const nameWidth = nameGlyphWidth + Math.max(0, nameCharCount - 1) * NAME_SPACING;
     const nameX = leftMargin + Math.max(0, (contentWidth - nameWidth) / 2);
     const nameY = doc.y; // capture once — pdfkit advances doc.y on EVERY text() call
     pdfDebug('name', nameX, nameY, nameWidth, NAME_SIZE * 1.2, nameY + NAME_SIZE * 1.2);
-    let cx = nameX;
-    for (const ch of Array.from(name)) {
-      doc.fillColor(NAVY).text(ch, cx, nameY, { lineBreak: false });
-      cx += doc.widthOfString(ch) + NAME_SPACING;
-    }
+    doc.fillColor(NAVY).text(name, nameX, nameY, { lineBreak: false, characterSpacing: NAME_SPACING });
     // lineBreak:false leaves doc.y untouched — advance the full name line + 3px
     doc.y = nameY + NAME_SIZE * 1.2 + 3;
 
@@ -273,17 +271,14 @@ function generateAtanuPdf(cv: TailoredCv): Promise<Buffer> {
       if (role) {
         ensurePageSpace(20);
         const ROLE_SIZE = 12;
-        const ROLE_SPACING = 1.5;
+        const ROLE_SPACING = 0.9; // keep below the extractor's word-break threshold
         const roleY = doc.y;
         doc.font('HelveticaEmbed-Bold').fontSize(ROLE_SIZE);
-        let roleW = 0;
-        for (const ch of Array.from(role)) roleW += doc.widthOfString(ch) + ROLE_SPACING;
-        roleW -= ROLE_SPACING;
-        let rx = leftMargin + Math.max(0, (contentWidth - roleW) / 2);
-        for (const ch of Array.from(role)) {
-          doc.fillColor(ACCENT).text(ch, rx, roleY, { lineBreak: false });
-          rx += doc.widthOfString(ch) + ROLE_SPACING;
-        }
+        // Single tracked run — the role must extract as one string for ATS.
+        const roleCharCount = Array.from(role).length;
+        const roleW = doc.widthOfString(role) + Math.max(0, roleCharCount - 1) * ROLE_SPACING;
+        const rx = leftMargin + Math.max(0, (contentWidth - roleW) / 2);
+        doc.fillColor(ACCENT).text(role, rx, roleY, { lineBreak: false, characterSpacing: ROLE_SPACING });
         // lineBreak:false leaves doc.y untouched — advance the role line + 3px
         doc.y = roleY + ROLE_SIZE * 1.2 + 3;
       }
@@ -339,12 +334,10 @@ function generateAtanuPdf(cv: TailoredCv): Promise<Buffer> {
       const headY = doc.y;
       const secTitle = title.toUpperCase();
       doc.font('HelveticaEmbed').fontSize(11); // normal weight
-      let cx = leftMargin;
-      for (const ch of Array.from(secTitle)) {
-        doc.fillColor(ACCENT).text(ch, cx, headY, { lineBreak: false });
-        cx += doc.widthOfString(ch) + 1.5;
-      }
-      doc.y = headY + 11 * 1.2; // char loop didn't advance doc.y — move past the heading line
+      // Single tracked run — section headings must extract as whole words so
+      // ATS section detection ("WORK EXPERIENCE", "SKILLS") always matches.
+      doc.fillColor(ACCENT).text(secTitle, leftMargin, headY, { lineBreak: false, characterSpacing: 0.9 });
+      doc.y = headY + 11 * 1.2; // move past the heading line
       const ruleY = doc.y + 2; // 2px padding below heading text
       pdfDebug('section-heading', leftMargin, headY, contentWidth, doc.y - headY, ruleY + 6);
       doc.moveTo(leftMargin, ruleY).lineTo(rightMargin, ruleY).lineWidth(1.2).strokeColor(ACCENT).stroke();
@@ -1066,7 +1059,7 @@ function generateHarvardPdf(cv: TailoredCv): Promise<Buffer> {
           .filter((c) => c.name || c.list)
       : [];
     if (skillCats.length > 0) {
-      section('Skills & Interests');
+      section('Technical Skills');
       for (const cat of skillCats) {
         ensurePageSpace(14);
         const y0 = doc.y;

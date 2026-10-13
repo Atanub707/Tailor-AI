@@ -215,7 +215,15 @@ describe('market-gap AI enrichment — propose, ground, apply', () => {
     expect(classifySkillBucket('slo')).toBe('Site Reliability Practices');
     expect(classifySkillBucket('postgresql')).toBe('Databases & Data Stores');
     expect(classifySkillBucket('linux')).toBe('Systems & OS');
+    expect(classifySkillBucket('bigquery')).toBe('GCP Services');
+    expect(classifySkillBucket('Cloud Run')).toBe('GCP Services');
+    expect(classifySkillBucket('cosmos db')).toBe('Azure Services');
+    expect(classifySkillBucket('key vault')).toBe('Azure Services');
+    expect(classifySkillBucket('threat modeling')).toBe('Security Practices');
     expect(classifySkillBucket('kubernetes')).toBeNull();
+    expect(classifySkillBucket('eks')).toBeNull(); // managed-k8s stays in Containers
+    expect(normalizeSkillDisplay('bigquery')).toBe('BigQuery');
+    expect(normalizeSkillDisplay('cosmos db')).toBe('Cosmos DB');
 
     // Organizer: services leave Cloud Platforms, everything normalized.
     const { skills, moves } = organizeSkills([
