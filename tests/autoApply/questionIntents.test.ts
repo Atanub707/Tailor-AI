@@ -162,4 +162,35 @@ describe('question-intent harness', () => {
     const values = await resolveAgentValues(USER, fields(['If yes, where in the US do you currently live?']));
     expect(values.get('f0')).toBeUndefined();
   });
+
+  it('ADDRESS: one generic answer per component — re-worded questions reuse it instead of re-asking', async () => {
+    // Seed exactly what the user answered in chat (real phrasings from the DB).
+    runWithUser(USER, () => {
+      upsertAnswer(USER, { canonicalQuestion: 'State*', questionCategory: 'identity', answerType: 'TEXT', answerValue: 'WB', source: 'USER_PROVIDED', reusable: true });
+      upsertAnswer(USER, { canonicalQuestion: 'Street Address (include apartment number if applicable)', questionCategory: 'identity', answerType: 'TEXT', answerValue: 'Barrackpore', source: 'USER_PROVIDED', reusable: true });
+      upsertAnswer(USER, { canonicalQuestion: 'Location (City)*', questionCategory: 'identity', answerType: 'TEXT', answerValue: 'Kolkata', source: 'USER_PROVIDED', reusable: true });
+    });
+    const values = await resolveAgentValues(USER, fields([
+      'What state do you currently reside in?*', // another form's wording → stateProvince
+      'Region', // same component, third wording
+      'Zip Code', // never answered → stays a single ask (NOT a wrong match)
+      'Town', // → currentCity from "Location (City)*"
+      'Mailing Address', // → streetAddress from "Street Address (…)"
+    ]));
+    expect(values.get('f0')).toBe('WB');
+    expect(values.get('f1')).toBe('WB');
+    expect(values.get('f2')).toBeUndefined();
+    expect(values.get('f3')).toBe('Kolkata');
+    expect(values.get('f4')).toBe('Barrackpore');
+  });
+
+  it('POISON GUARD: an email stored against a mailing-address question never spreads to other address fields', async () => {
+    runWithUser(USER, () => upsertAnswer(USER, {
+      canonicalQuestion: 'Please share your mailing address for future reference.', questionCategory: 'identity', answerType: 'TEXT',
+      answerValue: 'ravi@example.com', source: 'USER_PROVIDED', reusable: true,
+    }));
+    const values = await resolveAgentValues(USER, fields(['Street Address', 'Home Address']));
+    expect(values.get('f0')).toBeUndefined(); // email is never typed into an address
+    expect(values.get('f1')).toBeUndefined();
+  });
 });

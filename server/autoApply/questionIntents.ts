@@ -80,9 +80,16 @@ const INTENT_RULES: Rule[] = [
   { re: /first ?name|given ?name|preferred (first )?name|forename/i, id: 'identity.firstName', category: 'identity', keys: ['firstName'] },
   { re: /last ?name|family ?name|surname/i, id: 'identity.lastName', category: 'identity', keys: ['lastName'] },
   { re: /\b(full |legal )?name\b/i, id: 'identity.fullName', category: 'identity', keys: ['fullName'] },
-  { re: /street address|mailing address|home address|\baddress\b/i, id: 'identity.address', category: 'identity', keys: ['streetAddress'] },
+  // Address components — each has its own generic key so one answer covers
+  // every form's wording ("State*", "Region", "Province", "Zip/Postal", …).
+  { re: /city\s*[\/,]\s*state|city\s+and\s+state|(city|state).{0,40}(reside|live)|reside.{0,40}(city|state)/i, id: 'identity.cityState', category: 'identity', keys: ['cityState'] },
+  { re: /(?<![-])(?<!tri-)(?<!country\/)(?<!country )\bstate\b(?!s)|(?<!country\/)(?<!country )\b(province|region)\b|state of residence/i, id: 'identity.state', category: 'identity', keys: ['stateProvince'] },
+  { re: /\b(zip|postal|post\s?code|pin\s?code)\b/i, id: 'identity.postal', category: 'identity', keys: ['postalCode'] },
+  { re: /street address|mailing address|home address|residential address|address line 1|full address/i, id: 'identity.street', category: 'identity', keys: ['streetAddress'] },
+  { re: /address line 2|apartment|\bapt\b|\bsuite\b|unit number/i, id: 'identity.address2', category: 'identity', keys: ['addressLine2'] },
+  { re: /\baddress\b/i, id: 'identity.address', category: 'identity', keys: ['streetAddress'] },
   { re: /country/i, id: 'identity.country', category: 'identity', keys: ['currentCountry'] },
-  { re: /(current )?(location|city)|where .*based|which city|city\s*\/?\s*state|resid/i, id: 'identity.location', category: 'identity', keys: ['currentCity'] },
+  { re: /(current )?(location|city)|where .*based|which city|location\s*\(city\)|\btown\b|municipality|resid/i, id: 'identity.location', category: 'identity', keys: ['currentCity', 'cityState'] },
   // Compensation — keep the sub-intents apart (audit: expected/current mixups).
   { re: /(expected|desired|target|requested)\s+(annual\s+)?(salary|compensation|ctc|pay)|(salary|compensation|ctc|pay)\s*(expectation|expectations|expect|range|requirement)|pretens[ãa]o salarial/i, id: 'compensation.expected', category: 'compensation', keys: ['expectedSalary', 'targetSalary'] },
   { re: /(current|present)\s+(annual\s+)?(salary|compensation|ctc|pay)|last salary|último salário/i, id: 'compensation.current', category: 'compensation', keys: ['currentSalary'] },

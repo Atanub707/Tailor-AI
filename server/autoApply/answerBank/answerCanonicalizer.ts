@@ -44,6 +44,14 @@ const ENTITY_ALIASES: Array<{ re: RegExp; key: string }> = [
 /** Extra deterministic aliases for common bank questions not covered by the
  *  engine's field-alias ladder. Ordered; first match wins. */
 const EXTRA_ALIASES: Array<{ re: RegExp; key: string }> = [
+  // ADDRESS components — one generic answer per component, reused across
+  // every form's wording ("State*", "What state do you reside in?", "Region").
+  { re: /city\s*[\/,]\s*state|city\s+and\s+state|(city|state).{0,40}(reside|live)|reside.{0,40}(city|state)/i, key: 'cityState' },
+  { re: /(?<![-])(?<!tri-)(?<!country\/)(?<!country )\bstate\b(?!s)|(?<!country\/)(?<!country )\b(province|region)\b|state of residence/i, key: 'stateProvince' },
+  { re: /\b(zip|postal|post\s?code|pin\s?code)\b/i, key: 'postalCode' },
+  { re: /street address|home address|mailing address|residential address|address line 1|address 1\b|full address/i, key: 'streetAddress' },
+  { re: /address line 2|apartment|\bapt\b|\bsuite\b|unit number/i, key: 'addressLine2' },
+  { re: /location\s*\(city\)|\btown\b|municipality|city of residence/i, key: 'currentCity' },
   // Identity anchors the engine ladder misses ('Full Name' does not start
   // with 'name'; 'Preferred Name' etc.).
   { re: /^\s*(full|legal)\s+name\b|^\s*(your\s+)?name\s*$/i, key: 'fullName' },

@@ -37,6 +37,14 @@ function splitName(full: string | undefined): { first: string; last: string } {
 /** Deterministic concept → bank canonical keys (used when label matching is
  *  not literal, e.g. "Salary expectations per month?" → expectedSalary). */
 const BANK_KEY_CONCEPTS: Array<{ re: RegExp; keys: string[] }> = [
+  // Address components — mapped BEFORE the generic entries so "City, State"
+  // resolves as ONE generic answer and "State" never eats a US-citizenship row.
+  { re: /city\s*[\/,]\s*state|city\s+and\s+state|(city|state).{0,40}(reside|live)|reside.{0,40}(city|state)/i, keys: ['cityState'] },
+  { re: /(?<![-])(?<!tri-)(?<!country\/)(?<!country )\bstate\b(?!s)|(?<!country\/)(?<!country )\b(province|region)\b|state of residence/i, keys: ['stateProvince'] },
+  { re: /\b(zip|postal|post\s?code|pin\s?code)\b/i, keys: ['postalCode'] },
+  { re: /street address|home address|mailing address|residential address|address line 1|full address/i, keys: ['streetAddress'] },
+  { re: /address line 2|apartment|\bapt\b|\bsuite\b|unit number/i, keys: ['addressLine2'] },
+  { re: /location\s*\(city\)|\btown\b|municipality|city of residence/i, keys: ['currentCity'] },
   { re: /salary|compensation/i, keys: ['expectedSalary', 'targetSalary', 'minimumSalary', 'currentSalary'] },
   { re: /notice period|notice/i, keys: ['noticePeriod'] },
   { re: /earliest start|start date|availability to start/i, keys: ['earliestStartDate'] },
@@ -456,6 +464,8 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
         // Key-preference order: e.g. expectedSalary beats currentSalary for a
         // generic "salary" question (was: whichever row updated most recently).
         let rec: (typeof records)[number] | undefined;
+        const ADDRESS_KEYS = new Set(['streetAddress', 'addressLine2', 'cityState', 'currentCity', 'stateProvince', 'postalCode']);
+        const isAddress = keys.some((k) => ADDRESS_KEYS.has(k));
         for (const key of keys) {
           const isSalary = key.includes('alary');
           rec = records.find(
@@ -468,7 +478,9 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
               String(r.answerValue).trim() !== '' &&
               // A salary answer must look like an amount — guards against
               // mis-classified yes/no bank rows (a real poison we hit).
-              (!isSalary || /[\d]/.test(String(r.answerValue))),
+              (!isSalary || /[\d]/.test(String(r.answerValue))) &&
+              // An address answer must not be an email (a real poison row).
+              (!isAddress || !String(r.answerValue).includes('@')),
           );
           if (rec) break;
         }
@@ -532,6 +544,9 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
       const field = remaining.find((x) => x.ref === r.providerFieldId);
       if (field) {
         const intent = intentOf(field);
+        // Poison guard: an email stored against an address question must
+        // never spread to other address fields via canonical/fuzzy matches.
+        if (r.matchStatus !== 'EXACT' && r.canonicalKey && ['streetAddress', 'addressLine2', 'cityState', 'currentCity', 'stateProvince', 'postalCode'].includes(r.canonicalKey) && /@/.test(String(r.value))) continue;
         // Generic matches must respect the intent policy; EXACT (the user
         // answered THIS question) always passes.
         if (!intentAllowsBankMatch(intent, r.canonicalKey, r.matchStatus)) continue;
