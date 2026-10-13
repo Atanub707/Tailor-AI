@@ -5,6 +5,7 @@
 // layers. No profession logic, no relevance decisions.
 
 import type { Job } from '../../src/types.js';
+import { composeJobTypeTag } from '../scraper/workMode.js';
 import type { NormalizedJob } from './types.js';
 
 export function toNormalized(j: Job, sourceLabel: string): NormalizedJob {
@@ -49,6 +50,7 @@ export function toDurableJob(n: NormalizedJob): Job {
     postedDateSemantics: n.postedDateSemantics,
     remote: n.remote,
     workMode: n.workMode,
+    jobType: composeJobTypeTag(n.employmentType, n.workMode, n.remote),
     scrapedAt: new Date().toISOString(),
     createdAt: new Date().toISOString(),
     provider: 'direct-ats',

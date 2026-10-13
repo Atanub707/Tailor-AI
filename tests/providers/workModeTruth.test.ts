@@ -99,4 +99,28 @@ describe('work-mode truth: provider signals win, weak text never fabricates Remo
     expect(hasStrongRemoteSignal('work from anywhere')).toBe(true);
     expect(classifyFromText('Remote - India')).toBe('Remote'); // location strings stay reliable
   });
+
+  it('JOB CARD TAG: ATS jobs compose the same type chip as scraped sources', async () => {
+    const { composeJobTypeTag } = await import('../../server/scraper/workMode.js');
+    const { toDurableJob } = await import('../../server/providers/atsProviderShared.js');
+    expect(composeJobTypeTag('Full-time', 'Remote')).toBe('Full-time · Remote');
+    expect(composeJobTypeTag('fulltime', 'On-site')).toBe('Full-time · On-site');
+    expect(composeJobTypeTag('Contract', undefined, true)).toBe('Contract · Remote');
+    expect(composeJobTypeTag(undefined, 'Hybrid')).toBe('Hybrid');
+    expect(composeJobTypeTag(undefined, undefined, true)).toBe('Remote');
+    expect(composeJobTypeTag('Full-time', undefined, false)).toBe('Full-time');
+    expect(composeJobTypeTag(undefined, undefined, undefined)).toBeUndefined();
+
+    // End of the pipeline: index row → provider → durable job — the TAG must survive.
+    const provider = createAtsIndexProvider('ashby', 'Ashby');
+    const out = await provider.search({ source: 'Ashby', keywords: 'engineer' } as any, 50);
+    const sre = out.jobs.find((j) => j.title === 'SRE')!;
+    const durable = toDurableJob(sre);
+    expect(durable.jobType).toBe('Remote'); // Ashby fixture has no employmentType
+    // Lever fixture: commitment Full-time + explicit On-site → both parts shown.
+    const leverProvider = createAtsIndexProvider('lever', 'Lever');
+    const lout = await leverProvider.search({ source: 'Lever', keywords: 'technician' } as any, 50);
+    const cctv = lout.jobs.find((j) => j.title === 'CCTV/Security Technician')!;
+    expect(toDurableJob(cctv).jobType).toBe('Full-time · On-site');
+  });
 });

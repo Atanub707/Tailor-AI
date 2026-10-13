@@ -32,6 +32,38 @@ export function hasStrongRemoteSignal(text: string | undefined | null): boolean 
   return STRONG_REMOTE_RE.test(String(text || ''));
 }
 
+/** Display tag for a job card ("Full-time · Remote"): employment type and
+ *  explicit work mode only — never invented. Used by every ATS persistence
+ *  path so Lever/Ashby/Greenhouse jobs show the same type chip as scraped
+ *  sources. */
+export function composeJobTypeTag(
+  employmentType?: string | null,
+  workMode?: string | null,
+  remote?: boolean
+): string | undefined {
+  const et = String(employmentType || '').trim();
+  const etLabel = /full.?time/i.test(et)
+    ? 'Full-time'
+    : /part.?time/i.test(et)
+      ? 'Part-time'
+      : /contract|contractor/i.test(et)
+        ? 'Contract'
+        : /intern/i.test(et)
+          ? 'Internship'
+          : /temporary/i.test(et)
+            ? 'Temporary'
+            : et;
+  const mode =
+    workMode === 'Remote' || workMode === 'Hybrid' || workMode === 'On-site'
+      ? workMode
+      : remote === true
+        ? 'Remote'
+        : '';
+  if (etLabel && mode) return `${etLabel} · ${mode}`;
+  if (mode) return mode;
+  return etLabel || undefined;
+}
+
 /**
  * Classify work mode from free-text (job description, or jobType+location
  * combined). Returns null ("not stated") rather than guessing — a job with

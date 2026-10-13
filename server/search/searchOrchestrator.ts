@@ -11,7 +11,7 @@
 import { getDb, runWithUser, getCurrentUserId, getUserJobFingerprints } from '../storage/fileStorage.js';
 import { canonicalQueryFp, getOrCreateSearch, linkJobsToSearch } from '../storage/v2Tables.js';
 import { evaluateRelevance, type MatchTier } from './relevance.js';
-import { classifyFromText, hasStrongRemoteSignal } from '../scraper/workMode.js';
+import { classifyFromText, composeJobTypeTag, hasStrongRemoteSignal } from '../scraper/workMode.js';
 import { rankRelevant } from './rank.js';
 import { matchesLocation } from './location.js';
 import { getProviderBudget } from '../providers/providerBudget.js';
@@ -230,6 +230,7 @@ export function promoteCandidate(userId: string, candidate: NormalizedJob): void
         applyUrl: candidate.applyUrl,
         postedDate: candidate.postedDate,
         postedDateSemantics: candidate.postedDateSemantics,
+        jobType: composeJobTypeTag(candidate.employmentType, candidate.workMode, candidate.remote),
         state: 'pending',
         createdAt: new Date().toISOString(),
         scrapedAt: new Date().toISOString(),
