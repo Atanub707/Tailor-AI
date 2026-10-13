@@ -29,6 +29,7 @@ function rowToNormalized(r: AtsJobRow, sourceLabel: string): NormalizedJob {
     postedDateSemantics: (r.posted_date_semantics as NormalizedJob['postedDateSemantics']) ?? undefined,
     employmentType: r.employment_type ?? undefined,
     remote: r.work_mode === 'Remote',
+    workMode: (r.work_mode as 'Remote' | 'Hybrid' | 'On-site' | null) ?? undefined,
     fingerprint: r.fingerprint,
   };
 }

@@ -1,4 +1,5 @@
 import type { Job } from '../../src/types.js';
+import { classifyFromText } from '../scraper/workMode.js';
 import { getDb } from '../storage/fileStorage.js';
 import { ensureV2Tables } from '../storage/v2Tables.js';
 import { loadConfig } from '../config.js';
@@ -118,6 +119,19 @@ export function normalizeDates(
 
 // Greenhouse: first_published is the canonical posting date. updated_at is
 // NEVER presented as a posting date when first_published exists.
+
+/** Explicit workplace type from a provider payload ("remote"/"hybrid"/
+ *  "onsite") — or null when the provider didn't state one. NEVER inferred
+ *  from description text here: that fabrication produced Remote labels for
+ *  on-site jobs (Lever CCTV-technician regression). */
+function providerWorkMode(raw: unknown): 'Remote' | 'Hybrid' | 'On-site' | null {
+  const v = String(raw || '').toLowerCase().replace(/[^a-z]/g, '');
+  if (v === 'remote') return 'Remote';
+  if (v === 'hybrid') return 'Hybrid';
+  if (v === 'onsite') return 'On-site';
+  return null;
+}
+
 function ghJob(j: any, companyName: string, platform: string): Job | null {
   const url = j.absolute_url || j.id;
   if (!j.title || !url) return null;
@@ -134,6 +148,7 @@ function ghJob(j: any, companyName: string, platform: string): Job | null {
     department: j.departments?.[0]?.name,
     employmentType: undefined,
     remote: /remote/i.test(String(j.location?.name || '')),
+    workMode: classifyFromText(j.location?.name) ?? undefined,
     description,
     atsPlatform: platform as any,
     jobUrl: url,
@@ -168,6 +183,9 @@ function leverJob(j: any, companyName: string, platform: string): Job | null {
     department: j.categories?.team,
     employmentType: j.categories?.commitment,
     remote: /remote|anywhere/i.test(String(j.workplaceType || j.categories?.location || '')),
+    // Lever's postings API carries workplaceType (remote/hybrid/onsite) —
+    // authoritative; otherwise the LOCATION text only (never the description).
+    workMode: providerWorkMode(j.workplaceType) ?? classifyFromText(j.categories?.location) ?? undefined,
     description: j.descriptionPlain || stripHtml(j.description || ''),
     atsPlatform: platform as any,
     jobUrl: url,
@@ -202,6 +220,8 @@ function ashbyJob(j: any, companyName: string, platform: string): Job | null {
     department: j.department?.name,
     employmentType: j.employmentType,
     remote: j.isRemote === true,
+    workMode:
+      providerWorkMode(j.workplaceType) ?? (j.isRemote === true ? 'Remote' : null) ?? classifyFromText(String(j.location || '')) ?? undefined,
     description: stripHtml(j.descriptionHtml || j.descriptionPlain || ''),
     atsPlatform: platform as any,
     jobUrl: url,

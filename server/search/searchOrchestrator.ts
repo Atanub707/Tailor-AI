@@ -11,7 +11,7 @@
 import { getDb, runWithUser, getCurrentUserId, getUserJobFingerprints } from '../storage/fileStorage.js';
 import { canonicalQueryFp, getOrCreateSearch, linkJobsToSearch } from '../storage/v2Tables.js';
 import { evaluateRelevance, type MatchTier } from './relevance.js';
-import { classifyFromText } from '../scraper/workMode.js';
+import { classifyFromText, hasStrongRemoteSignal } from '../scraper/workMode.js';
 import { rankRelevant } from './rank.js';
 import { matchesLocation } from './location.js';
 import { getProviderBudget } from '../providers/providerBudget.js';
@@ -193,15 +193,19 @@ function withinWindow(j: NormalizedJob, window?: string): boolean {
 }
 
 function detectWorkMode(j: NormalizedJob): 'remote' | 'hybrid' | 'onsite' | undefined {
-  // Explicit provider/index signal wins — Ashby isRemote, Lever workplaceType,
-  // Greenhouse location marker, or the ats_jobs.work_mode column. Only when
-  // no explicit signal exists do we classify from location + description,
-  // through the ONE shared work-mode module (no regex copies).
+  // Order: explicit workplace type → explicit remote flag → LOCATION text →
+  // strong remote phrases in the description. Weak text mentions of "remote"
+  // (benefits/boilerplate) never label a job Remote — that fabrication is
+  // what flooded Remote searches with on-site jobs.
+  if (j.workMode === 'Remote') return 'remote';
+  if (j.workMode === 'Hybrid') return 'hybrid';
+  if (j.workMode === 'On-site') return 'onsite';
   if (j.remote === true) return 'remote';
-  const t = classifyFromText(`${j.location || ''} ${(j.description || '').slice(0, 2000)}`);
-  if (t === 'Remote') return 'remote';
-  if (t === 'Hybrid') return 'hybrid';
-  if (t === 'On-site') return 'onsite';
+  const locMode = classifyFromText(j.location);
+  if (locMode === 'Remote') return 'remote';
+  if (locMode === 'Hybrid') return 'hybrid';
+  if (locMode === 'On-site') return 'onsite';
+  if (hasStrongRemoteSignal(j.description)) return 'remote';
   return undefined;
 }
 

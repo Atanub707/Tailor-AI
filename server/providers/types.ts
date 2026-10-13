@@ -30,6 +30,8 @@ export interface NormalizedJob {
   postedDateSemantics?: 'published' | 'created' | 'updated' | 'unknown';
   employmentType?: string;
   remote?: boolean;
+  /** Explicit workplace type (provider signal or index column). */
+  workMode?: 'Remote' | 'Hybrid' | 'On-site';
   fingerprint: string;  // canonical dedupe key (must be set by provider)
   raw?: Record<string, unknown>; // provider payload, for telemetry/debug only
 }

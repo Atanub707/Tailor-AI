@@ -73,9 +73,11 @@ function toAtsRow(j: Job, platform: string, slug: string): AtsJobRow {
   // remote-location marker) is authoritative; text classification is the
   // fallback. Storing the strongest available signal is what lets an explicit
   // Remote search return only genuinely-remote jobs.
-  const workMode = j.remote === true
-    ? 'Remote'
-    : classifyFromText(`${j.location || ''} ${j.description || ''}`.slice(0, 2000));
+  // Explicit provider signal first, then the LOCATION text only. The
+  // description is deliberately excluded: classifying 2k chars of benefits/
+  // boilerplate fabricated Remote labels for on-site jobs (real regression:
+  // a Lever "CCTV/Security Technician — Washington, DC" stored as Remote).
+  const workMode = j.workMode ?? (j.remote === true ? 'Remote' : classifyFromText(j.location || ''));
   return {
     fingerprint: j.fingerprint || `${platform}-${j.externalId || j.id}`,
     ats_platform: platform,

@@ -54,6 +54,9 @@ export interface Job {
   department?: string;
   employmentType?: string;
   remote?: boolean;
+  /** Explicit workplace type when the ATS provides it (Lever workplaceType,
+   *  Ashby workplaceType/isRemote) — authoritative over text classification. */
+  workMode?: 'Remote' | 'Hybrid' | 'On-site';
   atsCompanySlug?: string;
   provider?: string;
   providerRunId?: string;

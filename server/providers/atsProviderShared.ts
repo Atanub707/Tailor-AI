@@ -24,6 +24,7 @@ export function toNormalized(j: Job, sourceLabel: string): NormalizedJob {
     postedDateSemantics: j.postedDateSemantics,
     employmentType: j.employmentType,
     remote: j.remote,
+    workMode: j.workMode,
     fingerprint: j.fingerprint || `${j.atsPlatform || 'ats'}-${j.externalId || j.id}`,
   };
 }
@@ -47,6 +48,7 @@ export function toDurableJob(n: NormalizedJob): Job {
     postedDate: n.postedDate,
     postedDateSemantics: n.postedDateSemantics,
     remote: n.remote,
+    workMode: n.workMode,
     scrapedAt: new Date().toISOString(),
     createdAt: new Date().toISOString(),
     provider: 'direct-ats',
