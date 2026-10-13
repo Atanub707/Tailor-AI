@@ -201,6 +201,45 @@ describe('market-gap AI enrichment — propose, ground, apply', () => {
     expect(agg.find((g) => g.skill === 'datadog')!.count).toBe(1);
   });
 
+  it('deducts what the CV already has and never-claimable items from the gap list', async () => {
+    const { gaps: filtered, totalScored } = aggregateMarketGapsFromJobs(
+      [
+        { gapAnalysis: { missingSkills: ['Linux', 'Datadog', 'AWS Certified Solutions Architect'] } },
+        { gapAnalysis: { missingSkills: ['Linux', 'BigQuery'] } },
+      ] as any[],
+      { evidenceText: 'Experienced with Linux systems, Kubernetes and GKE.', excludePriorClaims: true }
+    );
+    expect(totalScored).toBe(2);
+    const names = filtered.map((g) => g.skill);
+    expect(names).not.toContain('linux'); // already in the CV -> deducted
+    expect(names).not.toContain('aws certified solutions architect'); // never claimable
+    expect(names).toContain('datadog');
+    expect(names).toContain('bigquery');
+  });
+
+  it('one-click auto-apply accepts everything grounded and never applies unsupported items', async () => {
+    const { autoApplyOptions } = await import('../../server/cv/marketEnrich.js');
+    const proposal: EnrichProposal = {
+      id: 'auto-1',
+      createdAt: new Date().toISOString(),
+      picked: true,
+      items: [
+        { gap: 'Linux', count: 1, verdict: 'supported', basis: '', category: 'Systems & OS', grounding: 1 },
+        { gap: 'Redis', count: 1, verdict: 'adjacent', basis: '', category: 'Databases & Data Stores', grounding: 0.4 },
+        { gap: 'Go', count: 1, verdict: 'unsupported', basis: '', category: 'Core Competencies', grounding: 0 },
+      ],
+      summaryRewrite: { text: 'x', reason: 'r' },
+      projectTags: [{ project: 'P', tag: 'T', basis: 'b' }],
+      bulletEdits: [{ expIndex: 0, hIndex: 0, before: 'b', after: 'a', gap: 'Linux', basis: '' }],
+      stats: { scannedJobs: 1, gapsConsidered: 3, supported: 1, adjacent: 1, unsupported: 1, droppedClaims: 0 },
+    };
+    const opts = autoApplyOptions(proposal);
+    expect(opts.acceptedGaps).toEqual(['Linux', 'Redis']); // unsupported is never applied
+    expect(opts.applySummary).toBe(true);
+    expect(opts.bulletEdits).toEqual([{ expIndex: 0, hIndex: 0, gap: 'Linux' }]);
+    expect(opts.projectTags).toEqual([{ project: 'P', tag: 'T' }]);
+  });
+
   it('TAXONOMY: normalizes display casing and classifies canonical buckets', async () => {
     const { normalizeSkillDisplay, classifySkillBucket, organizeSkills } = await import('../../server/cv/skillTaxonomy.js');
     expect(normalizeSkillDisplay('ec2')).toBe('EC2');

@@ -216,8 +216,10 @@ import { saveInterviewSession, getInterviewHistory, getInterviewSessionRecord } 
 import {
   aggregateMarketGapsFromJobs,
   applyEnrichment,
+  autoApplyOptions,
   buildEnrichmentProposal,
   getEnrichProposal,
+  masterCvEvidenceText,
   storeEnrichProposal,
 } from './server/cv/marketEnrich.js';
 import { organizeSkills } from './server/cv/skillTaxonomy.js';
@@ -1302,7 +1304,13 @@ async function startServer() {
   // Skill Gaps - aggregate missing skills across all scored jobs
   app.get('/api/cv/skill-gaps', (req, res) => {
     try {
-      const { gaps, totalScored } = aggregateMarketGapsFromJobs(getAllJobs());
+      // Deduct what the Master CV already contains (gap data is historical
+      // job-score output) and drop never-claimable items — the panel shows
+      // only skills that are genuinely still missing.
+      const { gaps, totalScored } = aggregateMarketGapsFromJobs(getAllJobs(), {
+        evidenceText: masterCvEvidenceText(getMasterCv()),
+        excludePriorClaims: true,
+      });
       res.json({ gaps, totalScored });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -1316,9 +1324,16 @@ async function startServer() {
       return;
     }
     try {
-      const { gaps } = aggregateMarketGapsFromJobs(getAllJobs());
+      const { gaps, totalScored } = aggregateMarketGapsFromJobs(getAllJobs(), {
+        evidenceText: masterCvEvidenceText(getMasterCv()),
+        excludePriorClaims: true,
+      });
       if (!gaps.length) {
-        res.status(400).json({ error: 'No scored jobs yet — run match analysis or tailor a few jobs first.' });
+        res.status(400).json({
+          error: totalScored === 0
+            ? 'No scored jobs yet — run match analysis or tailor a few jobs first.'
+            : 'Nothing left to enrich — your Master CV already covers every market gap we can see.',
+        });
         return;
       }
       const cv = getMasterCv();
@@ -1366,6 +1381,42 @@ async function startServer() {
     } catch (err: any) {
       console.error('Enrich apply error:', err);
       res.status(500).json({ error: err.message || 'Failed to apply enrichment.' });
+    }
+  });
+
+  // One-click enrichment: analyze the user's selected gaps and APPLY the
+  // grounded result immediately (skills, summary, bullets, project tags) —
+  // version backup first. Unsupported selections are reported, never added.
+  app.post('/api/cv/market-gaps/enrich-apply', async (req, res) => {
+    if (!hasApiKeyConfigured()) {
+      res.status(428).json({ error: 'No API token configured — add your API key in Settings. This process will not run.', code: 'no_api_key' });
+      return;
+    }
+    try {
+      const pick = Array.isArray(req.body?.pick)
+        ? req.body.pick.map((s: unknown) => String(s)).filter(Boolean)
+        : [];
+      if (!pick.length) {
+        res.status(400).json({ error: 'Select at least one skill you genuinely have, then run Enrich.' });
+        return;
+      }
+      const { gaps } = aggregateMarketGapsFromJobs(getAllJobs(), {
+        evidenceText: masterCvEvidenceText(getMasterCv()),
+        excludePriorClaims: true,
+      });
+      const cv = getMasterCv();
+      const proposal = await buildEnrichmentProposal(cv, gaps, { pick });
+      const { next, applied } = applyEnrichment(cv, proposal, autoApplyOptions(proposal));
+      const skipped = proposal.items.filter((i) => i.verdict === 'unsupported').map((i) => i.gap);
+      const total = applied.skills.length + applied.bullets + applied.projectTags + (applied.summary ? 1 : 0);
+      if (total > 0) {
+        saveCvVersion(cv, 'Before AI enrichment (market gaps)');
+        saveMasterCv(next);
+      }
+      res.json({ success: true, applied, skipped, masterCv: total > 0 ? next : cv, changed: total > 0 });
+    } catch (err: any) {
+      const mapped = mapLlmError(err);
+      res.status(mapped.status).json({ error: mapped.message, code: mapped.code, retryAfterMs: (err as any)?.retryAfterMs });
     }
   });
 

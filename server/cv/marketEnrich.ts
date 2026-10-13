@@ -372,6 +372,19 @@ export interface ApplyEnrichOptions {
   bulletEdits?: Array<{ expIndex: number; hIndex: number; gap: string }>;
 }
 
+/** One-click flow: accept everything the deterministic grounding approved —
+ *  supported AND adjacent picks (the user's selection is their claim), the
+ *  grounded summary rewrite, every validated project tag and bullet upgrade.
+ *  Unsupported items are never applied — they are reported as skipped. */
+export function autoApplyOptions(proposal: EnrichProposal): ApplyEnrichOptions {
+  return {
+    acceptedGaps: proposal.items.filter((i) => i.verdict !== 'unsupported').map((i) => i.gap),
+    applySummary: !!proposal.summaryRewrite,
+    projectTags: proposal.projectTags.map((t) => ({ project: t.project, tag: t.tag })),
+    bulletEdits: proposal.bulletEdits.map((b) => ({ expIndex: b.expIndex, hIndex: b.hIndex, gap: b.gap })),
+  };
+}
+
 export function applyEnrichment(
   cv: MasterCv,
   proposal: EnrichProposal,
@@ -435,7 +448,8 @@ export function applyEnrichment(
 // ── market aggregation (shared by /skill-gaps and /enrich) ───────────────
 
 export function aggregateMarketGapsFromJobs(
-  jobs: Array<{ gapAnalysis?: { missingSkills?: string[]; missingKeywords?: string[] } }>
+  jobs: Array<{ gapAnalysis?: { missingSkills?: string[]; missingKeywords?: string[] } }>,
+  opts?: { evidenceText?: string; excludePriorClaims?: boolean }
 ): { gaps: MarketGap[]; totalScored: number } {
   const scored = (jobs || []).filter((j) => (j?.gapAnalysis?.missingSkills?.length || 0) > 0);
   const counts: Record<string, { count: number; totalScored: number }> = {};
@@ -448,9 +462,19 @@ export function aggregateMarketGapsFromJobs(
       counts[key].count++;
     }
   }
-  const gaps = Object.entries(counts)
+  let gaps = Object.entries(counts)
     .map(([skill, data]) => ({ skill, count: data.count, totalScored: data.totalScored }))
     .sort((a, b) => b.count - a.count);
+  // "What have we NOT added yet?" — the gap lists came from historical job
+  // scores; anything the Master CV now contains (or could never claim) is
+  // deducted so the panel and its badge only show real remaining gaps.
+  if (opts?.excludePriorClaims) {
+    gaps = gaps.filter((g) => !isUnsupportedClaim(g.skill));
+  }
+  if (opts?.evidenceText) {
+    const evidence = opts.evidenceText;
+    gaps = gaps.filter((g) => !containsKeyword(evidence, g.skill));
+  }
   return { gaps, totalScored: scored.length };
 }
 
