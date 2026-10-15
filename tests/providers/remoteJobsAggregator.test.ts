@@ -123,7 +123,7 @@ describe('Remote Boards source (memo23/remote-jobs-aggregator)', () => {
     const jobs = await new RemoteJobsAggregatorScraper().scrape(baseParams() as any);
     const j = jobs[0];
     expect(j.id).toBe('remotejobs-1128869');
-    expect(j.source).toBe('RemoteJobs');
+    expect(j.source).toBe('RemoteOK'); // per-row board label, not the umbrella
     expect(j.jobType).toBe('Full-time · Remote');
     expect(j.remote).toBe(true);
     expect((j as any).workMode).toBe('Remote');
@@ -136,6 +136,21 @@ describe('Remote Boards source (memo23/remote-jobs-aggregator)', () => {
     expect(j.location).toBe('United Kingdom, Australia');
   });
 
+  it('per-row board labels: every actor board becomes a real source; unknown boards fall back to RemoteJobs', async () => {
+    installFetch([
+      REMOTE_ITEM,
+      { ...REMOTE_ITEM, sourceJobId: 'w1', source: 'weworkremotely', title: 'DevOps Engineer', companyName: 'WWR Co' },
+      { ...REMOTE_ITEM, sourceJobId: 'h1', source: 'himalayas', title: 'DevOps Engineer', companyName: 'Himalaya Co' },
+      { ...REMOTE_ITEM, sourceJobId: 'x1', source: 'some_new_board', title: 'DevOps Engineer', companyName: 'Future Co' },
+    ]);
+    const jobs = await new RemoteJobsAggregatorScraper().scrape(baseParams() as any);
+    const byId = new Map(jobs.map((j) => [j.externalId, j.source]));
+    expect(byId.get('1128869')).toBe('RemoteOK');
+    expect(byId.get('w1')).toBe('WeWorkRemotely');
+    expect(byId.get('h1')).toBe('Himalayas');
+    expect(byId.get('x1')).toBe('RemoteJobs'); // forward-compatible fallback
+  });
+
   it('relocation rows are honestly On-site (never labeled Remote by default)', async () => {
     installFetch([RELOCATION_ITEM]);
     const jobs = await new RemoteJobsAggregatorScraper().scrape(baseParams({ jobType: 'onsite', keywords: '' }) as any);
@@ -145,5 +160,6 @@ describe('Remote Boards source (memo23/remote-jobs-aggregator)', () => {
     expect((j as any).workMode).toBe('On-site');
     expect(j.jobType).toBe('Full-time · On-site');
     expect(j.id).toBe('remotejobs-r-77');
+    expect(j.source).toBe('Relomote'); // relocation rows still show the board
   });
 });

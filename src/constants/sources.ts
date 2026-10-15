@@ -46,6 +46,12 @@ export const SOURCES: Record<JobSource, SourceMeta> = {
   Reed: { id: 'Reed', label: 'Reed', flag: '🇬🇧', country: 'UK', region: 'uk' },
   RemoteOK: { id: 'RemoteOK', label: 'RemoteOK', flag: '🌍', country: 'Global remote', region: 'global' },
   RemoteJobs: { id: 'RemoteJobs', label: 'RemoteJobs', flag: '🏝️', country: 'Global remote', region: 'global', apifyActorId: 'memo23~remote-jobs-aggregator', needsApify: true, pricePer1K: '$1.99' },
+  // Boards delivered via the RemoteJobs aggregator actor — real sources on
+  // cards and in the list filter; not standalone scrape chips.
+  Remotive: { id: 'Remotive', label: 'Remotive', flag: '🌎', country: 'Global remote', region: 'global' },
+  Himalayas: { id: 'Himalayas', label: 'Himalayas', flag: '🏔️', country: 'Global remote', region: 'global' },
+  Jobicy: { id: 'Jobicy', label: 'Jobicy', flag: '💼', country: 'Global remote', region: 'global' },
+  Relomote: { id: 'Relomote', label: 'Relomote', flag: '🌐', country: 'Global remote', region: 'global' },
   WeWorkRemotely: { id: 'WeWorkRemotely', label: 'WeWorkRemotely', flag: '🌍', country: 'Global remote', region: 'global' },
   MyCareersFuture: { id: 'MyCareersFuture', label: 'MyCareersFuture', flag: '🇸🇬', country: 'Singapore', region: 'asia' },
   Cutshort: { id: 'Cutshort', label: 'Cutshort', flag: '🇮🇳', country: 'India', region: 'asia' },

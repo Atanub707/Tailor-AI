@@ -1,4 +1,4 @@
-import { Job, ScraperParams } from '../../src/types.js';
+import { Job, JobSource, ScraperParams } from '../../src/types.js';
 import { ApifyBaseScraper, cleanDescription, extractDescription, normalizeIsoDate, parseSalary } from './apifyBase.js';
 import { composeJobTypeTag } from './workMode.js';
 
@@ -22,6 +22,19 @@ const TIME_FILTERS: Record<string, string> = {
   '7d': '7d',
   '30d': '30d',
   '90d': '90d',
+};
+
+/** The actor's own per-row board id → our Job source label. Anything the
+ *  actor adds later falls back to the umbrella 'RemoteJobs' label. */
+const BOARD_SOURCE: Record<string, JobSource> = {
+  remoteok: 'RemoteOK',
+  weworkremotely: 'WeWorkRemotely',
+  remotive: 'Remotive',
+  himalayas: 'Himalayas',
+  jobicy: 'Jobicy',
+  arbeitnow: 'Arbeitnow',
+  relomote: 'Relomote',
+  relomote_relocation: 'Relomote',
 };
 
 const CONTRACT_MAP: Record<string, string> = {
@@ -76,6 +89,7 @@ export class RemoteJobsAggregatorScraper extends ApifyBaseScraper {
 
     const externalId = String(item?.sourceJobId || item?.id || url);
     const sourceName = String(item?.source || '').toLowerCase();
+    const boardSource: JobSource = BOARD_SOURCE[sourceName] || 'RemoteJobs';
     const workArrangement = String(item?.workArrangement || '').toLowerCase();
     // On-site only exists on the relocation board (relocation/visa jobs).
     const isOnsite = sourceName === 'relomote_relocation' || (!!workArrangement && workArrangement !== 'remote' && item?.relocationOffered === true);
@@ -107,7 +121,7 @@ export class RemoteJobsAggregatorScraper extends ApifyBaseScraper {
       description,
       url,
       applyUrl: String(item?.applyUrl || url).trim(),
-      source: 'RemoteJobs' as const,
+      source: boardSource,
       atsPlatform: undefined,
       jobUrl: url,
       jobType: composeJobTypeTag(typeof employmentType === 'string' ? employmentType : undefined, workMode, workMode === 'Remote'),
