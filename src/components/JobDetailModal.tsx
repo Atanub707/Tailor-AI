@@ -807,7 +807,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                         {/* Score Breakdown */}
                         {breakdown && (
                           <div className="bg-slate-800/40 border border-slate-700/50 rounded-lg p-3 space-y-2">
-                            <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">How 52% is calculated</h4>
+                            <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">How {afterScore}% is calculated</h4>
                             <div className="grid grid-cols-3 gap-2 text-center">
                               <div className="bg-slate-800/80 rounded p-2 border border-slate-700/60">
                                 <span className="text-[10px] text-[var(--color-faint)] block">Already Matched</span>
