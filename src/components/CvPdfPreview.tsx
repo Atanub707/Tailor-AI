@@ -802,7 +802,7 @@ function buildAtanuBlocks(cv: PdfCvShape, s: CvTemplateStyle): CvBlock[] {
     });
   }
 
-  // 3. Skills — 2-column grid
+  // 3. Skills — single-column rows
   const hasSkills = cv.technicalSkills.length > 0 || (cv.coreCompetencies?.length || 0) > 0;
   if (hasSkills) {
     blocks.push(section('Skills'));
@@ -819,7 +819,7 @@ function buildAtanuBlocks(cv: PdfCvShape, s: CvTemplateStyle): CvBlock[] {
       blocks.push({
         key: 'skills-grid',
         render: (zoom) => (
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', columnGap: pt(s.skillsColumnGap, zoom), paddingBottom: pt(4, zoom) }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', paddingBottom: pt(4, zoom) }}>
             {cv.technicalSkills.map((cat, i) => (
               <div key={i} style={{ fontSize: `${pt(9.5, zoom)}px`, lineHeight: 1.42, marginBottom: pt(2.5, zoom), color: '#1F2937' }}>
                 <span style={{ fontWeight: 700, color: '#0F172A' }}>{cat.category}: </span>
@@ -1040,7 +1040,7 @@ function buildAtanuProBlocks(cv: PdfCvShape, s: CvTemplateStyle): CvBlock[] {
     });
   }
 
-  // 3. Skills — 2-column grid (shared column gap)
+  // 3. Skills — single-column rows (shared column gap)
   const skillCats = cv.technicalSkills || [];
   const hasCore = (cv.coreCompetencies || []).length > 0;
   if (skillCats.length > 0 || hasCore) {
@@ -1049,7 +1049,7 @@ function buildAtanuProBlocks(cv: PdfCvShape, s: CvTemplateStyle): CvBlock[] {
       blocks.push({
         key: 'skills-grid',
         render: (zoom) => (
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', columnGap: pt(s.skillsColumnGap, zoom), paddingBottom: pt(4, zoom) }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', paddingBottom: pt(4, zoom) }}>
             {skillCats.map((cat, i) => (
               <div key={i} style={{ fontSize: `${pt(s.skillCategorySize, zoom)}px`, lineHeight: s.lineHeight, marginBottom: pt(2.5, zoom), color: NAVY }}>
                 <span style={{ fontWeight: 700, color: NAVY }}>{cat.category}: </span>
@@ -1239,7 +1239,7 @@ function buildJakeBlocks(cv: PdfCvShape, s: CvTemplateStyle): CvBlock[] {
       blocks.push({
         key: 'skills-grid',
         render: (zoom) => (
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', columnGap: pt(s.skillsColumnGap, zoom), paddingBottom: pt(4, zoom) }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', paddingBottom: pt(4, zoom) }}>
             {cv.technicalSkills.map((cat, i) => (
               <div key={i} style={{ fontSize: `${pt(9, zoom)}px`, lineHeight: 1.35, marginBottom: pt(2.5, zoom) }}>
                 <span style={{ fontWeight: 700, color: '#111111' }}>{cat.category}: </span>

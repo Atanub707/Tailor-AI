@@ -333,6 +333,27 @@ ${keywordRetry}${metricRetry}${claimsRetry}${namedRetry}
       if (gainOk && rewriteOk && dropped.length === 0 && claimsLeak.length === 0 && namedLeak.length === 0) break;
       retried = attempt === 0;
     }
+    // Skill-list hygiene: the auto-add can flood one category with generic
+    // terms (real report: 'DevOps & Delivery Practices' with 27 items — a
+    // keyword wall). Cap per-category items and the flat competencies list —
+    // but PRIORITIZE the JD keywords first so capping can never silently cut
+    // a verified requirement; verification below counts only what survives.
+    const selectedLowerSet = new Set(selectedList.map((t: string) => String(t).toLowerCase()));
+    const jdFirst = (items: unknown[]): unknown[] =>
+      items
+        .map((v, idx) => ({ v, idx, jd: selectedLowerSet.has(String(v).toLowerCase()) ? 1 : 0 }))
+        .sort((a, b) => b.jd - a.jd || a.idx - b.idx)
+        .map((x) => x.v);
+    if (Array.isArray(parsed.coreCompetencies) && parsed.coreCompetencies.length > 16) {
+      parsed.coreCompetencies = jdFirst(parsed.coreCompetencies).slice(0, 16);
+    }
+    if (Array.isArray(parsed.technicalSkills)) {
+      parsed.technicalSkills = parsed.technicalSkills.map((g: any) => ({
+        ...g,
+        skills: Array.isArray(g.skills) && g.skills.length > 12 ? jdFirst(g.skills).slice(0, 12) : (g.skills || []),
+      }));
+    }
+
     // ── Deterministic AUTO-REPAIR (integrity-preserving, never inventing) ──
     // If the retries still leaked unsupported claims/tools, REMOVE the leaked
     // items from the skills sections and REVERT the affected bullets/summary

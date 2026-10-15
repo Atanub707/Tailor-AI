@@ -416,38 +416,18 @@ function generateAtanuPdf(cv: TailoredCv): Promise<Buffer> {
         doc.x = leftMargin;
         doc.moveDown(0.2);
       } else {
-        // Row-wise pairing — identical to the browser preview's CSS grid
-        // (categories flow left→right, row by row; each row's height is the
-        // taller of its two cells; a row never splits across pages).
-        const colGap = geo.skillsColumnGap; // 18 pt (shared)
-        const colW = cvSkillsColumnWidth('atanu'); // (contentWidth - colGap) / 2, shared formula
-        const leftX = leftMargin;
-        const rightX = leftMargin + colW + colGap;
-        const cellText = (cat: { name: string; list: string }) => (cat.name ? `${cat.name}: ${cat.list}` : cat.list);
-        const cellHeight = (cat: { name: string; list: string }) => Math.max(0, doc.heightOfString(cellText(cat), { width: colW, lineGap: LINE_GAP }));
-        const rowGap = 2.5; // mirrors the preview's per-cell marginBottom (pt(2.5))
-
-        for (let i = 0; i < skillCats.length; i += 2) {
-          const left = skillCats[i];
-          const right = skillCats[i + 1];
-          const rowH = Math.max(left ? cellHeight(left) : 0, right ? cellHeight(right) : 0) + rowGap;
-          ensurePageSpace(rowH + 4);
-          const rowY = doc.y;
-          if (left) {
-            doc.font('HelveticaEmbed-Bold').fontSize(9.5).fillColor(NAVY);
-            doc.text(left.name ? left.name + ': ' : '', leftX, rowY, { continued: true, width: colW });
-            doc.font('HelveticaEmbed').fillColor('#374151').text(left.list, { width: colW, lineGap: LINE_GAP });
-          }
-          if (right) {
-            doc.font('HelveticaEmbed-Bold').fontSize(9.5).fillColor(NAVY);
-            doc.text(right.name ? right.name + ': ' : '', rightX, rowY, { continued: true, width: colW });
-            doc.font('HelveticaEmbed').fillColor('#374151').text(right.list, { width: colW, lineGap: LINE_GAP });
-          }
-          doc.y = rowY + rowH;
+        // Single-column rows — one full-width "Category: items" line per
+        // category. The old 2-column grid left dead space beside short
+        // categories and let one long category tower; rows read cleanly and
+        // stay ATS-safe (plain sentence flow, no table semantics).
+        for (const cat of skillCats) {
+          const text = cat.name ? `${cat.name}: ${cat.list}` : cat.list;
+          ensurePageSpace(Math.max(0, doc.heightOfString(text, { width: contentWidth, lineGap: LINE_GAP })) + 4);
+          doc.font('HelveticaEmbed-Bold').fontSize(9.5).fillColor(NAVY);
+          doc.text(cat.name ? cat.name + ': ' : '', leftMargin, doc.y, { continued: true, width: contentWidth });
+          doc.font('HelveticaEmbed').fillColor('#374151').text(cat.list, { width: contentWidth, lineGap: LINE_GAP });
           doc.x = leftMargin;
         }
-
-        doc.moveDown(0.2);
         doc.moveDown(0.2);
       }
     }
@@ -614,7 +594,7 @@ function generateAtanuPdf(cv: TailoredCv): Promise<Buffer> {
  * Atanu Pro — premium navy/blue layout (mirrors buildAtanuProBlocks):
  * navy name + gray title + contact with a 2px accent rule under the header,
  * uppercase navy section headings with a 2px accent bottom border, bullets
- * with a 0.25in hanging indent, italic meta lines, 2-column skills grid,
+ * with a 0.25in hanging indent, italic meta lines, row-based skills list,
  * project links only when a public URL exists. US Letter, 0.625in sides,
  * 0.5in top/bottom — all geometry from the shared cvTemplateConfig.
  */
@@ -736,31 +716,14 @@ function generateAtanuProPdf(cv: TailoredCv): Promise<Buffer> {
         doc.x = leftMargin;
         doc.moveDown(0.2);
       } else {
-        const colGap = geo.skillsColumnGap; // 18 pt (shared)
-        const colW = cvSkillsColumnWidth('atanu-pro'); // (contentWidth - colGap) / 2
-        const leftX = leftMargin;
-        const rightX = leftMargin + colW + colGap;
-        const cellText = (cat: { name: string; list: string }) => (cat.name ? `${cat.name}: ${cat.list}` : cat.list);
-        const cellHeight = (cat: { name: string; list: string }) => Math.max(0, doc.heightOfString(cellText(cat), { width: colW, lineGap: LINE_GAP }));
-        const rowGap = 2.5;
-
-        for (let i = 0; i < skillCats.length; i += 2) {
-          const left = skillCats[i];
-          const right = skillCats[i + 1];
-          const rowH = Math.max(left ? cellHeight(left) : 0, right ? cellHeight(right) : 0) + rowGap;
-          ensurePageSpace(rowH + 4);
-          const rowY = doc.y;
-          if (left) {
-            doc.font('HelveticaEmbed-Bold').fontSize(geo.skillCategorySize).fillColor(NAVY);
-            doc.text(left.name ? left.name + ': ' : '', leftX, rowY, { continued: true, width: colW });
-            doc.font('HelveticaEmbed').fillColor(GRAY).text(left.list, { width: colW, lineGap: LINE_GAP });
-          }
-          if (right) {
-            doc.font('HelveticaEmbed-Bold').fontSize(geo.skillCategorySize).fillColor(NAVY);
-            doc.text(right.name ? right.name + ': ' : '', rightX, rowY, { continued: true, width: colW });
-            doc.font('HelveticaEmbed').fillColor(GRAY).text(right.list, { width: colW, lineGap: LINE_GAP });
-          }
-          doc.y = rowY + rowH;
+        // Single-column rows — see the atanu renderer note (row layout, no
+        // 2-column dead space, ATS-safe plain flow).
+        for (const cat of skillCats) {
+          const text = cat.name ? `${cat.name}: ${cat.list}` : cat.list;
+          ensurePageSpace(Math.max(0, doc.heightOfString(text, { width: contentWidth, lineGap: LINE_GAP })) + 4);
+          doc.font('HelveticaEmbed-Bold').fontSize(geo.skillCategorySize).fillColor(NAVY);
+          doc.text(cat.name ? cat.name + ': ' : '', leftMargin, doc.y, { continued: true, width: contentWidth });
+          doc.font('HelveticaEmbed').fillColor(GRAY).text(cat.list, { width: contentWidth, lineGap: LINE_GAP });
           doc.x = leftMargin;
         }
         doc.moveDown(0.2);

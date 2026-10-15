@@ -362,4 +362,22 @@ describe('V1 engine — recruiter-first quality (order, skills priority, metric 
     expect(JSON.stringify(master.skills)).not.toContain('AKS');
     expect(JSON.stringify(master.skills)).not.toContain('observabilidad');
   });
+
+  it('SKILL CAP: a flooded category is capped (12) and verification counts only what remains', async () => {
+    const flooded = Array.from({ length: 24 }, (_, i) => `Term ${i}`);
+    const draft = {
+      ...impactDraft(SOURCE_ORDER_REWRITES, 'DevSecOps engineer with 7+ years of experience and CI/CD automation depth.'),
+      coreCompetencies: ['Docker', 'Kubernetes', 'AWS', 'Terraform'],
+      technicalSkills: [{ category: 'DevOps & Delivery Practices', skills: [...flooded, 'CI/CD', 'Python', 'Prometheus'] }],
+    };
+    stubLlmQueue([draft]);
+    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-impact-1')!, { userId: USER, includeSkills: ['Python', 'Prometheus'] }));
+    const cat = (r.tailoredCv.technicalSkills || []).find((g: any) => g.category === 'DevOps & Delivery Practices')!;
+    expect(cat.skills.length).toBeLessThanOrEqual(12);
+    // The SELECTED JD keywords survive the cap even though they sat at the
+    // end of a flooded list — capping must never cut a verified requirement.
+    expect(cat.skills).toEqual(expect.arrayContaining(['Python', 'Prometheus']));
+    expect(cat.skills.slice(0, 2)).toEqual(['Python', 'Prometheus']); // prioritized first
+    expect(cat.skills).not.toContain('Term 23'); // overflow trimmed
+  });
 });
