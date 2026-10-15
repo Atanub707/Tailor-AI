@@ -1,5 +1,53 @@
 # Changelog
 
+## v2.12.0 (2026-10-15)
+
+### 🤖 Auto Apply — one click, from tailored CV to verified submission
+
+- **Tailor Browser desktop engine**: clicking Auto Apply drives a controlled browser through the real application — observe → decide → act — on Greenhouse (incl. company-hosted embeds with `gh_jid`), Lever, and Ashby, with the resume PDF attached, verified submission confirmation, screenshot evidence, and auto-close on every terminal state (success, dead job, closed session).
+- **Questions-first loop**: the agent fills nothing while a question needs you. Questions arrive in one Needs-you panel (typed ANSWER / BROWSER / REVIEW), with the form's REAL options, deep-focus on the live page for CAPTCHA/consent, bounded waits, and one notification per run (native notifications included).
+- **Self-healing lifecycle**: closed windows, killed apps and stale sessions can never leave frozen rows — the server detects 60-second silence, marks SESSION_STALE, and the card offers one-click restart. "Action needed" always tells the truth (reason, wait time, no false flips).
+- **Exactly-once submit** (server CAS), receipts with evidence, "It submitted / It didn't" review actions, duplicate guard, honest states for dead postings and OTP/CAPTCHA (always yours to solve).
+
+### 🧠 The decision engine understands the question, not just the field
+
+- **Question-intent harness**: every form question is classified before answering — referrer/emergency/spouse/manager questions can never receive your own identity (the "Who is actually referring?" bug), conditional follow-ups and EEO only take exact saved answers, and addresses are component-aware (state/zip/city reuse across every form's wording).
+- **Model consult**: unresolved questions go to the configured LLM once per cycle WITH your facts — it either answers from your saved data (validated: real options for choices, fact membership for free text) or escalates to you. It never invents.
+- **Answer Bank grows smarter**: EXACT → CANONICAL → SEMANTIC matching, entity-scoped keys, plural-tolerant generics, options validated before storing; answers are asked once, not again and again.
+- **Numeric fields fixed**: salary questions receive a clean number ("$40k-$60k" → 40000, "16 LPA" → 1600000); the type-append loop that filled a salary box with "0604060406…" is impossible.
+
+### 🛡️ Integrity — the CV never claims what you can't back
+
+- **Credentials, tenure claims and job titles are never planted** from a JD (the fix for resumes that had gained unheld certifications), with deterministic auto-repair instead of dead-end errors: nothing untrue survives, and tailoring succeeds.
+- **Consent flags where it matters**: per-application affirmation for special terms, hard-blocked fact classes, and audit notes that state exactly what was added, corrected or left out.
+
+### ✍️ Tailoring quality — built to pass ATS *and* impress humans
+
+- **Recruiter-first ordering** (most relevant bullets first), **metric preservation** (real numbers can never be dropped), **impact audit** ("7 of 16 bullets carry a measurable outcome"), JD-relevance skills ordering.
+- **AUTO-ADD (your setting)**: clicking Tailor weaves every JD tool name into that tailored CV automatically — no manual consent — while certifications/tenure/titles stay excluded.
+- **Skills as single-column rows** in every template (no more 2-column dead space or 27-item keyword walls; categories cap at 12 with your JD keywords prioritized first).
+- **PDF text-layer fixes**: names, roles and section headings extract as whole strings in every template (pdf.js-verified), "SKILLS & INTERESTS" → standard "TECHNICAL SKILLS".
+
+### 🌐 New source — RemoteJobs (7 boards in one click)
+
+- Apify `remote-jobs-aggregator`: RemoteOK (full depth) + WeWorkRemotely + Remotive + Himalayas + Jobicy + Arbeitnow + Relomote, cross-board deduped, with salary ranges and geo eligibility. Each row carries its true board label (Jobicy, Himalayas, …) selectable in the list filter.
+- **Work-mode truth**: provider signals win; description boilerplate can no longer fabricate "Remote" (a Remote search returns what is actually remote/hybrid).
+
+### 💬 Recruiters — WhatsApp outreach
+
+- Every phone number and the WhatsApp icon open YOUR WhatsApp on that chat with a pre-filled message (globally editable, default intro included); numbers normalized to wa.me format (+91 handling). Deep links can't attach files — a Master CV download sits beside the button for a two-tap attach.
+
+### 🧩 Master CV — Enrich with AI + layout polish
+
+- **Enrich with AI**: market gaps audited against your CV (supported / adjacent / not-evidenced), one click applies verified skills, grounded summary rewrites, bullet upgrades and project tags — with version backups.
+- **Proper skill taxonomy** (AWS Services, GCP Services, Azure Services, Networking, Databases, Site Reliability Practices, Security Practices, Systems & OS) + display casing (EC2, DynamoDB, SLO, GitHub Copilot…), an idempotent organizer, and the market-gap list that deducts what you already have.
+- **Date picker rebuilt** on react-day-picker v10 with month/year dropdowns (two picks instead of ~80 arrow clicks); Application Answers screen redesigned to the house screen system.
+
+### 🔍 Search & list fixes
+
+- **Live job-title suggestions** in both search bars — real titles from your jobs + the live ATS index (a role that appears tomorrow is suggestible immediately); the hardcoded suggestion list is gone.
+- Source filter is registry-driven (every source, forever), jobs can no longer sink to the last page (createdAt guard), and ATS cards now show their work-type chip ("Full-time · Remote").
+
 ## v2.11.0 (2026-09-16)
 
 ### ✍️ CV name keeps your capitalisation
