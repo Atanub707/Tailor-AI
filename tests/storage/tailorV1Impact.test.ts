@@ -279,30 +279,28 @@ describe('V1 engine — recruiter-first quality (order, skills priority, metric 
     expect(r.tailoredCv.audit!.auditNotes.some((n) => n.includes('Auto-corrected'))).toBe(true);
   });
 
-  it('CONSENT GATE: named tools not explicitly selected (Python/Prometheus) stay honest gaps in auto paths', async () => {
+  it('AUTO-ADD (owner setting): the Tailor button integrates named JD tools with NO manual consent', async () => {
     const cleanDraft = {
       ...impactDraft(SOURCE_ORDER_REWRITES, 'DevSecOps engineer with 7+ years of experience and CI/CD automation depth.'),
-      coreCompetencies: ['Docker', 'Kubernetes', 'AWS', 'Terraform'],
+      coreCompetencies: ['Docker', 'Kubernetes', 'AWS', 'Terraform', 'Python', 'Prometheus'],
       technicalSkills: [{ category: 'Cloud', skills: ['Docker', 'Terraform', 'Kubernetes'] }],
     };
     stubLlmQueue([cleanDraft]);
     const r = await runWithUser(USER, () => tailorJob(getJobById('v1-impact-1')!, { userId: USER }));
     const audit = r.tailoredCv.audit!;
 
-    // Generic wording (CI/CD) is integrated automatically…
-    expect(audit.addedAfter.keywordsIncorporated).toContain('CI/CD');
-    // …but named tools the user never selected stay gaps, never claims.
-    expect(audit.addedAfter.keywordsIncorporated).not.toContain('Python');
-    expect(audit.addedAfter.keywordsIncorporated).not.toContain('Prometheus');
-    expect(audit.notIntegrable).toEqual(expect.arrayContaining(['Python', 'Prometheus']));
+    // Everything the JD asks for (minus blocked facts) is integrated — the
+    // user's explicit setting: no per-term clicks, ever.
+    expect(audit.addedAfter.keywordsIncorporated).toEqual(expect.arrayContaining(['CI/CD', 'Python', 'Prometheus']));
+    expect(audit.notIntegrable).not.toEqual(expect.arrayContaining(['Python', 'Prometheus']));
     const claimSurface = [
       r.tailoredCv.professionalSummary,
       ...r.tailoredCv.coreCompetencies,
       ...(r.tailoredCv.technicalSkills || []).flatMap((g: any) => [g.category, ...(g.skills || [])]),
       ...r.tailoredCv.workExperience.flatMap((w: any) => w.highlights || []),
     ].join(' \n ');
-    expect(claimSurface).not.toContain('Python');
-    expect(claimSurface).not.toContain('Prometheus');
+    expect(claimSurface).toContain('Python');
+    expect(claimSurface).toContain('Prometheus');
   });
 
   it('CLASSIFIERS: credentials/titles are never-claim; "Secrets Manager" is a consentable product, not a title', () => {

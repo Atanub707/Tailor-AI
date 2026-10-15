@@ -989,7 +989,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                               })}
                             </div>
                             <p className="mt-2 text-[10px] text-slate-400">
-                              Click ＋ on a tool you genuinely used — it’s woven into THIS tailored resume only (skills/bullets); your Master CV stays unchanged. Leave the rest as honest gaps.
+                              JD tools are added automatically when you Tailor. Anything still listed here is either a blocked fact (certifications, job titles, tenure) or something the AI couldn’t place — hit ＋ only to force one in.
                             </p>
                           </div>
                         )}

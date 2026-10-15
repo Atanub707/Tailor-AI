@@ -166,12 +166,6 @@ export class LlmCvTailor extends BaseCvBuilder {
     const blockedClaims = allMissingRaw.filter((k) => isUnsupportedClaim(k));
     const afterClaims = allMissingRaw.filter((k) => !isUnsupportedClaim(k));
 
-    // CONSENT GATE — named tools/technologies/languages (everything that is
-    // not generic capability wording) are only woven when the user explicitly
-    // selected them (Manual JD checkboxes). Auto paths leave them as gaps.
-    const consentRequired = afterClaims.filter((k) => isNamedTechTerm(k));
-    const autoWeavable = afterClaims.filter((k) => !isNamedTechTerm(k));
-
     // User-controlled tailoring: when an explicit selection is provided
     // (Manual JD), only the selected missing items are incorporated and
     // anything not selected is explicitly skipped. Without a selection
@@ -180,13 +174,17 @@ export class LlmCvTailor extends BaseCvBuilder {
     const hasSelection = Array.isArray(opts?.includeSkills) && opts.includeSkills.length > 0;
     const allowList = (opts?.includeSkills || []).map((s) => s.trim().toLowerCase()).filter(Boolean);
     const allowedSet = new Set(allowList);
-    const selectedList = hasSelection ? afterClaims.filter((s) => allowedSet.has(s.toLowerCase())) : autoWeavable;
+    // AUTO-ADD (product owner's setting): clicking Tailor integrates EVERY
+    // non-blocked JD term — named tools included — with no manual consent.
+    // The hard integrity gate (credentials / tenure / titles) still applies
+    // absolutely: blockedClaims are never offered, never leaked, never kept.
+    const selectedList = hasSelection ? afterClaims.filter((s) => allowedSet.has(s.toLowerCase())) : afterClaims;
     const excludedList = hasSelection ? afterClaims.filter((s) => !allowedSet.has(s.toLowerCase())) : [];
-    const gapClaims = [...blockedClaims, ...(hasSelection ? excludedList : consentRequired)];
+    const gapClaims = [...blockedClaims, ...(hasSelection ? excludedList : [])];
     const selectedLower = new Set(selectedList.map((s) => s.toLowerCase()));
-    // Leak enforcement covers NAMED tech only — generic words are too common
-    // for reliable text matching (an excluded "security" would false-positive).
-    const namedMustNotAppear = (hasSelection ? afterClaims.filter((t) => isNamedTechTerm(t)) : consentRequired).filter(
+    // Leak enforcement: terms NOT selected must never appear (relevant only
+    // when the user explicitly restricted the selection).
+    const namedMustNotAppear = (hasSelection ? afterClaims.filter((t) => isNamedTechTerm(t)) : []).filter(
       (t) => !selectedLower.has(t.toLowerCase())
     );
 
