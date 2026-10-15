@@ -17,7 +17,7 @@ const HARD_CLAIM_PATTERNS: RegExp[] = [
   /\bpractitioner\b/i,
   /\b\d{1,2}\s*\+?\s*(?:years?|yrs?)\b/i,
 ];
-const ROLE_TITLE_PATTERN = /\b(?:engineer|developer|architect|analyst|specialist|consultant|administrator|professional|associate|expert)\b|(?<!secrets? |certificate |key |access |package |endpoint |device )\bmanager\b/i;
+const ROLE_TITLE_PATTERN = /\b(?:engineer|developer|architect|analyst|specialist|consultant|administrator|professional|associate|expert|ingeniero|desarrollador|arquitecto|analista|especialista|consultor|administrador|ingenieur|entwickler|entwicklerin|berater|developpeur|développeur)\b|(?<!secrets? |certificate |key |access |package |endpoint |device )\bmanager\b/i;
 // Output-scan variant: only a TITLE-shaped skill line trips it ("Senior
 // DevOps Engineer" as a skill), never a compound category ("Developer
 // Tools"). The broad pattern above stays for INPUT gating (isUnsupportedClaim).

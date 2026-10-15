@@ -40,6 +40,9 @@ export interface Job {
 
   // AI Tailoring output
   tailoredCv?: TailoredCv;
+  /** Per-application consent: JD terms the user affirmed they genuinely
+   *  have — fed to the tailor as includeSkills. NEVER touches the Master CV. */
+  tailorConsentSkills?: string[];
   tailoredAt?: string;
   tailorMode?: 'strict' | 'enhanced'; // per-job tailoring mode; default 'enhanced' when absent
 

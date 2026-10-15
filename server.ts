@@ -3650,6 +3650,103 @@ const sanitizeAttemptDryRun = (a: any) => ({
     }
   });
 
+  // Per-application CONSENT tailor: the user affirms specific JD tools they
+  // genuinely have ("Could Not Be Added" chips) — they are woven into THIS
+  // job's tailored CV only (includeSkills consent). The Master CV is never
+  // touched. Credentials/titles remain impossible even here.
+  app.post('/api/jobs/:id/tailor-consent', async (req, res) => {
+    if (!hasApiKeyConfigured()) {
+      res.status(428).json({ error: 'No API token configured — add your API key in Settings. This process will not run.', code: 'no_api_key' });
+      return;
+    }
+    try {
+      const job = getJobById(req.params.id);
+      if (!job) {
+        res.status(404).json({ error: 'Job not found.' });
+        return;
+      }
+      const skill = String(req.body?.skill || '').trim();
+      if (!skill || skill.length > 60) {
+        res.status(400).json({ error: 'A skill name (max 60 chars) is required.' });
+        return;
+      }
+      if (isUnsupportedClaim(skill)) {
+        res.status(400).json({ error: 'Certifications, licenses, tenure claims and job titles cannot be added to a resume — those are facts, not skills.' });
+        return;
+      }
+      const consent = [...new Set([...(job.tailorConsentSkills || []), skill])];
+      // Persist consent FIRST so a tailor failure never loses the user's affirmation.
+      updateJobInStorage({ ...job, tailorConsentSkills: consent } as Job);
+
+      const { ensureJobDescription } = await import('./server/tailor/jdResolver.js');
+      let jobToTailor: Job;
+      try {
+        jobToTailor = await ensureJobDescription(job);
+      } catch (jdErr: any) {
+        if (jdErr?.name === 'JDResolutionError') {
+          res.status(502).json({ error: jdErr.message });
+          return;
+        }
+        throw jdErr;
+      }
+      if (!jobToTailor.gapAnalysis) {
+        const masterCv = getMasterCv();
+        const matcher = new LlmMatcher();
+        const matchResult = await matcher.matchJob(jobToTailor, masterCv);
+        jobToTailor = updateJobInStorage({
+          ...jobToTailor,
+          matchScore: matchResult.matchScore,
+          gapAnalysis: matchResult.gapAnalysis,
+          state: 'matched',
+          matchedAt: new Date().toISOString(),
+        });
+      }
+
+      const mode = job.tailorMode === 'strict' ? 'strict' : 'enhanced';
+      const { tailorJob } = await import('./server/tailor/tailorService.js');
+      let tailoredResult: Awaited<ReturnType<typeof tailorJob>>;
+      try {
+        tailoredResult = await tailorJob(jobToTailor, { mode, includeSkills: consent });
+      } catch (llmErr: any) {
+        const { LLMError } = await import('./server/llm/llmErrors.js');
+        if (llmErr instanceof LLMError) {
+          const status = llmErr.code === 'timeout' ? 504 : llmErr.code === 'invalid_key' ? 401 : (llmErr.code === 'rate_limit' || llmErr.code === 'quota') ? 429 : 502;
+          res.status(status).json({ error: llmErr.message, code: llmErr.code, retryAfterMs: (llmErr as any).retryAfterMs });
+          return;
+        }
+        if (llmErr?.name === 'TailorVerificationFailedError') {
+          console.warn(`[Tailor] consent verification_failed for job ${req.params.id}: ${String(llmErr?.message || '').slice(0, 220)}`);
+          res.status(422).json({
+            error: "The AI couldn't weave that into the resume safely this time. Your consent was saved — try again.",
+            code: 'verification_failed',
+          });
+          return;
+        }
+        throw llmErr;
+      }
+
+      const updatedJob = updateJobInStorage({
+        ...jobToTailor,
+        tailoredCv: tailoredResult.tailoredCv,
+        state: 'tailored',
+        tailoredAt: new Date().toISOString(),
+        tailorMode: job.tailorMode || 'enhanced',
+        tailorConsentSkills: consent,
+      } as Job);
+
+      res.json({
+        success: true,
+        tailoredCv: tailoredResult.tailoredCv,
+        consented: consent,
+        job: updatedJob,
+      });
+    } catch (err: any) {
+      const mapped = mapLlmError(err);
+      console.error('Tailor consent error:', err);
+      res.status(mapped.status).json({ error: mapped.message, code: mapped.code });
+    }
+  });
+
   // Batch Tailor CVs for Matched Jobs (>= threshold)
   app.post('/api/jobs/batch-tailor', async (req, res) => {
     if (!hasApiKeyConfigured()) {

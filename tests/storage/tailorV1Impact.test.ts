@@ -95,6 +95,15 @@ const SOURCE_ORDER_REWRITES = [
   'Mentored 4 junior engineers',
 ];
 
+function job3(): Job {
+  return {
+    id: 'v1-impact-3', externalId: '3', title: 'Ingeniero DevOps', company: 'Infotec', companyId: 'Infotec', location: 'Madrid',
+    description: JD, atsPlatform: 'greenhouse', jobUrl: 'https://x/3', applyUrl: 'https://x/3', url: 'https://x/3',
+    source: 'Greenhouse', state: 'pending', matchScore: 50,
+    gapAnalysis: { matchScore: 50, missingSkills: ['AKS'], missingKeywords: ['observabilidad'], matchingSkills: ['Kubernetes'] },
+  } as unknown as Job;
+}
+
 function job2(): Job {
   return {
     id: 'v1-impact-2', externalId: '2', title: 'Cloud Security Engineer', company: 'StrictCo', companyId: 'StrictCo', location: 'Remote',
@@ -127,6 +136,7 @@ describe('V1 engine — recruiter-first quality (order, skills priority, metric 
       saveApplicantProfile(defaultApplicantProfile(), USER);
       getDb().prepare('INSERT INTO jobs (id, user_id, data) VALUES (?, ?, ?)').run('v1-impact-1', USER, JSON.stringify(job()));
       getDb().prepare('INSERT INTO jobs (id, user_id, data) VALUES (?, ?, ?)').run('v1-impact-2', USER, JSON.stringify(job2()));
+      getDb().prepare('INSERT INTO jobs (id, user_id, data) VALUES (?, ?, ?)').run('v1-impact-3', USER, JSON.stringify(job3()));
     });
   });
   afterEach(() => vi.unstubAllGlobals());
@@ -334,5 +344,24 @@ describe('V1 engine — recruiter-first quality (order, skills priority, metric 
     );
     expect(leaked.join(' ')).toMatch(/Senior DevOps Engineer/);
     expect(leaked.join(' ')).not.toMatch(/Developer Tools/);
+  });
+
+  it('CONSENT (per-CV only): user-affirmed JD terms — including non-English ones — are woven in without touching the Master CV', async () => {
+    const { getMasterCv } = await import('../../server/storage/fileStorage.js');
+    const consentDraft = {
+      ...impactDraft(SOURCE_ORDER_REWRITES, 'DevSecOps engineer (7+ years) with CI/CD depth, observabilidad tooling and AKS operations.'),
+      coreCompetencies: ['Docker', 'Kubernetes', 'AWS', 'Terraform', 'AKS', 'observabilidad'],
+    };
+    stubLlmQueue([consentDraft]);
+    const r = await runWithUser(USER, () =>
+      tailorJob(getJobById('v1-impact-3')!, { userId: USER, includeSkills: ['AKS', 'observabilidad'] })
+    );
+    const audit = r.tailoredCv.audit!;
+    // Consented terms are integrated AND counted honestly.
+    expect(audit.addedAfter.keywordsIncorporated).toEqual(expect.arrayContaining(['AKS', 'observabilidad']));
+    // The MASTER CV is untouched — consent is per tailored CV.
+    const master = runWithUser(USER, () => getMasterCv()) as any;
+    expect(JSON.stringify(master.skills)).not.toContain('AKS');
+    expect(JSON.stringify(master.skills)).not.toContain('observabilidad');
   });
 });

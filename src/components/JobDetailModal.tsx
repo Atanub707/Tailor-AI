@@ -234,24 +234,38 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   // Recruiters tied to this job (server: hr_contacts by source job / recruiter URL).
   const [jobContacts, setJobContacts] = useState<{ id: string; name: string | null; email: string | null; phone: string | null; whatsapp: boolean; recruiterUrl: string | null; company: string; jobRole: string; jobCount: number }[]>([]);
   const [skillAddState, setSkillAddState] = useState<Record<string, 'adding' | 'added' | 'error'>>({});
+  const [consentCv, setConsentCv] = useState<any | null>(null);
+  useEffect(() => { setConsentCv(null); setSkillAddState({}); }, [job?.id]);
 
 
-  // Consent add: the user affirms a JD tool they genuinely have — it lands in
-  // the MASTER CV (canonical category); Re-Tailor then weaves it everywhere.
+  // Per-application consent: the user affirms a JD tool they genuinely have —
+  // it is woven into THIS job's tailored CV only (includeSkills consent). The
+  // Master CV is never touched. Credentials/titles are rejected server-side.
   const affirmSkill = async (kw: string) => {
     const cur = skillAddState[kw];
     if (cur === 'adding' || cur === 'added') return;
-    if (!window.confirm(`Do you genuinely have "${kw}"?\n\nIt will be added to your Master CV skills — only confirm if it is real.`)) return;
+    if (!job) return;
+    if (
+      !window.confirm(
+        `Add "${kw}" to THIS tailored CV?\n\nIt will be woven into the resume for this job only — your Master CV stays unchanged. Only confirm if it is real.`
+      )
+    )
+      return;
     setSkillAddState((prev) => ({ ...prev, [kw]: 'adding' }));
     try {
-      const res = await fetch('/api/cv/skills/add', {
+      const res = await fetch(`/api/jobs/${job.id}/tailor-consent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ skill: kw }),
       });
       const data = await res.json().catch(() => ({} as any));
-      const ok = res.ok && (data.added === true || data.reason === 'already-present');
-      setSkillAddState((prev) => ({ ...prev, [kw]: ok ? 'added' : 'error' }));
+      if (res.ok && data.tailoredCv) {
+        setConsentCv(data.tailoredCv);
+        setSkillAddState((prev) => ({ ...prev, [kw]: 'added' }));
+      } else {
+        if (data.error) window.alert(data.error);
+        setSkillAddState((prev) => ({ ...prev, [kw]: 'error' }));
+      }
     } catch {
       setSkillAddState((prev) => ({ ...prev, [kw]: 'error' }));
     }
@@ -295,7 +309,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   if (!job) return null;
 
   const gap = job.gapAnalysis;
-  const tailored = job.tailoredCv;
+  const tailored = consentCv ?? job.tailoredCv;
   const timeAgoStr = formatTimeAgoSemantic(job.postedDate || job.createdAt, job.postedDateSemantics);
 
   const handleCopyTextCv = () => {
@@ -953,10 +967,10 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                                     disabled={st === 'adding' || st === 'added'}
                                     title={
                                       st === 'added'
-                                        ? 'Added to your Master CV — click “Tailor Resume” to weave it in'
+                                        ? 'Woven into THIS tailored CV'
                                         : st === 'error'
                                           ? 'Could not add — try again'
-                                          : 'I genuinely have this — add it to my Master CV'
+                                          : 'I genuinely have this — add it to this tailored CV'
                                     }
                                     className={`px-2 py-0.5 rounded text-[11px] font-medium border inline-flex items-center space-x-1 cursor-pointer transition-colors ${
                                       st === 'added'
@@ -975,7 +989,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                               })}
                             </div>
                             <p className="mt-2 text-[10px] text-slate-400">
-                              Click ＋ on a tool you genuinely used — it’s added to your Master CV and Re-Tailor weaves it into skills, bullets and summary. Leave the rest as honest gaps.
+                              Click ＋ on a tool you genuinely used — it’s woven into THIS tailored resume only (skills/bullets); your Master CV stays unchanged. Leave the rest as honest gaps.
                             </p>
                           </div>
                         )}
