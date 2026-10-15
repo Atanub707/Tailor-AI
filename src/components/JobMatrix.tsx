@@ -1,5 +1,6 @@
 import React from 'react';
 import { Job, JobState, JobSource } from '../types';
+import { SOURCES } from '../constants/sources';
 import { formatTimeAgoSemantic } from '../lib/dateUtils';
 import { getValidJobUrl } from '../lib/jobUrlUtils';
 import { isAutoApplyJob, hasHttpApplyUrl } from '../lib/autoApply';
@@ -562,18 +563,11 @@ export const JobMatrix: React.FC<JobMatrixProps> = ({
               className="bg-white border-[1.5px] border-[var(--color-hairline2)] rounded-[9px] px-2.5 py-1.5 font-semibold cursor-pointer focus:outline-none focus:border-[var(--color-brand)]"
             >
               <option value="all">All Sources</option>
-              <option value="LinkedIn">LinkedIn</option>
-              <option value="Arbeitnow">Arbeitnow</option>
-              <option value="SimplyHired">SimplyHired</option>
-              <option value="Dice">Dice</option>
-              <option value="MyCareersFuture">MyCareersFuture</option>
-              <option value="Cutshort">Cutshort</option>
-              <option value="Gupy">Gupy</option>
-              <option value="JobsCh">JobsCh</option>
-              <option value="Daijob">Daijob</option>
-              <option value="MyJobMag">MyJobMag</option>
-              <option value="Glassdoor">Glassdoor</option>
-              <option value="Custom">Custom</option>
+              {(Object.keys(SOURCES) as JobSource[])
+                .filter((src) => !SOURCES[src].locked)
+                .map((src) => (
+                  <option key={src} value={src}>{SOURCES[src].label}</option>
+                ))}
             </select>
           </div>
           <button
