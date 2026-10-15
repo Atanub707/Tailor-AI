@@ -136,6 +136,8 @@ export class RemoteJobsAggregatorScraper extends ApifyBaseScraper {
       provider: 'apify',
       fingerprint: `remotejobs-${externalId}`,
       scrapedAt: now,
+      createdAt: now,
+      updatedAt: now,
       firstSeenAt: now,
       lastSeenAt: now,
       isActive: true,

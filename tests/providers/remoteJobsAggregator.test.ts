@@ -134,6 +134,10 @@ describe('Remote Boards source (memo23/remote-jobs-aggregator)', () => {
     expect(j.description).not.toContain('<p>'); // HTML stripped
     expect(j.description).toContain('Kubernetes');
     expect(j.location).toBe('United Kingdom, Australia');
+    // The list sorts by createdAt DESC — without these the job is invisible.
+    expect(j.createdAt).toBeTruthy();
+    expect(j.updatedAt).toBeTruthy();
+    expect(new Date(j.createdAt).toString()).not.toBe('Invalid Date');
   });
 
   it('per-row board labels: every actor board becomes a real source; unknown boards fall back to RemoteJobs', async () => {

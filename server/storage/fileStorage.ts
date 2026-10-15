@@ -966,6 +966,11 @@ export function saveNewJobs(newJobs: Job[]): { added: Job[]; skipped: number; ne
     job.firstSeenAt = job.firstSeenAt || now;
     job.lastSeenAt = now;
     job.isActive = job.isActive !== false;
+    // The list sorts by createdAt DESC — a job without it sinks to the last
+    // page (a real bug: RemoteJobs searches "found" jobs the user could
+    // never see). Every stored job must carry both timestamps.
+    job.createdAt = job.createdAt || now;
+    job.updatedAt = job.updatedAt || now;
   }
   const added: Job[] = [];
   let skipped = 0;
