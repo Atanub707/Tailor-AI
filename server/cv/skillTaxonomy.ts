@@ -1,3 +1,5 @@
+import type { MasterCv } from '../../src/types.js';
+
 // Deterministic skill taxonomy for the Master CV: display casing + canonical
 // placement. Service names belong in service/tooling sections ("EC2, VPC, S3"
 // are AWS SERVICES, not cloud providers); practices belong in a practices
@@ -45,6 +47,7 @@ const AZURE_SERVICE_ITEMS = new Set([
 const DATABASE_ITEMS = new Set([
   'postgresql', 'postgres', 'mysql', 'mongodb', 'sql', 'nosql', 'kafka', 'redis', 'memcached',
   'snowflake', 'database', 'databases', 'sql server',
+  'mariadb', 'graphdb', 'neo4j', 'cassandra', 'oracle db', 'dynamodb', 'couchbase',
 ]);
 
 const NETWORKING_ITEMS = new Set([
@@ -105,6 +108,8 @@ const DISPLAY_OVERRIDES: Record<string, string> = {
   'network policies': 'Network Policies', 'threat modeling': 'Threat Modeling', 'penetration testing': 'Penetration Testing',
   'incident response': 'Incident Response', rollback: 'Rollback', networking: 'Networking',
   go: 'Go', golang: 'Golang', java: 'Java', ruby: 'Ruby', rust: 'Rust', swift: 'Swift', kotlin: 'Kotlin',
+  mariadb: 'MariaDB', graphdb: 'GraphDB', neo4j: 'Neo4j', cassandra: 'Cassandra', servicenow: 'ServiceNow',
+  'powershell dsc': 'PowerShell DSC', pester: 'Pester', pytest: 'pytest',
   bash: 'Bash', python: 'Python', iis: 'IIS', nist: 'NIST', hipaa: 'HIPAA', pci: 'PCI',
   // GCP services
   bigquery: 'BigQuery', 'cloud run': 'Cloud Run', 'cloud functions': 'Cloud Functions',
@@ -173,6 +178,26 @@ export function resolveSkillCategory(item: string, suggested: string, existingCa
     if (isSaneCategoryName(s)) return s;
   }
   return 'Core Competencies';
+}
+
+/** User-affirmed skill add (consent action from the tailoring audit): place
+ *  a skill the candidate confirms they genuinely have into the Master CV,
+ *  using the canonical bucket resolver. Pure — the route persists. */
+export function addSkillToMasterCv(cv: MasterCv, name: string): { next: MasterCv; added: boolean; category?: string } {
+  const skill = normalizeSkillDisplay(String(name || '').trim());
+  if (!skill) return { next: cv, added: false };
+  const exists = (cv.skills || []).some((g) => (g.items || []).some((i) => i.toLowerCase() === skill.toLowerCase()));
+  if (exists) return { next: cv, added: false };
+  const next: MasterCv = JSON.parse(JSON.stringify(cv));
+  const categories = (next.skills || []).map((g) => g.category);
+  const category = resolveSkillCategory(skill, '', categories);
+  let group = (next.skills || []).find((g) => g.category.toLowerCase() === category.toLowerCase());
+  if (!group) {
+    group = { category, items: [] };
+    next.skills = [...(next.skills || []), group];
+  }
+  group.items = [...group.items, skill];
+  return { next, added: true, category };
 }
 
 export interface SkillMove {

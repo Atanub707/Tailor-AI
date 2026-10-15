@@ -303,4 +303,19 @@ describe('market-gap AI enrichment — propose, ground, apply', () => {
     expect(edits[0].gap).toBe('Linux');
     expect(edits[0].after).toContain('Linux-based');
   });
+
+  it('CONSENT ADD: user-affirmed tools land in the Master CV under canonical categories', async () => {
+    const { addSkillToMasterCv } = await import('../../server/cv/skillTaxonomy.js');
+    const base = { ...cv, skills: [{ category: 'Security & Compliance', items: ['Snyk'] }] };
+    const a = addSkillToMasterCv(base as any, 'mariadb');
+    expect(a.added).toBe(true);
+    expect(a.category).toBe('Databases & Data Stores');
+    expect(a.next.skills.find((g) => g.category === 'Databases & Data Stores')!.items).toContain('MariaDB');
+    expect(base.skills.length).toBe(1); // source untouched (pure)
+    const b = addSkillToMasterCv(a.next as any, 'MariaDB');
+    expect(b.added).toBe(false); // dedupe case-insensitive
+    const c = addSkillToMasterCv(base as any, 'GraphDB');
+    expect(c.added).toBe(true);
+    expect(c.category).toBe('Databases & Data Stores');
+  });
 });

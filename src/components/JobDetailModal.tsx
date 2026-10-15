@@ -233,6 +233,29 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
 
   // Recruiters tied to this job (server: hr_contacts by source job / recruiter URL).
   const [jobContacts, setJobContacts] = useState<{ id: string; name: string | null; email: string | null; phone: string | null; whatsapp: boolean; recruiterUrl: string | null; company: string; jobRole: string; jobCount: number }[]>([]);
+  const [skillAddState, setSkillAddState] = useState<Record<string, 'adding' | 'added' | 'error'>>({});
+
+
+  // Consent add: the user affirms a JD tool they genuinely have — it lands in
+  // the MASTER CV (canonical category); Re-Tailor then weaves it everywhere.
+  const affirmSkill = async (kw: string) => {
+    const cur = skillAddState[kw];
+    if (cur === 'adding' || cur === 'added') return;
+    if (!window.confirm(`Do you genuinely have "${kw}"?\n\nIt will be added to your Master CV skills — only confirm if it is real.`)) return;
+    setSkillAddState((prev) => ({ ...prev, [kw]: 'adding' }));
+    try {
+      const res = await fetch('/api/cv/skills/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skill: kw }),
+      });
+      const data = await res.json().catch(() => ({} as any));
+      const ok = res.ok && (data.added === true || data.reason === 'already-present');
+      setSkillAddState((prev) => ({ ...prev, [kw]: ok ? 'added' : 'error' }));
+    } catch {
+      setSkillAddState((prev) => ({ ...prev, [kw]: 'error' }));
+    }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -920,13 +943,40 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                               <span className="text-[11px] font-semibold text-red-300">✕ Could Not Be Added (not in experience or skills):</span>
                             </div>
                             <div className="flex flex-wrap gap-1.5">
-                              {notIntegrable.slice(0, 10).map((kw, i) => (
-                                <span key={i} className="px-2 py-0.5 rounded text-[11px] font-medium bg-[var(--color-danger-soft)]0/10 text-red-200 border border-red-500/30 inline-flex items-center space-x-1">
-                                  <span className="text-red-400 font-bold">✕</span>
-                                  <span>{kw}</span>
-                                </span>
-                              ))}
+                              {notIntegrable.slice(0, 10).map((kw, i) => {
+                                const st = skillAddState[kw];
+                                return (
+                                  <button
+                                    key={i}
+                                    type="button"
+                                    onClick={() => affirmSkill(kw)}
+                                    disabled={st === 'adding' || st === 'added'}
+                                    title={
+                                      st === 'added'
+                                        ? 'Added to your Master CV — click “Tailor Resume” to weave it in'
+                                        : st === 'error'
+                                          ? 'Could not add — try again'
+                                          : 'I genuinely have this — add it to my Master CV'
+                                    }
+                                    className={`px-2 py-0.5 rounded text-[11px] font-medium border inline-flex items-center space-x-1 cursor-pointer transition-colors ${
+                                      st === 'added'
+                                        ? 'bg-emerald-500/15 text-emerald-200 border-emerald-400/40 cursor-default'
+                                        : st === 'error'
+                                          ? 'bg-red-500/15 text-red-200 border-red-400/50'
+                                          : 'bg-[var(--color-danger-soft)]0/10 text-red-200 border-red-500/30 hover:border-emerald-400/60 hover:text-emerald-200'
+                                    }`}
+                                  >
+                                    <span className={st === 'added' ? 'text-emerald-300 font-bold' : 'text-red-400 font-bold'}>
+                                      {st === 'added' ? '✓' : st === 'adding' ? '…' : '＋'}
+                                    </span>
+                                    <span>{kw}</span>
+                                  </button>
+                                );
+                              })}
                             </div>
+                            <p className="mt-2 text-[10px] text-slate-400">
+                              Click ＋ on a tool you genuinely used — it’s added to your Master CV and Re-Tailor weaves it into skills, bullets and summary. Leave the rest as honest gaps.
+                            </p>
                           </div>
                         )}
 

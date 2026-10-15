@@ -222,8 +222,9 @@ import {
   masterCvEvidenceText,
   storeEnrichProposal,
 } from './server/cv/marketEnrich.js';
-import { organizeSkills } from './server/cv/skillTaxonomy.js';
+import { addSkillToMasterCv, organizeSkills } from './server/cv/skillTaxonomy.js';
 import { suggestJobTitles } from './server/search/titleSuggest.js';
+import { isUnsupportedClaim } from './server/builder/llmCvTailor.js';
 import nodemailer from 'nodemailer';
 
 // Convert the stored Master CV into the TailoredCv shape the PDF generator
@@ -1418,6 +1419,36 @@ async function startServer() {
     } catch (err: any) {
       const mapped = mapLlmError(err);
       res.status(mapped.status).json({ error: mapped.message, code: mapped.code, retryAfterMs: (err as any)?.retryAfterMs });
+    }
+  });
+
+  // Consent action from the tailoring audit: the user affirms they genuinely
+  // have a tool the JD asked for that could not be added automatically — it
+  // lands in the Master CV (canonical category); Re-Tailor then weaves it.
+  // Credentials stay impossible even here.
+  app.post('/api/cv/skills/add', (req, res) => {
+    try {
+      const name = String(req.body?.skill || '').trim();
+      if (!name || name.length > 60) {
+        res.status(400).json({ error: 'A skill name (max 60 chars) is required.' });
+        return;
+      }
+      if (isUnsupportedClaim(name)) {
+        res.status(400).json({ error: 'Certifications, licenses, tenure and job titles are not skills — add real certifications in the Master CV instead.' });
+        return;
+      }
+      const cv = getMasterCv();
+      const { next, added, category } = addSkillToMasterCv(cv, name);
+      if (!added) {
+        res.json({ success: true, added: false, reason: 'already-present' });
+        return;
+      }
+      saveCvVersion(cv, `Before adding "${name}" to skills`);
+      saveMasterCv(next);
+      res.json({ success: true, added: true, category, skills: next.skills });
+    } catch (err: any) {
+      console.error('Skill add error:', err);
+      res.status(500).json({ error: err.message || 'Failed to add skill.' });
     }
   });
 
