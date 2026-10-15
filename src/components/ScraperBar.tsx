@@ -30,7 +30,7 @@ interface ScraperBarProps {
 // no working implementation and would mislead users.
 const VISIBLE_SOURCES: JobSource[] = [
   'LinkedIn', 'Indeed', 'Naukri', 'Glassdoor', 'Upwork',
-  'Arbeitnow', 'SimplyHired', 'Dice', 'Reed', 'MyCareersFuture', 'Cutshort', 'Gupy', 'JobsCh', 'Daijob', 'MyJobMag',
+  'Arbeitnow', 'RemoteJobs', 'SimplyHired', 'Dice', 'Reed', 'MyCareersFuture', 'Cutshort', 'Gupy', 'JobsCh', 'Daijob', 'MyJobMag',
   'Greenhouse', 'Lever', 'Ashby',
 ];
 const COMING_SOON: JobSource[] = [];

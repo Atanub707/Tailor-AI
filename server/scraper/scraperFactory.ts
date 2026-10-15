@@ -1,6 +1,7 @@
 import { LinkedInScraper } from './linkedInScraper.js';
 import { LinkedInPostsScraper } from './linkedInPostsScraper.js';
 import { ApifyLinkedInScraper } from './apifyScraper.js';
+import { RemoteJobsAggregatorScraper } from './remoteJobsAggregatorScraper.js';
 import { IndeedScraper } from './indeedScraper.js';
 import { NaukriScraper } from './naukriScraper.js';
 import { GlassdoorScraper } from './glassdoorScraper.js';
@@ -28,6 +29,7 @@ import { isWithinPostedWindow, applyRelevanceGuard } from '../storage/v2Tables.j
 // Apify-powered sources — constructed from the shared registry (Task 1).
 const APIFY_SCRAPERS: Partial<Record<JobSource, () => ApifyBaseScraper>> = {
   LinkedIn: () => new ApifyLinkedInScraper(),
+  RemoteJobs: () => new RemoteJobsAggregatorScraper(),
   Indeed: () => new IndeedScraper(),
   Naukri: () => new NaukriScraper(),
   Glassdoor: () => new GlassdoorScraper(),
