@@ -1,6 +1,7 @@
 import React from 'react';
 import { Job, JobState, JobSource } from '../types';
 import { SOURCES } from '../constants/sources';
+import { useTitleSuggestions } from '../lib/useTitleSuggestions';
 import { formatTimeAgoSemantic } from '../lib/dateUtils';
 import { getValidJobUrl } from '../lib/jobUrlUtils';
 import { isAutoApplyJob, hasHttpApplyUrl } from '../lib/autoApply';
@@ -446,6 +447,7 @@ export const JobMatrix: React.FC<JobMatrixProps> = ({
   scoreMessages,
   tailorMessages,
 }) => {
+  const titleSuggest = useTitleSuggestions(searchTerm);
   const [removedToast, setRemovedToast] = React.useState<{ id: string; label: string } | null>(null);
   const removeUndoTimer = React.useRef<number | null>(null);
   const onJobRemoved = (job: { id: string; label: string }) => {
@@ -582,57 +584,49 @@ export const JobMatrix: React.FC<JobMatrixProps> = ({
 
       {/* Search & Sort Filter */}
       <div className="bg-white p-2.5 rounded-lg border border-slate-200 text-xs shadow-xs space-y-2">
-        <datalist id="matrix-search-suggestions">
-          <option value="Frontend" />
-          <option value="Full Stack" />
-          <option value="DevSecOps" />
-          <option value="Software Engineer" />
-          <option value="Remote" />
-          <option value="Singapore" />
-          <option value="Human Managed" />
-        </datalist>
 
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="relative w-full sm:w-72">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
-              list="matrix-search-suggestions"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={(e) => titleSuggest.onKeyDown(e, setSearchTerm)}
+              onBlur={titleSuggest.onBlur}
               placeholder="Search role, company, location..."
               className="w-full bg-[#FAFAF9] border-[1.5px] border-[var(--color-hairline2)] rounded-[9px] pl-8 pr-3 py-1.5 text-xs focus:bg-white focus:outline-none focus:border-[var(--color-brand)]"
+              role="combobox"
+              aria-expanded={titleSuggest.open}
+              aria-autocomplete="list"
             />
+            {titleSuggest.open && (
+              <ul
+                role="listbox"
+                className="absolute left-0 top-full mt-1 w-full z-50 bg-white border border-[var(--color-hairline2)] rounded-[9px] shadow-xl overflow-hidden py-0.5"
+              >
+                {titleSuggest.suggestions.map((t, i) => (
+                  <li
+                    key={t}
+                    role="option"
+                    aria-selected={i === titleSuggest.active}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onMouseEnter={() => titleSuggest.setActive(i)}
+                    onClick={() => {
+                      setSearchTerm(t);
+                      titleSuggest.close();
+                    }}
+                    className={`px-3 py-1.5 text-xs cursor-pointer ${
+                      i === titleSuggest.active ? 'bg-[var(--color-brand-soft)] font-semibold' : ''
+                    }`}
+                  >
+                    {t}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
-        </div>
-
-        {/* Quick Matrix Filter Chips */}
-        <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100 text-[11px]">
-          <span className="text-slate-400 font-medium">Quick Filter:</span>
-          {['Frontend', 'Full Stack', 'DevSecOps', 'Remote', 'Singapore'].map((chip) => (
-            <button
-              type="button"
-              key={chip}
-              onClick={() => setSearchTerm(searchTerm === chip ? '' : chip)}
-              className={`px-2 py-0.5 rounded border transition-all cursor-pointer ${
-                searchTerm === chip
-                  ? 'bg-[var(--color-brand)] text-white border-[var(--color-brand)] font-semibold'
-                  : 'bg-white hover:bg-[var(--color-brand-soft)] text-[var(--color-muted)] border-[var(--color-hairline)]'
-              }`}
-            >
-              {chip}
-            </button>
-          ))}
-          {searchTerm && (
-            <button
-              type="button"
-              onClick={() => setSearchTerm('')}
-              className="text-slate-400 hover:text-slate-600 font-medium ml-auto cursor-pointer underline"
-            >
-              Clear filter
-            </button>
-          )}
         </div>
 
 

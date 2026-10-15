@@ -25,6 +25,55 @@ import { layaConfigFromEnv } from './decisionEngine.js';
 import { LayaDecisionEngine } from './layaDecisionEngine.js';
 import { getMasterCv, runWithUser } from '../storage/fileStorage.js';
 import { getApplicantProfile } from '../storage/applicantProfile.js';
+import { consultModelForFields, matchesOption, consultEnabled } from './modelConsult.js';
+
+/** Clean value for a numeric form field. "$40k-$60k" → '40000', "16 LPA"
+ *  → '1600000', '1800000' → '1800000'. Undefined when no sane number exists —
+ *  the field then stays open and is ASKED instead of filled with garbage
+ *  (a number widget mangled "$40k-$60k" into repeated digit noise). */
+export function toNumericFieldValue(raw: string): string | undefined {
+  const s = String(raw || '').toLowerCase().replace(/,/g, '').trim();
+  if (!s) return undefined;
+  const nums = (s.match(/\d+(?:\.\d+)?/g) || []).map(Number).filter((n) => Number.isFinite(n) && n > 0);
+  if (!nums.length) return undefined;
+  let n = nums[0];
+  if (/lpa|lakh|lacs?\b/.test(s)) n *= 100000;
+  else if (/\d\s*k\b/.test(s) || /\dk/.test(s.replace(/\s+/g, ''))) n *= 1000;
+  if (!Number.isFinite(n) || n <= 0 || n > 1e12) return undefined;
+  return String(Math.round(n));
+}
+
+/** Compact candidate-facts block for the model consult: identity + profile +
+ *  the user's saved answers. The ONLY value space the model may answer from. */
+function buildCandidateFacts(records: any[], profile: any, std: any): string {
+  const lines: string[] = [];
+  if (std) {
+    if (std.fullName) lines.push(`Full name: ${std.fullName}`);
+    if (std.email) lines.push(`Email: ${std.email}`);
+    if (std.phone) lines.push(`Phone: ${std.phone}`);
+    if (std.location) lines.push(`Location: ${std.location}`);
+  }
+  const pick = (obj: any, prefix: string) => {
+    if (!obj || typeof obj !== 'object') return;
+    for (const [k, v] of Object.entries(obj)) {
+      const sv = v == null ? '' : String(v).trim();
+      if (sv && sv !== 'undefined' && sv !== 'null') lines.push(`${prefix}${k}: ${sv}`);
+    }
+  };
+  pick(profile?.personal, 'Profile ');
+  pick(profile?.contact, 'Profile ');
+  pick(profile?.links, 'Profile ');
+  pick(profile?.workAuthorization, 'WorkAuthorization ');
+  pick(profile?.preferences, 'Preference ');
+  pick(profile?.applicationDefaults, 'Default ');
+  for (const r of (records || []).slice(0, 80)) {
+    const q = String(r?.canonicalQuestion || '').trim();
+    const v = r?.answerValue;
+    const sv = Array.isArray(v) ? v.join(', ') : v == null ? '' : String(v);
+    if (q && sv.trim()) lines.push(`SavedAnswer: ${q} => ${sv.slice(0, 200)}`);
+  }
+  return lines.join('\n').slice(0, 6000);
+}
 
 /** Deterministic name splitting — "Atanu Biswas" → { first, last }. */
 function splitName(full: string | undefined): { first: string; last: string } {
@@ -152,6 +201,7 @@ function isEeoLabel(text: string): boolean {
 function kindToBankType(kind: string): string | undefined {
   switch (kind) {
     case 'text': return 'TEXT';
+    case 'number': return 'NUMBER';
     case 'textarea': return 'TEXTAREA';
     case 'select':
     case 'custom-select':
@@ -585,6 +635,59 @@ export async function resolveAgentValues(userId: string, fields: ObservedField[]
       values.set(f.ref, Array.isArray(v) ? v.join(', ') : String(v ?? ''));
     }
   }
+  // ── MODEL CONSULT — the understanding layer. For questions the
+  // deterministic stages could not answer, ONE batched LLM call reads the
+  // question + the candidate's facts and either answers with a fact-grounded
+  // value or escalates to the human. Never invents: every value is validated
+  // (option membership for choices, fact membership for free text).
+  const stillOpenForModel = candidates.filter((f) => !values.has(f.ref) && !conceptRefs.has(f.ref));
+  if (stillOpenForModel.length && consultEnabled()) {
+    const consultable = stillOpenForModel.filter((f) => {
+      const intent = intentOf(f);
+      return !intent.sensitive && !intent.exactOnly; // EEO/legal/conditional → human
+    });
+    if (consultable.length) {
+      const facts = buildCandidateFacts(allRecords(), profile, std);
+      const decisions = await consultModelForFields(
+        facts,
+        consultable.map((f) => ({
+          ref: f.ref,
+          label: matchText(f),
+          kind: kindToBankType(f.kind) || f.kind,
+          required: !!f.required,
+          options: (f.options || []).map((o) => o.option).filter(Boolean),
+        }))
+      );
+      const factsNorm = facts.toLowerCase();
+      for (const d of decisions) {
+        if (d.action !== 'answer' || !d.value) continue;
+        const field = consultable.find((f) => f.ref === d.ref);
+        if (!field) continue;
+        const value = String(d.value).trim();
+        if (!value || value.length > 500) continue;
+        const opts = (field.options || []).map((o) => o.option).filter(Boolean);
+        if (opts.length) {
+          if (!matchesOption(value, opts)) continue; // must be a REAL option
+        } else {
+          const norm = value.toLowerCase();
+          if (norm.length >= 4 && !factsNorm.includes(norm)) continue; // no invention
+        }
+        values.set(field.ref, value);
+      }
+    }
+  }
+
+  // ── NUMERIC FIELD PASS — a field that asks for a number must receive a
+  // clean number. Unparseable values stay open (asked), never typed as text.
+  for (const f of candidates) {
+    if (f.kind !== 'number') continue;
+    const raw = values.get(f.ref);
+    if (raw === undefined) continue;
+    const num = toNumericFieldValue(raw);
+    if (num) values.set(f.ref, num);
+    else values.delete(f.ref);
+  }
+
   return values;
 }
 

@@ -19,6 +19,7 @@ const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'question-intents-'));
 process.env.TAILOR_DATA_DIR = tmpDir;
 process.env.AUTO_APPLY_ENABLED = 'false';
 process.env.AUTO_APPLY_ANSWER_BANK_ENABLED = 'true';
+process.env.AUTO_APPLY_MODEL_CONSULT = '0'; // deterministic suites never call the LLM
 
 const { getDb, runWithUser, saveMasterCv } = await import('../../server/storage/fileStorage.js');
 const { ensureV2Tables } = await import('../../server/storage/v2Tables.js');

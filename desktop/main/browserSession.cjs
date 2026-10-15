@@ -53,6 +53,7 @@ class Session {
     this.backendBase = '';
     this.pendingAsks = [];
     this.actFailures = new Map(); // sig -> consecutive failed attempts
+    this.actFailureCodes = new Map(); // sig -> last failure code
     this.lastFailures = new Map(); // ref -> { code, sig, options } (choice asks)
     this.probedOptions = new Map(); // ref -> { at, options } (menu probe cache)
     this.asksSig = null; // signature of the currently displayed ask set
@@ -514,7 +515,10 @@ class Session {
     try { if (!dbg.isAttached()) dbg.attach('1.3'); } catch { /* already attached */ }
     const value = String(text || '').slice(0, 200);
     if (!value) return;
-    await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA', modifiers: 4, windowsVirtualKeyCode: 65 });
+    // Reliable select-all: the CDP `selectAll` edit command applies even
+    // when synthesized Meta+A doesn't (the reason insertText APPENDED onto
+    // existing text — the "0604060406…" salary-field loop).
+    await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA', modifiers: 4, windowsVirtualKeyCode: 65, commands: ['selectAll'] });
     await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA', modifiers: 4, windowsVirtualKeyCode: 65 });
     await dbg.sendCommand('Input.insertText', { text: value });
   }
@@ -525,7 +529,7 @@ class Session {
   async trustedClear() {
     const dbg = this.wc.debugger;
     try { if (!dbg.isAttached()) dbg.attach('1.3'); } catch { /* already attached */ }
-    await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA', modifiers: 4, windowsVirtualKeyCode: 65 });
+    await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA', modifiers: 4, windowsVirtualKeyCode: 65, commands: ['selectAll'] });
     await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA', modifiers: 4, windowsVirtualKeyCode: 65 });
     await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 });
     await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 });
@@ -634,6 +638,10 @@ class Session {
           const ok = await this.trustedFocus(safe.ref).catch(() => false);
           if (!ok) { await new Promise((res) => setTimeout(res, 250)); continue; }
           await new Promise((res) => setTimeout(res, 80));
+          // Idempotent fill: clear first so a retry can never APPEND onto the
+          // previous attempt (number widgets turned that into digit garbage).
+          await this.trustedClear().catch(() => {});
+          await new Promise((res) => setTimeout(res, 60));
           await this.trustedType(want);
           await new Promise((res) => setTimeout(res, 150));
           const got = String(await readBack()).trim();
@@ -744,6 +752,7 @@ class Session {
   async agentRun() {
     const wc = this.wc;
     this.actFailures = new Map();
+    this.actFailureCodes = new Map();
     this.lastFailures = new Map();
     this.probedOptions = new Map();
     try {
@@ -959,6 +968,7 @@ class Session {
           const r = await this.act(a);
           if (!r || r.ok !== true) {
             this.actFailures.set(sig, (this.actFailures.get(sig) || 0) + 1);
+            this.actFailureCodes.set(sig, String((r && r.code) || 'FAILED'));
             if (r && r.code === 'OPTION_NOT_FOUND') {
               let opts = [];
               try {
@@ -971,6 +981,7 @@ class Session {
             continue; // keep filling the OTHER fields — this one retries/escalates
           }
           this.actFailures.delete(sig);
+          this.actFailureCodes.delete(sig);
           this.lastFailures.delete(a.ref);
           applied += 1;
         }
@@ -991,7 +1002,12 @@ class Session {
         const f = (obs.state.fields || []).find((x) => x.ref === ref);
         if (!f) continue;
         const hasValue = String(f.value || '').trim() !== '' || (f.options || []).some((o) => o.checked);
-        if (!hasValue) stuck.push(f);
+        // A field our OWN actions keep failing to write/verify is stuck even
+        // when it holds residual text — otherwise the retype loop appends
+        // garbage forever (the salary-field incident).
+        const code = String(this.actFailureCodes.get(sig) || '');
+        const writeFailed = code.includes('TYPE_VERIFY') || code.includes('ACT_FAILED');
+        if (!hasValue || writeFailed) stuck.push(f);
       }
 
       const fieldByRef = new Map((obs.state.fields || []).map((x) => [x.ref, x]));

@@ -553,7 +553,7 @@ function buildObserveScript() {
             .slice(0, 50) });
         continue;
       }
-      fields.push({ ref: ref(el), kind: el.tagName === 'TEXTAREA' ? 'textarea' : 'text', name: el.name || '', label: labelFor(el), required: !!el.required, value: String(el.value || '').slice(0, 300) });
+      fields.push({ ref: ref(el), kind: el.tagName === 'TEXTAREA' ? 'textarea' : (el.type === 'number' ? 'number' : 'text'), name: el.name || '', label: labelFor(el), required: !!el.required, value: String(el.value || '').slice(0, 300) });
       if (fields.length >= 120) break;
     }
     const buttons = [];

@@ -149,7 +149,7 @@ function buildObserveScript() {
           value: selText.slice(0, 120), options: [] });
         continue;
       }
-      fields.push({ ref: ref(el), kind: el.tagName === 'TEXTAREA' ? 'textarea' : 'text', name: el.id || el.name || '',
+      fields.push({ ref: ref(el), kind: el.tagName === 'TEXTAREA' ? 'textarea' : (el.type === 'number' ? 'number' : 'text'), name: el.id || el.name || '',
         label: labelFor(el), required: !!(el.required || el.getAttribute('aria-required') === 'true'), value: String(el.value || '').slice(0, 300) });
     }
 

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { MagnifyingGlass, MapPin, Play, CaretDown, CheckCircle, Warning, Info } from '@phosphor-icons/react';
 import { JobSource } from '../types';
-import { getRoleSuggestions, getKeywordSuggestions } from '../constants/suggestions';
+import { useTitleSuggestions } from '../lib/useTitleSuggestions';
 import { getSourceFlag, getSourceCountry, getSourceMeta } from '../constants/sourceMeta';
 import { searchLocations } from '../lib/locations';
 import { SourceIcon } from './SourceIcon';
@@ -56,8 +56,7 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
   const [scrapeNewContacts, setScrapeNewContacts] = useState<{ name: string | null; email: string | null; phone: string | null; whatsapp: boolean; recruiterUrl: string | null }[]>([]);
   const [selectedSources, setSelectedSources] = useState<JobSource[]>(['LinkedIn']);
 
-  const roleSuggestions = getRoleSuggestions(keywords);
-  const keywordSuggestions = getKeywordSuggestions(keywords);
+  const titleSuggest = useTitleSuggestions(keywords);
 
   const isApifyGated = (source: JobSource) => !!getSourceMeta(source)?.needsApify && !apifyAvailable;
 
@@ -187,12 +186,6 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
         @media (prefers-reduced-motion: reduce) { .sc-chip-pop { animation: none; } }
       `}</style>
       {/* Datalists for Native Auto-completion */}
-      <datalist id="datalist-roles-keywords">
-        {Array.from(new Set([...roleSuggestions, ...keywordSuggestions])).map((s) => (
-          <option key={s} value={s} />
-        ))}
-      </datalist>
-
       <datalist id="datalist-locations">
         {locationOptions.map((loc) => (
           <option key={loc} value={loc} />
@@ -201,20 +194,51 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
 
       <form onSubmit={handleSubmit} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-4">
         {/* ── Row 1: Hero Search ── */}
-        <div className="flex items-center gap-3 bg-[#FAFAF9] border-[1.5px] border-[var(--color-hairline2)] rounded-[12px] pl-5 pr-2 py-2 transition-colors focus-within:border-[var(--color-brand)] focus-within:bg-white focus-within:ring-[3px] focus-within:ring-[var(--color-brand)]/12">
+        <div className="relative flex items-center gap-3 bg-[#FAFAF9] border-[1.5px] border-[var(--color-hairline2)] rounded-[12px] pl-5 pr-2 py-2 transition-colors focus-within:border-[var(--color-brand)] focus-within:bg-white focus-within:ring-[3px] focus-within:ring-[var(--color-brand)]/12">
           <MagnifyingGlass size={18} style={{ color: 'var(--color-faint)' }} weight="bold" />
           <input
             type="text"
             id="input-scrape-keywords"
-            list="datalist-roles-keywords"
             value={keywords}
             onChange={(e) => setKeywords(e.target.value)}
+            onKeyDown={(e) => titleSuggest.onKeyDown(e, setKeywords)}
+            onBlur={titleSuggest.onBlur}
             placeholder="Search role, skills, or job title — e.g. 'DevOps Engineer'"
             autoComplete="off"
             name="ats-search-keywords"
             className="flex-1 border-none outline-none bg-transparent text-[15px] font-semibold text-[var(--color-ink)] placeholder:text-[var(--color-faint)] placeholder:font-normal py-2"
             aria-required="true"
+            role="combobox"
+            aria-expanded={titleSuggest.open}
+            aria-autocomplete="list"
           />
+          {titleSuggest.open && (
+            <ul
+              role="listbox"
+              className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white border border-[var(--color-hairline2)] rounded-[12px] shadow-xl overflow-hidden py-1"
+            >
+              {titleSuggest.suggestions.map((t, i) => (
+                <li
+                  key={t}
+                  role="option"
+                  aria-selected={i === titleSuggest.active}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onMouseEnter={() => titleSuggest.setActive(i)}
+                  onClick={() => {
+                    setKeywords(t);
+                    titleSuggest.close();
+                  }}
+                  className={`px-5 py-2 text-[13.5px] cursor-pointer ${
+                    i === titleSuggest.active
+                      ? 'bg-[var(--color-brand-soft)] text-[var(--color-ink)] font-semibold'
+                      : 'text-[var(--color-ink)]'
+                  }`}
+                >
+                  {t}
+                </li>
+              ))}
+            </ul>
+          )}
           <button
             type="submit"
             disabled={isLoading}

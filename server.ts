@@ -223,6 +223,7 @@ import {
   storeEnrichProposal,
 } from './server/cv/marketEnrich.js';
 import { organizeSkills } from './server/cv/skillTaxonomy.js';
+import { suggestJobTitles } from './server/search/titleSuggest.js';
 import nodemailer from 'nodemailer';
 
 // Convert the stored Master CV into the TailoredCv shape the PDF generator
@@ -2459,6 +2460,17 @@ Return valid JSON only, no markdown:
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Live job-TITLE suggestions for the search bars — real titles from the
+  // user's jobs + the live ATS index (FTS), never a hardcoded list.
+  app.get('/api/job-titles/suggest', (req, res) => {
+    try {
+      const q = String(req.query.q || '');
+      res.json({ titles: suggestJobTitles(getCurrentUserId(), q, 8) });
+    } catch (err: any) {
+      res.json({ titles: [] });
     }
   });
 
