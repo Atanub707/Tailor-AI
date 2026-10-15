@@ -3,6 +3,7 @@ import { HamburgerTrigger } from '../navigation';
 import { X, Search, CheckCircle2, Copy, Trash2, Mail, ExternalLink, Linkedin, Loader2, Sparkles, Send, FileText, Upload, PencilLine, Clock, BadgeCheck, Plus, AlertTriangle, MessageCircle, UserPlus } from 'lucide-react';
 import { filterByType, sortContacts, typeCounts, TYPE_LABELS } from '../lib/recruiters/filterUtils';
 import { followupDue, followupDaysLeft } from '../lib/recruiters/followupUtils';
+import { waLink, getWaMessage, setWaMessage, DEFAULT_WA_MESSAGE } from '../lib/recruiters/whatsapp';
 
 interface Contact {
   id: string;
@@ -48,11 +49,6 @@ const PIPELINE: Array<{ value: string | null; label: string }> = [
   { value: 'rejected', label: 'Rejected' },
 ];
 
-const waLink = (phone: string): string => {
-  const digits = phone.replace(/[^\d]/g, '').replace(/^0+/, '');
-  return `https://wa.me/${digits}`;
-};
-
 const fmtDay = (iso?: string | null): string => {
   if (!iso) return '';
   try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); } catch { return ''; }
@@ -90,6 +86,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
   const [toast, setToast] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [waMessage, setWaMessageState] = useState<string>(DEFAULT_WA_MESSAGE);
   const [composeContact, setComposeContact] = useState<Contact | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeTo, setComposeTo] = useState('');
@@ -98,6 +95,10 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
   const [draftBusy, setDraftBusy] = useState(false);
   const [sendBusy, setSendBusy] = useState(false);
   const [composeMsg, setComposeMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    setWaMessageState(getWaMessage());
+  }, []);
   const [attachMode, setAttachMode] = useState<'none' | 'master' | 'file'>('none');
   const [attachFile, setAttachFile] = useState<{ name: string; data: string } | null>(null);
   const [masterCvName, setMasterCvName] = useState<string | null>(null);
@@ -576,12 +577,19 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
                       >
                         {c.email || <span className="rc-dash">—</span>}
                       </div>
-                      <div
-                        className="rc-phone"
-                        title={c.phone ? 'Copy phone' : undefined}
-                        onClick={(e) => { e.stopPropagation(); if (c.phone) copyValue(c.phone); }}
-                      >
-                        {c.phone || <span className="rc-dash">—</span>}
+                      <div className="rc-phone" title={c.phone ? 'Open WhatsApp chat (message pre-filled)' : undefined}>
+                        {c.phone ? (
+                          <a
+                            href={waLink(c.phone, waMessage)}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {c.phone}
+                          </a>
+                        ) : (
+                          <span className="rc-dash">—</span>
+                        )}
                       </div>
                       <div>{outreachBadge(c)}</div>
                     </div>
@@ -638,9 +646,33 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
                       <ExternalLink size={14} />
                     </a>
                   )}
-                  {selected.phone && selected.whatsapp && (
-                    <a className="rc-btn icon rc-wa" href={waLink(selected.phone)} target="_blank" rel="noreferrer" title="Chat on WhatsApp">
+                  {selected.phone && (
+                    <a className="rc-btn icon rc-wa" href={waLink(selected.phone, waMessage)} target="_blank" rel="noreferrer" title={`Chat on WhatsApp (message pre-filled${selected.whatsapp ? '' : ' — number not marked WhatsApp in the posting'})`}>
                       <MessageCircle size={14} />
+                    </a>
+                  )}
+                  {selected.phone && (
+                    <button
+                      className="rc-btn icon"
+                      title="Edit the global WhatsApp message"
+                      onClick={() => {
+                        const next = window.prompt('WhatsApp message (global — used for every contact):', waMessage || DEFAULT_WA_MESSAGE);
+                        if (next !== null && next.trim()) {
+                          setWaMessage(next);
+                          setWaMessageState(next.trim());
+                        }
+                      }}
+                    >
+                      <PencilLine size={14} />
+                    </button>
+                  )}
+                  {selected.phone && (
+                    <a
+                      className="rc-btn icon"
+                      href="/api/cv/master/download?format=pdf"
+                      title="Download Master CV — attach it in the WhatsApp chat (deep links cannot attach files)"
+                    >
+                      <FileText size={14} />
                     </a>
                   )}
                   <span className="rc-spacer" />
@@ -667,7 +699,9 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
                     <div className="rc-v">
                       {selected.phone ? (
                         <>
-                          <span className="rc-mono">{selected.phone}</span>
+                          <a className="rc-mono" href={waLink(selected.phone, waMessage)} target="_blank" rel="noreferrer" title="Open WhatsApp chat (message pre-filled)">
+                            {selected.phone}
+                          </a>
                           <button className="rc-copy" title="Copy" onClick={() => copyValue(selected.phone!)}><Copy size={12} /></button>
                         </>
                       ) : <span className="rc-none">—</span>}
@@ -914,6 +948,8 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
         .rc-rl { font-size: 12px; color: var(--rc-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .rc-co { font-size: 12.5px; color: var(--rc-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .rc-mail, .rc-phone { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--color-ink); }
+        .rc-phone a, .rc-prop a.rc-mono { color: inherit; text-decoration: none; }
+        .rc-phone a:hover, .rc-prop a.rc-mono:hover { color: var(--rc-brand); text-decoration: underline; }
         .rc-phone { color: var(--rc-muted); }
         .rc-mail:hover, .rc-phone:hover { color: var(--rc-brand-strong); }
         .rc-dash { color: var(--rc-line2); }
