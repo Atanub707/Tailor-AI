@@ -26,7 +26,7 @@ export type WorkMode = 'Remote' | 'Hybrid' | 'On-site' | null;
 // "remote work options") must NOT label a job Remote: that is how on-site
 // postings leaked into Remote searches.
 const STRONG_REMOTE_RE =
-  /fully[- ]remote|100%\s*remote|remote[- ]first\s*(role|company|position)?|work from (home|anywhere)|remote\s+(position|role|opportunity)|this\s+(role|position)\s+is\s+(fully\s+)?remote|telecommute|fully distributed/i;
+  /fully[- ]remote|100%\s*remote|remote[- ]first\s*(role|company|position)?|work from (home|anywhere)|remote\s+(position|role|opportunity)|this\s+(role|position)\s+is\s+(fully\s+)?remote|telecommute|fully distributed|\(\s*remote\s*[,)]|[-|–]\s*remote\s*$/im;
 
 export function hasStrongRemoteSignal(text: string | undefined | null): boolean {
   return STRONG_REMOTE_RE.test(String(text || ''));

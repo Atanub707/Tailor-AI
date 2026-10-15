@@ -199,7 +199,12 @@ function detectWorkMode(j: NormalizedJob): 'remote' | 'hybrid' | 'onsite' | unde
   // what flooded Remote searches with on-site jobs.
   if (j.workMode === 'Remote') return 'remote';
   if (j.workMode === 'Hybrid') return 'hybrid';
-  if (j.workMode === 'On-site') return 'onsite';
+  if (j.workMode === 'On-site') {
+    // A stale column saying On-site yields to a STRONG remote marker in the
+    // description ('(Remote)', 'fully remote', …) — pinned doctrine; weak
+    // mentions (boilerplate) never override the column.
+    return hasStrongRemoteSignal(j.description) ? 'remote' : 'onsite';
+  }
   if (j.remote === true) return 'remote';
   const locMode = classifyFromText(j.location);
   if (locMode === 'Remote') return 'remote';

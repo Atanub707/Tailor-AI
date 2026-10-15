@@ -18,6 +18,10 @@ const HARD_CLAIM_PATTERNS: RegExp[] = [
   /\b\d{1,2}\s*\+?\s*(?:years?|yrs?)\b/i,
 ];
 const ROLE_TITLE_PATTERN = /\b(?:engineer|developer|architect|analyst|specialist|consultant|administrator|professional|associate|expert)\b|(?<!secrets? |certificate |key |access |package |endpoint |device )\bmanager\b/i;
+// Output-scan variant: only a TITLE-shaped skill line trips it ("Senior
+// DevOps Engineer" as a skill), never a compound category ("Developer
+// Tools"). The broad pattern above stays for INPUT gating (isUnsupportedClaim).
+const JOB_TITLE_LEAK_PATTERN = /^(?:senior |staff |lead |principal |junior |sr\.? |jr\.? |head of |chief |director of )?(?:.*\s)?(?:engineer|developer|architect|manager|analyst|specialist|consultant|administrator)s?$/im;
 const UNSUPPORTED_CLAIM_PATTERNS: RegExp[] = [...HARD_CLAIM_PATTERNS, ROLE_TITLE_PATTERN];
 
 export function isUnsupportedClaim(term: string): boolean {
@@ -45,6 +49,8 @@ const GENERIC_WORDS = new Set([
   'security', 'secure', 'compliance', 'governance', 'risk', 'audit', 'audits', 'controls', 'control', 'policies',
   'policy', 'vulnerability', 'vulnerabilities', 'threat', 'threats', 'incident', 'incidents', 'response', 'readiness',
   'remediation', 'resilience', 'integrity', 'signing', 'scanning', 'scan', 'sbom', 'zero', 'trust', 'least',
+  'blameless', 'postmortem', 'postmortems', 'post', 'runbook', 'runbooks', 'playbook', 'playbooks',
+  'posture', 'hygiene', 'triage', 'escalation', 'review', 'reviews', 'baselining', 'root', 'cause', 'causes',
   'privilege', 'defense', 'defence', 'depth', 'shift', 'left', 'supply', 'chain', 'artifact', 'artifacts', 'access',
   'identity', 'authorization', 'authentication', 'encryption', 'secrets',
   // platform & ops
@@ -59,13 +65,23 @@ const GENERIC_WORDS = new Set([
   'requests', 'change', 'support', 'maintenance', 'guidance', 'cost', 'finops',
 ]);
 
+/** Generic check with naive plural tolerance — 'analytics platforms' must be
+ *  generic capability wording, not a "tool" ('platform' is allowlisted, the
+ *  plural was not: real false-gate that failed tailoring runs). */
+function isGenericWord(w: string): boolean {
+  if (GENERIC_WORDS.has(w) || GENERIC_STOPWORDS.has(w)) return true;
+  if (w.endsWith('es') && (GENERIC_WORDS.has(w.slice(0, -2)) || GENERIC_STOPWORDS.has(w.slice(0, -2)))) return true;
+  if (w.endsWith('s') && (GENERIC_WORDS.has(w.slice(0, -1)) || GENERIC_STOPWORDS.has(w.slice(0, -1)))) return true;
+  return false;
+}
+
 export function isNamedTechTerm(term: string): boolean {
   const words = String(term || '')
     .toLowerCase()
     .split(/[\s/&()+,\-–]+/)
     .filter(Boolean);
   if (!words.length) return false;
-  return words.some((w) => !GENERIC_WORDS.has(w) && !GENERIC_STOPWORDS.has(w));
+  return words.some((w) => !isGenericWord(w));
 }
 
 /** Terms that must NOT appear in the output unless explicitly selected. */
@@ -110,7 +126,7 @@ export function unsupportedClaimLeaks(parsed: any, masterText: string): string[]
     }
   };
   scan(allText, HARD_CLAIM_PATTERNS);
-  scan(skillsText, [ROLE_TITLE_PATTERN]);
+  scan(skillsText, [JOB_TITLE_LEAK_PATTERN]);
   return [...new Set(out)];
 }
 
@@ -192,6 +208,7 @@ IMPACT & ACCURACY RULES (recruiters scan your resume for 6-7 seconds):
 - Lead each bullet with a strong action verb and frame the OUTCOME ("did X, which delivered Y") using only facts already present in the source bullet. "What changed because you did this?" — that is the test every bullet must pass.
 - The professionalSummary MUST be 2-3 lines (35-60 words): who the candidate is (seniority + years), 1-2 REAL quantified achievements already present in the CV, and why they fit THIS role.
 - When the job description names a specific tool or technology, use the job description's EXACT phrasing (never a synonym).
+- The job description mentions MANY tools, technologies and certifications the candidate may not have. The ONLY keywords you may introduce are the ones listed below. Every other tool/technology/credential/number-of-years in the JD is FORBIDDEN in your output.
 - ${selectedList.length > 0
       ? `INCORPORATE ONLY these selected missing keywords: ${selectedList.join(', ')} — DO NOT add or mention any other missing keyword.`
       : 'DO NOT add or mention ANY missing keyword — none are approved for this resume. Reword the candidate\'s own experience only.'}
@@ -290,7 +307,7 @@ Return valid JSON only — NO markdown, NO code fences, pure JSON:
     let dropped: string[] = [];
     let claimsLeak: string[] = [];
     let namedLeak: string[] = [];
-    for (let attempt = 0; attempt <= 1; attempt++) {
+    for (let attempt = 0; attempt <= 2; attempt++) {
       const keywordRetry = attempt > 0 && selectedList.length > 0
         ? `\n- No genuinely-missing keyword (${selectedList.join(', ')}) appears anywhere in the output, and/or every bullet was returned unchanged.
 - You MUST rewrite the bullets so the keywords above appear inside them (or in skills), and the bullet text must differ from the source.`
@@ -317,6 +334,51 @@ ${keywordRetry}${metricRetry}${claimsRetry}${namedRetry}
       const rewriteOk = selectedList.length === 0 || bulletsActuallyChanged(parsed) || summaryChanged(parsed);
       if (gainOk && rewriteOk && dropped.length === 0 && claimsLeak.length === 0 && namedLeak.length === 0) break;
       retried = attempt === 0;
+    }
+    // ── Deterministic AUTO-REPAIR (integrity-preserving, never inventing) ──
+    // If the retries still leaked unsupported claims/tools, REMOVE the leaked
+    // items from the skills sections and REVERT the affected bullets/summary
+    // to the candidate's own master text. Nothing untrue is ever published —
+    // but the tailor succeeds instead of failing closed (the retry-level
+    // failure that surfaced as 422s in production).
+    const repairNotes: string[] = [];
+    const leakedAll = [...new Set([...claimsLeak, ...namedLeak])];
+    if (leakedAll.length) {
+      const isLeak = (v: unknown) => leakedAll.some((t) => containsKeyword(String(v || ''), t));
+      const countSkills = () =>
+        (parsed.coreCompetencies || []).length +
+        (parsed.technicalSkills || []).reduce((n: number, g: any) => n + (g.skills || []).length, 0);
+      const skillsBefore = countSkills();
+      parsed.coreCompetencies = (parsed.coreCompetencies || []).filter((x: any) => !isLeak(x));
+      parsed.technicalSkills = (parsed.technicalSkills || [])
+        .filter((g: any) => !isLeak(g?.category))
+        .map((g: any) => ({ ...g, skills: (g.skills || []).filter((x: any) => !isLeak(x)) }));
+      let revertedBullets = 0;
+      parsed.workExperience = (parsed.workExperience || []).map((w: any, ei: number) => {
+        const src = masterCv.experiences?.[ei]?.responsibilities || [];
+        return {
+          ...w,
+          highlights: (w.highlights || []).map((h: any, hi: number) => {
+            if (isLeak(h) && typeof src[hi] === 'string' && String(src[hi]).trim()) {
+              revertedBullets++;
+              return src[hi];
+            }
+            return h;
+          }),
+        };
+      });
+      if (isLeak(parsed.professionalSummary)) parsed.professionalSummary = masterCv.summary || '';
+      // Re-scan: the repair is verified like everything else.
+      claimsLeak = unsupportedClaimLeaks(parsed, masterText);
+      namedLeak = namedTermLeaks(parsed, namedMustNotAppear);
+      if (!claimsLeak.length && !namedLeak.length) {
+        const removedSkills = skillsBefore - countSkills();
+        repairNotes.push(
+          `Auto-corrected ${leakedAll.length} unsupported mention(s) (${leakedAll.slice(0, 4).join(', ')}) — removed ${removedSkills} skill(s)` +
+            (revertedBullets ? ` and reverted ${revertedBullets} bullet(s) to your original wording` : '') +
+            '; nothing untrue was kept.'
+        );
+      }
     }
     if (claimsLeak.length > 0) {
       throw new TailorVerificationFailedError(
@@ -391,6 +453,7 @@ ${keywordRetry}${metricRetry}${claimsRetry}${namedRetry}
         ? 'Nothing was missing: every job-description keyword was already in the master CV, so the resume was returned unchanged (no score boost).'
         : `Integrated ${verifiedAll.length} genuinely-missing keywords (${verifiedInExperience.length} in experience bullets, ${verifiedInSummary.length} in the summary, ${verifiedInSkills.length} in skills).`,
       `Rewrote ${rephrasedCount} bullet points to naturally incorporate target keywords.`,
+      ...repairNotes,
       ...(parsed.auditNotes || []).slice(0, 3),
     ];
 

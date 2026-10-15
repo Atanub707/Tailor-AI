@@ -206,7 +206,7 @@ describe('local ATS index search', () => {
       { fingerprint: 'gh-o1', ats_platform: 'greenhouse', external_id: 'o1', company: 'Acme', company_slug: 'acme', title: 'DevOps Engineer', location: 'Bengaluru, India', employment_type: 'Full-time', work_mode: 'On-site', posted_date: iso(5), posted_date_semantics: 'published', apply_url: 'https://x/o1', job_url: 'https://x/o1', description: 'Role: DevOps Engineer on-site in Bengaluru', first_seen_at: iso(48), last_seen_at: iso(48), last_fetched_at: iso(48), is_active: 1 },
       // Stale index row: work_mode column says On-site but the description
       // says Remote — the text signal must still let it pass.
-      { fingerprint: 'gh-r2', ats_platform: 'greenhouse', external_id: 'r2', company: 'Acme', company_slug: 'acme', title: 'DevOps Engineer', location: 'Bengaluru, India', employment_type: 'Full-time', work_mode: 'On-site', posted_date: iso(5), posted_date_semantics: 'published', apply_url: 'https://x/r2', job_url: 'https://x/r2', description: 'Role: DevOps Engineer (Remote)', first_seen_at: iso(48), last_seen_at: iso(48), last_fetched_at: iso(48), is_active: 1 },
+      { fingerprint: 'gh-r2', ats_platform: 'greenhouse', external_id: 'r2', company: 'Acme', company_slug: 'acme', title: 'DevOps Engineer', location: 'Bengaluru, India', employment_type: 'Full-time', work_mode: undefined, posted_date: iso(5), posted_date_semantics: 'published', apply_url: 'https://x/r2', job_url: 'https://x/r2', description: 'Role: DevOps Engineer (Remote)', first_seen_at: iso(48), last_seen_at: iso(48), last_fetched_at: iso(48), is_active: 1 },
     ]);
     const r = await search({ workMode: 'remote' });
     const fps2 = fps(r);

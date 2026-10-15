@@ -249,10 +249,24 @@ describe('V1 engine — recruiter-first quality (order, skills priority, metric 
     expect(r.tailoredCv.audit!.addedAfter.keywordsIncorporated).toContain('Python');
   });
 
-  it('INTEGRITY: fails closed (nothing published) when the LLM keeps claiming unheld credentials', async () => {
-    stubLlmQueue([LEAKY_DRAFT, LEAKY_DRAFT]);
-    await expect(runWithUser(USER, () => tailorJob(getJobById('v1-impact-2')!, { userId: USER, includeSkills: ['Python'] })))
-      .rejects.toMatchObject({ name: 'TailorVerificationFailedError' });
+  it('INTEGRITY: auto-repairs instead of failing when the LLM keeps claiming unheld credentials', async () => {
+    // Three leaky attempts (loop bound) — then the deterministic repair must
+    // strip/revert everything and the tailor must SUCCEED with a clean CV
+    // (production 422s: retry-level leaks that fail-closed on good-by-accident models).
+    stubLlmQueue([LEAKY_DRAFT, LEAKY_DRAFT, LEAKY_DRAFT]);
+    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-impact-2')!, { userId: USER, includeSkills: ['Python'] }));
+    const cvOut = r.tailoredCv;
+    const claimSurface = [
+      cvOut.professionalSummary,
+      ...cvOut.coreCompetencies,
+      ...(cvOut.technicalSkills || []).flatMap((g: any) => [g.category, ...(g.skills || [])]),
+      ...cvOut.workExperience.flatMap((w: any) => w.highlights || []),
+    ].join(' \n ');
+    expect(claimSurface).not.toMatch(/Certified|Certifications/i);
+    expect(cvOut.professionalSummary).not.toContain('6+ years'); // reverted to master summary
+    expect(cvOut.professionalSummary).toBe('DevOps engineer with 7+ years experience.'); // master text
+    expect((cvOut.technicalSkills || []).some((g: any) => /Certif/i.test(g.category || ''))).toBe(false);
+    expect(r.tailoredCv.audit!.auditNotes.some((n) => n.includes('Auto-corrected'))).toBe(true);
   });
 
   it('CONSENT GATE: named tools not explicitly selected (Python/Prometheus) stay honest gaps in auto paths', async () => {
@@ -298,5 +312,27 @@ describe('V1 engine — recruiter-first quality (order, skills priority, metric 
     expect(isNamedTechTerm('change management')).toBe(false);
     expect(isNamedTechTerm('Linux')).toBe(true);
     expect(isNamedTechTerm('Go')).toBe(true);
+  });
+  it('CLASSIFIER FIXES: plurals are generic; practice phrases are not tools; only title-SHAPED skills leak', async () => {
+    const { isNamedTechTerm, unsupportedClaimLeaks } = await import('../../server/builder/llmCvTailor.js');
+    const { masterCvEvidenceText } = await import('../../server/cv/marketEnrich.js');
+    // Plurals of allowlisted words are generic (real production false-gate).
+    expect(isNamedTechTerm('analytics platforms')).toBe(false);
+    expect(isNamedTechTerm('incident reviews')).toBe(false);
+    // Practice phrases after allowlist expansion are generic… 
+    expect(isNamedTechTerm('Blameless Post-Incident Review')).toBe(false);
+    // …but real named tech still requires consent.
+    expect(isNamedTechTerm('Datadog')).toBe(true);
+    expect(isNamedTechTerm('Blame')).toBe(true);
+
+    // Output title scan: a category like 'Developer Tools' must NOT leak;
+    // a title-shaped skill item MUST.
+    const evidence = masterCvEvidenceText(cv);
+    const leaked = unsupportedClaimLeaks(
+      { technicalSkills: [{ category: 'Developer Tools', skills: ['Senior DevOps Engineer'] }] },
+      evidence
+    );
+    expect(leaked.join(' ')).toMatch(/Senior DevOps Engineer/);
+    expect(leaked.join(' ')).not.toMatch(/Developer Tools/);
   });
 });
