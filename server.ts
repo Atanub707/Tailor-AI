@@ -223,6 +223,7 @@ import {
   storeEnrichProposal,
 } from './server/cv/marketEnrich.js';
 import { addSkillToMasterCv, organizeSkills } from './server/cv/skillTaxonomy.js';
+import { isDegenerateGap } from './server/tailor/tailorService.js';
 import { suggestJobTitles } from './server/search/titleSuggest.js';
 import { isUnsupportedClaim } from './server/builder/llmCvTailor.js';
 import nodemailer from 'nodemailer';
@@ -3581,7 +3582,7 @@ const sanitizeAttemptDryRun = (a: any) => ({
         }
         throw jdErr;
       }
-      if (!jobToTailor.gapAnalysis) {
+      if (!jobToTailor.gapAnalysis || isDegenerateGap(jobToTailor.gapAnalysis)) {
         const masterCv = getMasterCv();
         const matcher = new LlmMatcher();
         const { LLMError } = await import('./server/llm/llmErrors.js');
@@ -3689,7 +3690,7 @@ const sanitizeAttemptDryRun = (a: any) => ({
         }
         throw jdErr;
       }
-      if (!jobToTailor.gapAnalysis) {
+      if (!jobToTailor.gapAnalysis || isDegenerateGap(jobToTailor.gapAnalysis)) {
         const masterCv = getMasterCv();
         const matcher = new LlmMatcher();
         const matchResult = await matcher.matchJob(jobToTailor, masterCv);

@@ -61,7 +61,29 @@ Return valid JSON only with these exact fields — NO markdown, NO code fences, 
 }`;
 
     try {
-      const parsed = await askJson<any>(prompt, { temperature: 0.1 });
+      // Schema validation with one retry. A response that parses but lacks
+      // matchScore AND every keyword list is DEGENERATE (the model answered
+      // prose/truncated JSON) — the old lenient defaults turned it into a
+      // fake '50% — nothing missing' verdict that poisoned tailoring (+0%
+      // boosts, empty gaps). Trust real answers only.
+      const isDegenerate = (p: any): boolean => {
+        if (!p || typeof p !== 'object') return true;
+        const lists = [p.missingSkills, p.missingKeywords, p.matchingSkills, p.matchedKeywords];
+        const anyList = lists.some((l) => Array.isArray(l) && l.length > 0);
+        const hasScore = typeof p.matchScore === 'number' && Number.isFinite(p.matchScore) && p.matchScore > 0;
+        return !hasScore && !anyList;
+      };
+      let parsed = await askJson<any>(prompt, { temperature: 0.1 });
+      if (isDegenerate(parsed)) {
+        const retryPrompt = `${prompt}
+
+RETRY — your previous answer did not follow the schema (matchScore and every keyword list were missing). Return ONLY the JSON object with ALL fields exactly as specified.`;
+        parsed = await askJson<any>(retryPrompt, { temperature: 0.1 });
+        if (isDegenerate(parsed)) {
+          const { LLMError } = await import('../llm/llmErrors.js');
+          throw new LLMError('invalid_response', 'The match analysis returned an unusable answer (missing score and keyword lists) — nothing was stored. Please try again.');
+        }
+      }
 
       const score = Math.min(100, Math.max(0, Math.round(parsed.matchScore || 50)));
       const isEarlyBlocked = score < earlyBlockThreshold;

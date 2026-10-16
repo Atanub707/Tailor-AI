@@ -25,6 +25,17 @@ export interface TailorJobResult {
   audit: TailoringAudit;
 }
 
+/** A stored gap analysis is DEGENERATE when it has a <=50 default score and
+ *  every keyword list empty — the signature of a half-empty matcher response
+ *  whose defaults fabricated a fake 'nothing missing'. Treated as absent so
+ *  the matcher re-runs instead of poisoning every tailor with +0 boosts. */
+export function isDegenerateGap(g: { matchScore?: number; missingSkills?: string[]; missingKeywords?: string[]; matchingSkills?: string[]; matchedKeywords?: string[] } | undefined): boolean {
+  if (!g) return false;
+  const lists = [g.missingSkills, g.missingKeywords, g.matchingSkills, g.matchedKeywords];
+  const anyList = lists.some((l) => Array.isArray(l) && l.length > 0);
+  return !anyList && (g.matchScore ?? 0) <= 50;
+}
+
 /** Resolve the real job description or throw (never tailor on a stub). */
 export async function resolveJobDescription(job: Job): Promise<Job> {
   const { ensureJobDescription } = await import('./jdResolver.js');
@@ -116,8 +127,8 @@ export async function tailorJob(job: Job, opts: { userId?: string; mode?: 'stric
   const jd = fullJob.description || '';
   const masterCv = getMasterCv(userId);
 
-  // Match analysis when missing.
-  if (!fullJob.gapAnalysis) {
+  // Match analysis when missing OR degenerate (self-heal poisoned rows).
+  if (!fullJob.gapAnalysis || isDegenerateGap(fullJob.gapAnalysis)) {
     const { LlmMatcher } = await import('../matcher/llmMatcher.js');
     const matchResult = await new LlmMatcher().matchJob(fullJob, masterCv);
     fullJob.gapAnalysis = matchResult.gapAnalysis;

@@ -6,6 +6,7 @@ export type LlmErrorCode =
   | 'no_api_key'
   | 'no_model'
   | 'invalid_key'
+  | 'invalid_response'
   | 'invalid_model'
   | 'timeout'
   | 'network'
