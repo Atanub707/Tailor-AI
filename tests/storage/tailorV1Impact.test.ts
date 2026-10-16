@@ -237,7 +237,10 @@ describe('V1 engine — recruiter-first quality (order, skills priority, metric 
     const r = await runWithUser(USER, () => tailorJob(getJobById('v1-impact-2')!, { userId: USER, includeSkills: ['Python'] }));
     const cvOut = r.tailoredCv;
 
-    expect(calls()).toBe(2);
+    // 3 calls now: attempt 1 leaks the credential, attempt 2 still claims
+    // JD-parsed Prometheus (never listed by the candidate, not consented),
+    // attempt 3 = same draft -> deterministic auto-repair cleans it.
+    expect(calls()).toBe(3);
     expect(prompts[1]).toContain('CLAIMED facts the candidate');
 
     // No fabricated credential survives anywhere on the claim surface
@@ -301,6 +304,47 @@ describe('V1 engine — recruiter-first quality (order, skills priority, metric 
     ].join(' \n ');
     expect(claimSurface).toContain('Python');
     expect(claimSurface).toContain('Prometheus');
+  });
+
+  it('AUTO-ADD LANDING: a term the model silently skips still lands in skills (no more false ⛔ gaps)', async () => {
+    // Live finding: the model integrated ~10 of ~17 offered terms; the rest
+    // (AWS CloudFormation, NoSQL Databases, go, ...) stayed absent and showed
+    // as red gaps despite AUTO-ADD selecting them. Deterministic landing:
+    // anything unplaced goes to 'Additional Relevant Skills'.
+    const skippingDraft = {
+      ...impactDraft(SOURCE_ORDER_REWRITES, 'DevSecOps engineer with 7+ years of experience and CI/CD automation depth.'),
+      coreCompetencies: ['Docker', 'Kubernetes', 'AWS', 'Terraform'],
+      technicalSkills: [{ category: 'Cloud', skills: ['Docker', 'Terraform', 'Kubernetes'] }],
+    };
+    runWithUser(USER, () => {
+      getDb().prepare('INSERT OR REPLACE INTO jobs (id, user_id, data) VALUES (?, ?, ?)').run(
+        'v1-impact-landing', USER,
+        JSON.stringify({
+          ...job(), id: 'v1-impact-landing',
+          // RabbitMQ/Kafka are in the JD text but NOT in the gap lists —
+          // proving the offering pool unions matcher gaps with JD-parsed
+          // terms (the live 'go'/'CloudFormation' case).
+          description: 'Required: Kubernetes, AWS, Terraform, Python, Prometheus, CI/CD, RabbitMQ, Kafka. Must have 5+ years experience.',
+          gapAnalysis: { matchScore: 45, missingSkills: ['AWS CloudFormation'], missingKeywords: ['go', 'NoSQL Databases', 'CI/CD'], matchingSkills: ['Kubernetes', 'SonarQube'] },
+        })
+      );
+    });
+    stubLlmQueue([skippingDraft]);
+    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-impact-landing')!, { userId: USER }));
+    const landed = (r.tailoredCv.technicalSkills || []).find((g: any) => g.category === 'Additional Relevant Skills');
+    expect(landed).toBeTruthy();
+    const landedLower = landed!.skills.map((x: string) => x.toLowerCase());
+    expect(landedLower).toEqual(expect.arrayContaining(['aws cloudformation', 'go', 'nosql databases'])); // 'go' canonicalized
+    // JD-parsed-only terms (not in the gap lists at all) are offered and land too.
+    expect(landedLower).toEqual(expect.arrayContaining(['kafka', 'python', 'prometheus']));
+    // matchingSkills false-positives (matcher said matched, phrase absent) are offered too.
+    expect(landedLower).toEqual(expect.arrayContaining(['sonarqube']));
+    const audit = r.tailoredCv.audit!;
+    expect(audit.addedAfter.keywordsIncorporated).toEqual(expect.arrayContaining(['AWS CloudFormation', 'NoSQL Databases']));
+    expect(audit.notIntegrable).not.toEqual(expect.arrayContaining(['AWS CloudFormation', 'NoSQL Databases']));
+    const chips = audit.keywordStatus || [];
+    expect(chips.find((c: any) => c.term === 'AWS CloudFormation')?.kind).toBe('added_skills');
+    expect(chips.find((c: any) => c.term === 'go')?.kind).toBe('added_skills');
   });
 
   it('CLASSIFIERS: credentials/titles are never-claim; "Secrets Manager" is a consentable product, not a title', () => {

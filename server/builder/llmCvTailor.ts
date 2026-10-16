@@ -152,12 +152,35 @@ export class LlmCvTailor extends BaseCvBuilder {
     // (e.g. "CI/CD" while a bullet says "CI/CD pipeline"). Only genuinely
     // absent keywords are "missing" — present ones are already_present and
     // must never be re-fed to the LLM as something to add.
+    // The matcher's gap lists are EDITORIAL (it may judge 'Relational
+    // Databases' covered by PostgreSQL etc.); the JD's own parsed terms are
+    // the exhaustive surface the UI shows as chips. AUTO-ADD's mandate is
+    // every non-blocked JD term — union both sources so a term the matcher
+    // shrugged off can never stay a silent red chip (live: go, AWS
+    // CloudFormation, NoSQL Databases were in the JD + chips, absent from
+    // CV + gap, so they were never even offered).
+    const { jdSkillTerms } = await import('../tailor/tailorTypes.js');
+    let jdParsed: string[] = [];
+    try {
+      jdParsed = jdSkillTerms(String(job.description || ''));
+    } catch {
+      jdParsed = [];
+    }
     const allMissingRaw = [
       ...new Set([
         ...(job.gapAnalysis?.missingSkills || []),
         ...(job.gapAnalysis?.missingKeywords || []),
+        // matchingSkills too: the matcher sometimes claims a phrase is
+        // 'matched' when only its PARTS are in the CV (live: 'AWS
+        // CloudFormation' with AWS + CloudFormation listed separately).
+        // The master-CV filter below keeps only genuinely-absent phrases.
+        ...(job.gapAnalysis?.matchingSkills || []),
+        ...jdParsed,
       ]),
-    ].filter((k) => k && !containsKeyword(masterText, k));
+    ].filter((k) => {
+      const t = String(k || '').trim();
+      return t.length >= 2 && /[a-z]/i.test(t) && !containsKeyword(masterText, t);
+    });
 
     // INTEGRITY GATE — claims the engine may NEVER plant, even when the JD
     // asks for them: verifiable credentials, tenure numbers and role titles
@@ -415,6 +438,40 @@ ${keywordRetry}${metricRetry}${claimsRetry}${namedRetry}
       );
     }
     void retried;
+
+    // ── Deterministic AUTO-ADD landing (integrity-preserving) ──────────────
+    // The AUTO-ADD mandate: every offered (non-blocked) JD term is
+    // integrated. The LLM weaves most, but it silently skips some (live:
+    // 'AWS CloudFormation', 'NoSQL Databases', 'go' stayed as ⛔ gaps even
+    // though they were offered — verification only required ONE term to
+    // land). Anything the model didn't place lands mechanically in the
+    // skills section: no invented narrative, no title/credential claims.
+    const CANON: Record<string, string> = { go: 'Go', golang: 'Go', nosql: 'NoSQL' };
+    if (selectedList.length > 0) {
+      const surfaceText = [
+        String(parsed.professionalSummary || ''),
+        ...(parsed.coreCompetencies || []),
+        ...(parsed.technicalSkills || []).flatMap((t: any) => [String(t?.category || ''), ...(t?.skills || [])]),
+        ...(parsed.workExperience || []).flatMap((w: any) => w?.highlights || []),
+      ].join(' ');
+      const unplaced = selectedList.filter((t: string) => !containsKeyword(surfaceText, t));
+      if (unplaced.length) {
+        if (!Array.isArray(parsed.technicalSkills)) parsed.technicalSkills = [];
+        let group = parsed.technicalSkills.find(
+          (g: any) => String(g?.category || '').trim() === 'Additional Relevant Skills'
+        );
+        if (!group) {
+          group = { category: 'Additional Relevant Skills', skills: [] };
+          parsed.technicalSkills.push(group);
+        }
+        for (const t of unplaced.slice(0, 12)) {
+          const item = CANON[String(t).toLowerCase()] || String(t).trim();
+          if (!item) continue;
+          const present = (group.skills || []).some((s: string) => containsKeyword(String(s), item));
+          if (!present) group.skills.push(item);
+        }
+      }
+    }
 
     const beforeScore = job.matchScore || job.gapAnalysis?.matchScore || 50;
 

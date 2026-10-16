@@ -142,7 +142,13 @@ describe('V1 engine — tailoring must actually tailor', () => {
     expect(audit.afterScore).toBeGreaterThan(audit.beforeScore);
     expect(audit.addedAfter.keywordsInSummary).toContain('C++');
     expect(audit.addedAfter.keywordsInExperience).toContain('Prometheus');
-    expect(audit.notIntegrable).toEqual(expect.arrayContaining(['Python']));
+    // Python was user-selected but the model skipped weaving it — the
+    // deterministic AUTO-ADD landing step puts it in skills, so it is
+    // genuinely present (credited), never silently dropped.
+    expect(audit.addedAfter.keywordsIncorporated).toContain('Python');
+    expect(audit.notIntegrable).not.toEqual(expect.arrayContaining(['Python']));
+    const landed = (r.tailoredCv.technicalSkills || []).find((g: any) => g.category === 'Additional Relevant Skills');
+    expect(landed?.skills).toContain('Python');
     // summary was actually rewritten and carries the keyword
     expect(r.tailoredCv.professionalSummary).toContain('C++');
     expect(r.tailoredCv.professionalSummary).not.toBe('DevOps engineer with 7+ years experience.');
