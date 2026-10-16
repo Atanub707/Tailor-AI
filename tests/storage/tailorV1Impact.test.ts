@@ -380,4 +380,22 @@ describe('V1 engine — recruiter-first quality (order, skills priority, metric 
     expect(cat.skills.slice(0, 2)).toEqual(['Python', 'Prometheus']); // prioritized first
     expect(cat.skills).not.toContain('Term 23'); // overflow trimmed
   });
+
+  it('TITLE: headline matches the applied role; employment titles are force-kept from the Master CV', async () => {
+    const draft = {
+      ...impactDraft(SOURCE_ORDER_REWRITES, 'DevSecOps engineer with 7+ years of experience and CI/CD automation depth.'),
+      // The model TRIES to retitle the employment entry — the guard must win.
+      workExperience: [{ title: 'DevOps Engineer', company: 'Human Managed', location: 'Bengaluru', dates: 'Jan 2021 – Present', highlights: SOURCE_ORDER_REWRITES }],
+    };
+    stubLlmQueue([draft]);
+    const r = await runWithUser(USER, () => tailorJob(getJobById('v1-impact-1')!, { userId: USER, includeSkills: ['Python', 'Prometheus'] }));
+
+    // Headline = the job's title (positioning statement, per application).
+    expect(r.tailoredCv.targetRole).toBe('DevOps Engineer');
+    expect(r.tailoredCv.audit!.auditNotes.some((n) => n.includes('Professional headline set to "DevOps Engineer"'))).toBe(true);
+
+    // Employment history keeps the MASTER's factual title + company.
+    expect(r.tailoredCv.workExperience[0].title).toBe('Senior DevSecOps Engineer');
+    expect(r.tailoredCv.workExperience[0].company).toBe('Human Managed');
+  });
 });

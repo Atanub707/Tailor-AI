@@ -418,6 +418,25 @@ ${keywordRetry}${metricRetry}${claimsRetry}${namedRetry}
 
     const beforeScore = job.matchScore || job.gapAnalysis?.matchScore || 50;
 
+    // HEADLINE: the professional title under the candidate's name is a
+    // POSITIONING statement — it matches the role being applied for. The
+    // employment-history titles below stay factual (enforced right after):
+    // changing them would falsify the record and contradict LinkedIn.
+    const headlineTitle = (() => {
+      const t = String(job.title || '').replace(/[\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim();
+      return t ? t.slice(0, 80) : candidateTitle;
+    })();
+
+    // EMPLOYMENT TITLES: deterministic guard — each role keeps the EXACT
+    // title from the Master CV, whatever the model returned.
+    if (Array.isArray(parsed.workExperience)) {
+      parsed.workExperience = parsed.workExperience.map((w: any, ei: number) => ({
+        ...w,
+        title: masterCv.experiences?.[ei]?.title || w?.title,
+        company: masterCv.experiences?.[ei]?.company || w?.company,
+      }));
+    }
+
     // ---- Honest verification with the symbol-aware matcher ----
     const expText = (parsed.workExperience || []).flatMap((w: any) => w.highlights || []).join(' ').toLowerCase();
     const skillsText = [
@@ -467,7 +486,7 @@ ${keywordRetry}${metricRetry}${claimsRetry}${namedRetry}
     };
 
     const auditNotes = [
-      `Maintained candidate's title as "${candidateTitle}" (not changed to "${job.title}").`,
+      `Professional headline set to "${headlineTitle}" for this application; employment history keeps your actual titles${headlineTitle !== candidateTitle ? ` (current role: "${candidateTitle}")` : ''}.`,
       selectedList.length === 0
         ? 'Nothing was missing: every job-description keyword was already in the master CV, so the resume was returned unchanged (no score boost).'
         : `Integrated ${verifiedAll.length} genuinely-missing keywords (${verifiedInExperience.length} in experience bullets, ${verifiedInSummary.length} in the summary, ${verifiedInSkills.length} in skills).`,
@@ -486,7 +505,7 @@ ${keywordRetry}${metricRetry}${claimsRetry}${namedRetry}
         github: masterCv.github,
         website: masterCv.website,
       },
-      targetRole: candidateTitle,
+      targetRole: headlineTitle,
       professionalSummary: parsed.professionalSummary || '',
       coreCompetencies: parsed.coreCompetencies || [],
       workExperience: parsed.workExperience || [],
