@@ -414,7 +414,15 @@ function backfillRowWithTerms(job: Job, cv: TailoredCv, terms: string[], db: Ret
 export function tailoredCvToDraft(cv: TailoredCv): TailorDraft {
   return {
     summary: cv.professionalSummary || '',
-    skills: cv.coreCompetencies || [],
+    // BOTH skill surfaces count. Mapping only coreCompetencies made every
+    // term that lives solely in Technical Skills read as "not in your
+    // experience" in the placement audit — a false red on terms that WERE
+    // integrated (found live: Redis/RabbitMQ/Amazon Kiro in skills,
+    // chips claimed absent).
+    skills: [
+      ...(cv.coreCompetencies || []),
+      ...(cv.technicalSkills || []).flatMap((c: any) => (Array.isArray(c?.skills) ? c.skills : [])),
+    ],
     experience: (cv.workExperience || []).map((w) => ({ title: w.title, company: w.company, dates: w.dates, highlights: w.highlights || [] })),
     education: (cv.education || []).map((e) => ({ degree: e.degree, institution: e.institution, dates: e.dates })),
     certifications: (cv.certifications || []).map((c) => (typeof c === 'string' ? c : c.name || '')),

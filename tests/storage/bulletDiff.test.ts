@@ -76,3 +76,30 @@ describe('bullet diff', () => {
     expect(byTerm['K8s']).toBe('unsupported');
   });
 });
+
+// Regression: the placement audit must count BOTH skill surfaces. A term
+// integrated only into Technical Skills was rendered as a false red
+// "not in your experience" chip because tailoredCvToDraft mapped only
+// coreCompetencies into draft.skills (found live on the All European
+// Careers job: Redis/RabbitMQ/Amazon Kiro were IN skills, chips said absent).
+const { tailoredCvToDraft } = await import('../../server/tailor/tailorService.js');
+
+describe('placement audit — technical skills count', () => {
+  it('a term living only in technicalSkills reads as Skills, not unsupported', () => {
+    const cv: any = {
+      candidateName: 'A', targetRole: 'DevOps Engineer',
+      professionalSummary: 'DevOps engineer with Kubernetes experience.',
+      coreCompetencies: ['CI/CD'],
+      workExperience: [{ title: 'Engineer', company: 'Co', dates: '2021–Present', highlights: ['Managed clusters'] }],
+      education: [], certifications: [], projects: [],
+      technicalSkills: [{ category: 'Messaging & Caching', skills: ['Redis', 'RabbitMQ'] }],
+    };
+    const draft = tailoredCvToDraft(cv);
+    const status = computeKeywordStatus(['Redis', 'RabbitMQ', 'Terraform'], draft, { skills: [], experiences: [] } as any);
+    const redis = status.find((s) => s.term === 'Redis')!;
+    expect(redis.kind).toBe('added_skills');
+    expect(redis.location).toBe('Skills');
+    // genuinely-absent terms stay honestly red
+    expect(status.find((s) => s.term === 'Terraform')!.kind).toBe('unsupported');
+  });
+});
