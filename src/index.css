@@ -9,6 +9,10 @@
   --color-muted: #475569;
   --color-faint: #64748B;
   --color-canvas: #F9FAFB;
+  --color-surface: #FFFFFF;
+  --color-amber: #B45309;
+  --color-amber-soft: #FFFBEB;
+  --color-amber-line: #FDE68A;
   --color-tint-blue: #EFF6FF;
   --color-tint-sky: #F0F9FF;
   --color-tint-violet: #F5F3FF;
@@ -26,6 +30,9 @@
   --color-danger-soft: #FEF2F2;
 }
 body { background: var(--color-canvas); color: var(--color-ink); }
+
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
 
 
 @media print {
