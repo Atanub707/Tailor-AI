@@ -8,7 +8,7 @@ import { List } from '@phosphor-icons/react';
 // Drives: hamburger items, active states, and navigation tests.
 import type { Icon } from '@phosphor-icons/react';
 import { House, UserCircle, IdentificationBadge, Tray, GlobeSimple, ChatCircleDots, FileText, GearSix, BookmarkSimple } from '@phosphor-icons/react';
-
+import { BrandMark } from './components/BrandMark';
 export type NavGroupId = 'library' | 'profile' | 'tools';
 
 export interface NavigationItem {
@@ -127,7 +127,7 @@ export function NavigationProvider({ onNavigate, badges = {}, user, installedVer
         aria-hidden={!isOpen}
       >
         <div className="flex items-center gap-3 px-4 py-4" style={{ borderBottom: '1px solid var(--color-hairline)' }}>
-          <div className="w-9 h-9 rounded-[10px] flex items-center justify-center text-white font-extrabold text-[16px]" style={{ background: 'var(--color-brand)' }}>T</div>
+          <BrandMark size={36} className="w-9 h-9 shrink-0" />
           <span className="text-[15px] font-bold tracking-[-0.01em]">Tailor AI</span>
           <button
             onClick={close}

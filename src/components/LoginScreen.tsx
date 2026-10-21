@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, ArrowLeft, KeyRound, User, Users, Lock, Search, Sparkles, Inbox, ShieldCheck, CheckCircle2, Zap } from 'lucide-react';
 import { RECOVERY_QUESTIONS } from '../constants/recoveryQuestions';
-
+import { BrandMark } from './BrandMark';
 interface LoginScreenProps {
   onLogin: (email: string, password: string) => Promise<{ error?: string } | null>;
   onRegister: (name: string, email: string, password: string, recovery: { q1: string; a1: string; q2: string; a2: string }) => Promise<{ error?: string } | null>;
@@ -157,7 +157,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onRegister, o
           </div>
 
           <div className="logo-row">
-            <div className="logo-icon">T</div>
+            <BrandMark size={46} />
             <div>
               <div className="brand-name">Tailor AI</div>
               <div className="created-by">
@@ -420,7 +420,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onRegister, o
   .brand-badge { display: inline-flex; align-items: center; gap: 8px; font-size: 10.5px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; background: #EFF6FF; color: #2563EB; border: 1px solid #BFDBFE; border-radius: 999px; padding: 7px 14px; width: fit-content; }
   .badge-dot { width: 7px; height: 7px; border-radius: 50%; background: #2563EB; }
   .logo-row { display: flex; align-items: center; gap: 13px; margin-top: 12px; }
-  .logo-icon { width: 46px; height: 46px; border-radius: 13px; background: #2563EB; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 20px; }
   .brand-name { font-size: 17px; font-weight: 800; letter-spacing: -.01em; color: #0F172A; }
   .created-by { display: flex; align-items: baseline; gap: 7px; font-size: 9.5px; font-weight: 700; letter-spacing: .16em; color: #94A3B8; text-transform: uppercase; margin-top: 2px; }
   .signature { font-size: 21px; font-weight: 600; color: #0F172A; text-transform: none; letter-spacing: 0; font-family: "Snell Roundhand", "Brush Script MT", "Apple Chancery", cursive; }

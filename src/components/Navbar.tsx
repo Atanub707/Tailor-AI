@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { SignOut, CaretDown, Question, GearSix } from '@phosphor-icons/react';
 import { HamburgerTrigger } from '../navigation';
-
+import { BrandMark } from './BrandMark';
 interface NavbarProps {
   onOpenHome: () => void;
   onOpenSettings: () => void;
@@ -77,9 +77,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <HamburgerTrigger />
           <div className="flex items-center gap-4 min-w-0">
             <button onClick={onOpenHome} title="Go to Home" aria-label="Go to Home" className="flex items-center gap-4 min-w-0 cursor-pointer bg-transparent border-none text-left" style={{ fontFamily: 'inherit' }}>
-            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-[13px] flex items-center justify-center text-white font-extrabold text-[21px] tracking-tight shrink-0" style={{ background: 'var(--color-brand)' }}>
-              T
-            </div>
+            <BrandMark size={48} className="shrink-0 w-11 h-11 sm:w-12 sm:h-12" />
             <div className="flex flex-col justify-center leading-none min-w-0">
               <h1 className="text-[20px] sm:text-[23px] font-bold tracking-[-0.02em] leading-none truncate">Tailor AI</h1>
               <div className="mt-[6px] flex items-baseline gap-[8px]">
