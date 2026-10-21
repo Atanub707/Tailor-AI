@@ -1,5 +1,26 @@
 # Changelog
 
+## v2.13.0 (2026-10-21)
+
+### 🧪 Tailoring that actually tailors
+
+- **Degenerate match results can no longer masquerade as truth**: the matcher validates its schema, retries once, then refuses instead of storing a fake "50% — nothing missing" verdict. Jobs poisoned by that signature (18 found live) self-heal on the next click.
+- **AUTO-ADD integrates every genuinely-absent JD term**: missingSkills ∪ missingKeywords ∪ matchingSkills ∪ JD-parsed terms (master-CV filtered, credentials/titles still impossible). Terms the model skips land deterministically in skills ("Additional Relevant Skills", `go`→`Go`), so red ⛔ chips mean "truly absent", never "forgotten".
+- **Placement audit counts Technical Skills**: Redis/RabbitMQ-type terms that were in the resume no longer show as false "not in your experience" chips.
+- **Headline = the applied role; employment titles locked** from the Master CV — positioning without falsifying history.
+
+### 🤝 Recruiters
+
+- **No sent email goes missing**: every send is recorded; a manual email to an unknown address now ADDS that person to the contacts list (company derived from the domain, "Sent" status) — no separate sent-emails screen.
+- **Icon-first reach**: LinkedIn, WhatsApp, Email and Phone are brand-logo buttons in the contact list and record pane — no raw addresses, usernames or URLs.
+
+### 🗂️ Product
+
+- **Job Portals v2**: portal logos, live-source mapping, recommended pins — plus the redundant back button removed.
+- **LinkedIn Posts feature removed** (owner decision).
+- **One brand mark everywhere**: the marketing site's exact SVG in the navbar, drawer, login and favicon (old "TC" icon retired).
+- **Docker**: loopback `:3001` published as a clean-origin fallback (Safari can pin a stale service worker to `:3000` from another app).
+
 ## v2.12.0 (2026-10-15)
 
 ### 🤖 Auto Apply — one click, from tailored CV to verified submission

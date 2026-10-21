@@ -7,6 +7,9 @@ services:
       # Container-internal networking is unaffected; LAN interfaces never
       # expose the API.
       - "127.0.0.1:3000:3000"
+      # Fresh-origin fallback: Safari can pin a stale service worker to
+      # 127.0.0.1:3000 from another app; :3001 is a clean origin.
+      - "127.0.0.1:3001:3000"
     volumes:
       # Live source mount — lets the app pull updates and restart itself.
       - ./:/app
