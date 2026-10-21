@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { HamburgerTrigger } from '../navigation';
-import { X, Search, CheckCircle2, Copy, Trash2, Mail, ExternalLink, Linkedin, Loader2, Sparkles, Send, FileText, Upload, PencilLine, Clock, BadgeCheck, Plus, AlertTriangle, MessageCircle, UserPlus, Phone, Inbox } from 'lucide-react';
+import { X, Search, CheckCircle2, Copy, Trash2, Mail, ExternalLink, Linkedin, Loader2, Sparkles, Send, FileText, Upload, PencilLine, Clock, BadgeCheck, Plus, AlertTriangle, MessageCircle, UserPlus, Phone } from 'lucide-react';
 import { filterByType, sortContacts, typeCounts, TYPE_LABELS } from '../lib/recruiters/filterUtils';
 import { followupDue, followupDaysLeft } from '../lib/recruiters/followupUtils';
 import { waLink, getWaMessage, setWaMessage, DEFAULT_WA_MESSAGE } from '../lib/recruiters/whatsapp';
@@ -106,10 +106,6 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [emailHistory, setEmailHistory] = useState<Record<string, SentEmail[]>>({});
-  // Global sent log — includes direct sends with no saved contact.
-  const [sentOpen, setSentOpen] = useState(false);
-  const [sentLoading, setSentLoading] = useState(false);
-  const [sentEmails, setSentEmails] = useState<Array<{ id: string; contactId?: string | null; recipient: string; subject: string; attachmentName?: string | null; status: string; sentAt: string; contactName?: string | null }>>([]);
   const [verifyMap, setVerifyMap] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -167,17 +163,6 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
     loadMasterCvName();
   };
 
-  const loadSentEmails = useCallback(async () => {
-    setSentLoading(true);
-    try {
-      const res = await fetch('/api/emails');
-      const d = await res.json();
-      setSentEmails(d.emails || []);
-    } catch { /* ignore */ } finally { setSentLoading(false); }
-  }, []);
-
-  const openSent = () => { setSentOpen(true); loadSentEmails(); };
-
   const loadHistory = useCallback(async (c: Contact) => {
     try {
       const res = await fetch(`/api/contacts/${c.id}/emails`);
@@ -229,7 +214,6 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
       const data = await res.json();
       if (!res.ok) { setComposeMsg({ ok: false, text: data.error || 'Send failed.' }); return; }
       setComposeMsg({ ok: true, text: 'Sent ✓' });
-      if (sentOpen) loadSentEmails();
       // Update the row status immediately.
       if (composeContact) {
         setContacts((prev) => prev.map((x) => x.id === composeContact.id
@@ -237,6 +221,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
           : x));
         setEmailHistory((h) => { const n = { ...h }; delete n[composeContact.id]; return n; });
       }
+      await load();
       setTimeout(() => closeCompose(), 1200);
     } catch (e: any) {
       setComposeMsg({ ok: false, text: e.message || 'Send failed.' });
@@ -505,9 +490,6 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
             <span><b>{stats.sent}</b> contacted</span>
           </div>
         )}
-        <button className="rc-btn" onClick={openSent} title="Every email you've sent — direct sends included">
-          <Inbox size={13} /> Sent emails
-        </button>
         <button className="rc-btn" onClick={openManualCompose} title="Compose a fresh email to any address — no contact needed">
           <Mail size={13} /> New email
         </button>
@@ -919,48 +901,6 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
           </aside>
           )}
 
-          {/* Global sent-email log — direct sends included */}
-          <div className={`rc-drawer ${sentOpen ? 'open' : ''}`} aria-hidden={!sentOpen}>
-            <div className="rc-drawer-head">
-              <h3>All sent emails</h3>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span className="rc-sentcount">{sentEmails.length}</span>
-                <button className="rc-drawer-x" onClick={() => setSentOpen(false)} aria-label="Close sent emails">
-                  <X size={15} />
-                </button>
-              </div>
-            </div>
-            <div className="rc-drawer-body">
-              {sentLoading ? (
-                <p className="rc-loading">Loading emails…</p>
-              ) : sentEmails.length === 0 ? (
-                <p className="rc-loading">No emails sent yet.</p>
-              ) : (
-                <div className="rc-sentlist">
-                  {sentEmails.map((e) => (
-                    <div key={e.id} className="rc-sentrow">
-                      <div className={`rc-sentico ${e.contactId ? '' : 'direct'}`}>
-                        {e.contactId ? <Mail size={13} /> : <Send size={13} />}
-                      </div>
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <div className="rc-sentto">
-                          {e.recipient}
-                          {!e.contactId && <span className="rc-directtag">Direct</span>}
-                          {e.status === 'failed' && <span className="rc-directtag fail">Failed</span>}
-                        </div>
-                        <div className="rc-sentsubj">{e.subject || '(no subject)'}</div>
-                        <div className="rc-sentmeta">
-                          {fmtDay(e.sentAt)}
-                          {e.attachmentName ? ` · ${e.attachmentName}` : ''}
-                          {e.contactId ? (e.contactName ? ` · ${e.contactName}` : '') : ' · not linked to a contact'}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
         </div>
       </div>
 
@@ -1039,18 +979,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
         .rc-rbtn.off { opacity: .4; cursor: default; }
         .rc-rbtn.off:hover { border-color: var(--rc-line); box-shadow: none; transform: none; }
 
-        /* ── global sent-email log ── */
-        .rc-sentcount { font-size: 11px; font-weight: 700; color: var(--rc-faint); background: var(--rc-canvas); border: 1px solid var(--rc-line); border-radius: 999px; padding: 2px 8px; }
-        .rc-sentlist { display: flex; flex-direction: column; }
-        .rc-sentrow { display: flex; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--rc-line); }
-        .rc-sentrow:last-child { border-bottom: 0; }
-        .rc-sentico { width: 30px; height: 30px; border-radius: 8px; background: var(--rc-brand-soft); color: var(--rc-brand); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-        .rc-sentico.direct { background: #FFF7ED; color: #C2410C; }
-        .rc-sentto { font-size: 12.5px; font-weight: 700; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-        .rc-directtag { font-size: 9px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: #C2410C; background: #FFEDD5; border-radius: 999px; padding: 2px 6px; }
-        .rc-directtag.fail { color: #B91C1C; background: #FEE2E2; }
-        .rc-sentsubj { font-size: 11.5px; color: var(--rc-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .rc-sentmeta { font-size: 10.5px; color: var(--rc-faint); margin-top: 3px; }
+
         .rc-row.focus { box-shadow: inset 0 0 0 1px var(--rc-brand); }
         .rc-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
         .rc-ava { width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; letter-spacing: .02em; background: var(--rc-brand-soft); color: var(--rc-brand-strong); }

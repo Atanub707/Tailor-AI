@@ -9,7 +9,7 @@ import path from 'node:path';
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sent-emails-'));
 process.env.TAILOR_DATA_DIR = tmpDir;
 
-const { getDb, runWithUser, recordSentEmail, listSentEmails, listContactEmails } = await import('../../server/storage/fileStorage.js');
+const { getDb, runWithUser, recordSentEmail, listSentEmails, listContactEmails, ensureContactForEmail } = await import('../../server/storage/fileStorage.js');
 
 const USER = 'sent-emails-user';
 const CONTACT_ID = 'hr-1';
@@ -58,6 +58,30 @@ describe('sent_emails — nothing sent goes missing', () => {
       expect(row?.attachmentName).toBe('Master CV');
       const all = listSentEmails(50);
       expect(all.find((e) => e.subject === 'Tailored CV')?.contactName).toBe('Conner Cotting');
+    });
+  });
+
+  it('a MANUAL email to an unknown address ADDS that person to the contacts list', () => {
+    runWithUser(USER, () => {
+      const id = ensureContactForEmail('Hiring@Acme-Corp.com');
+      expect(id).toBeTruthy();
+      const row = getDb().prepare('SELECT * FROM hr_contacts WHERE id = ?').get(id) as any;
+      expect(row.user_id).toBe(USER);
+      expect(row.email).toBe('hiring@acme-corp.com');
+      expect(row.company).toBe('Acme Corp');
+      expect(row.hidden).toBe(0);
+      // idempotent: the same address never duplicates a contact
+      expect(ensureContactForEmail('hiring@acme-corp.com')).toBe(id);
+      const count = (getDb().prepare("SELECT COUNT(*) c FROM hr_contacts WHERE user_id = ? AND lower(email) = 'hiring@acme-corp.com'").get(USER) as any).c;
+      expect(count).toBe(1);
+    });
+  });
+
+  it('generic mail domains get a neutral company name', () => {
+    runWithUser(USER, () => {
+      const id = ensureContactForEmail('someone@gmail.com')!;
+      const row = getDb().prepare('SELECT company FROM hr_contacts WHERE id = ?').get(id) as any;
+      expect(row.company).toBe('Unknown Company');
     });
   });
 

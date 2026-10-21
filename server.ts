@@ -103,6 +103,7 @@ import {
   recordContactEmailDetail,
   recordSentEmail,
   listSentEmails,
+  ensureContactForEmail,
   listContactCompanies,
   listContactsForJob,
   setContactHidden,
@@ -2393,11 +2394,13 @@ Return valid JSON only, no markdown:
         }
       }
 
-      // EVERY send is logged — contact-linked OR direct (no contactId).
-      // Direct sends auto-link when the recipient matches a saved contact.
-      if (contactId) recordContactEmail(contactId, 'sent', info.messageId);
+      // EVERY send is logged. A manual send to an unknown address adds that
+      // address to the contacts list (never a hidden side-log), so the person
+      // you emailed — and the fact you emailed them — shows up in the lists.
+      const resolvedContactId = contactId || ensureContactForEmail(to) || null;
+      if (resolvedContactId) recordContactEmail(resolvedContactId, 'sent', info.messageId);
       recordSentEmail({
-        contactId: contactId || null, recipient: to, subject, body,
+        contactId: resolvedContactId, recipient: to, subject, body,
         attachmentName: attachMaster ? 'Master CV' : (attachment?.filename || null),
         status: 'sent', messageId: info.messageId,
       });

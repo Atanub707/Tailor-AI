@@ -1457,6 +1457,39 @@ export interface SentEmailRecord extends ContactEmail {
   company?: string | null;
 }
 
+const GENERIC_MAIL_DOMAINS = new Set(['gmail', 'outlook', 'hotmail', 'yahoo', 'protonmail', 'icloud', 'aol', 'gmx', 'mail']);
+
+/** Derive a human company name from an email domain ('acme-corp.com' → 'Acme Corp'). */
+function companyFromEmail(email: string): string {
+  const domain = String(email.split('@')[1] || '').toLowerCase().replace(/^www\./, '');
+  const parts = domain.split('.').filter(Boolean);
+  const sld = parts.length > 1 ? parts[parts.length - 2] : (parts[0] || '');
+  if (!sld || GENERIC_MAIL_DOMAINS.has(sld)) return 'Unknown Company';
+  const name = sld.split(/[-_.]/).filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  return name || 'Unknown Company';
+}
+
+/** Find (or create) the contact row for an email address. Used when a manual
+ *  email is sent to someone who wasn't detected from a job post — the send
+ *  must land in the lists, not in a separate log. */
+export function ensureContactForEmail(email: string): string | null {
+  const userId = getCurrentUserId();
+  const addr = String(email || '').trim().toLowerCase();
+  if (!userId || !addr.includes('@')) return null;
+  const db = getDb();
+  const existing = db.prepare(
+    'SELECT id FROM hr_contacts WHERE user_id = ? AND lower(email) = ? AND hidden = 0 LIMIT 1'
+  ).get(userId, addr) as { id: string } | undefined;
+  if (existing?.id) return existing.id;
+  const now = new Date().toISOString();
+  const id = `hr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  db.prepare(
+    `INSERT INTO hr_contacts (id, user_id, email, name, type, type_label, company, job_count, context, hidden, first_seen, last_seen)
+     VALUES (?, ?, ?, NULL, 'company', 'Company', ?, 1, ?, 0, ?, ?)`
+  ).run(id, userId, addr, companyFromEmail(addr), 'Added from a manually sent email', now, now);
+  return id;
+}
+
 /** Record EVERY send — with or without a saved contact. Recipients that match
  *  a known contact email are auto-linked, so direct sends still appear in that
  *  contact's history; unlinked sends stay visible as 'Direct' entries. */
