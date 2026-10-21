@@ -509,7 +509,6 @@ export function getDb(): Database.Database {
   ensureContactEmailsTable(db);
   ensureSentEmailsTable(db);
   ensureCandidateProfileTable(db);
-  ensurePostsDailyTable(db);
   ensureContactIndexes(db);
   return db;
 }
@@ -597,45 +596,6 @@ function ensureCandidateProfileTable(db: Database.Database): void {
       updated_at TEXT NOT NULL
     );
   `);
-}
-
-// ── LinkedIn Posts daily quota (1 Apify SEARCH per day) ──
-// The actor fetches ~100 posts per run and bills ~$0.20 — the daily brake is
-// on SEARCHES (spend), not on posts shown. Free engine is unlimited.
-function ensurePostsDailyTable(db: Database.Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS posts_daily_usage (
-      user_id TEXT NOT NULL,
-      day_key TEXT NOT NULL,
-      count INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (user_id, day_key)
-    );
-  `);
-}
-
-const POSTS_DAILY_QUOTA = 1;
-
-function postsDayKey(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-export function getPostsDailyUsage(userId: string): { used: number; quota: number; resetAt: string } {
-  const db = getDb();
-  ensurePostsDailyTable(db);
-  const row = db.prepare('SELECT count FROM posts_daily_usage WHERE user_id = ? AND day_key = ?').get(userId, postsDayKey()) as { count: number } | undefined;
-  return { used: row?.count || 0, quota: POSTS_DAILY_QUOTA, resetAt: new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate() + 1)).toISOString() };
-}
-
-// Increment the counter by n; returns the new used total.
-export function addPostsDailyUsage(userId: string, n: number): number {
-  const db = getDb();
-  ensurePostsDailyTable(db);
-  const key = postsDayKey();
-  db.prepare(
-    `INSERT INTO posts_daily_usage (user_id, day_key, count) VALUES (?, ?, ?)
-     ON CONFLICT(user_id, day_key) DO UPDATE SET count = count + excluded.count`
-  ).run(userId, key, n);
-  return getPostsDailyUsage(userId).used;
 }
 
 // Light migration: whatsapp flag column (default 0). A simple ALTER is
@@ -1074,80 +1034,6 @@ export function persistJobsWithUpgrade(scrapedJobs: Job[]): { added: Job[]; skip
     }
   }
   return { added, skipped, newContacts, upgradedCount };
-}
-
-// ─────────────────── LinkedIn Posts search history (server-side) ───────────────────
-// Search results persist per user in SQLite (NOT as jobs): they survive any
-// browser, refresh, or device. Explicit per-post saves still go to the jobs
-// table via persistJobsWithUpgrade; the `saved` flag here mirrors that.
-
-export interface LpHistoryPost {
-  id: string;
-  title: string;
-  company: string;
-  url: string;
-  applyUrl?: string;
-  postedDate?: string;
-  description?: string;
-  hashtags?: string[];
-  saved?: boolean;
-}
-
-const LP_HISTORY_LIMIT = 200;
-
-export function getLpHistory(userId: string): LpHistoryPost[] {
-  try {
-    const row = getDb().prepare('SELECT data FROM lp_history WHERE user_id = ?').get(userId) as { data: string } | undefined;
-    return row ? (JSON.parse(row.data) as LpHistoryPost[]) : [];
-  } catch (err) {
-    console.error('getLpHistory error:', err);
-    return [];
-  }
-}
-
-export function saveLpHistory(userId: string, posts: LpHistoryPost[]): void {
-  try {
-    getDb()
-      .prepare(
-        `INSERT INTO lp_history (user_id, data, updated_at) VALUES (?, ?, ?)
-         ON CONFLICT(user_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
-      )
-      .run(userId, JSON.stringify(posts.slice(0, LP_HISTORY_LIMIT)), new Date().toISOString());
-  } catch (err) {
-    console.error('saveLpHistory error:', err);
-  }
-}
-
-export function mergeLpHistory(userId: string, fresh: LpHistoryPost[]): LpHistoryPost[] {
-  if (fresh.length === 0) return getLpHistory(userId);
-  const existing = getLpHistory(userId);
-  const seen = new Set(existing.map((p) => p.id));
-  const merged = [...existing];
-  for (const p of fresh) {
-    if (!seen.has(p.id)) {
-      merged.unshift(p);
-      seen.add(p.id);
-    }
-  }
-  const capped = merged.slice(0, LP_HISTORY_LIMIT);
-  saveLpHistory(userId, capped);
-  return capped;
-}
-
-export function markLpHistorySaved(userId: string, postId: string): void {
-  const posts = getLpHistory(userId);
-  const idx = posts.findIndex((p) => p.id === postId);
-  if (idx === -1) return;
-  posts[idx] = { ...posts[idx], saved: true };
-  saveLpHistory(userId, posts);
-}
-
-export function clearLpHistory(userId: string): void {
-  try {
-    getDb().prepare('DELETE FROM lp_history WHERE user_id = ?').run(userId);
-  } catch (err) {
-    console.error('clearLpHistory error:', err);
-  }
 }
 
 // ─────────────────── Interview sessions (history) ───────────────────

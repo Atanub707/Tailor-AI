@@ -7,7 +7,7 @@ import { List } from '@phosphor-icons/react';
 // Single source of truth for global navigation.
 // Drives: hamburger items, active states, and navigation tests.
 import type { Icon } from '@phosphor-icons/react';
-import { House, UserCircle, IdentificationBadge, Tray, GlobeSimple, PaperPlaneTilt, ChatCircleDots, FileText, GearSix, BookmarkSimple } from '@phosphor-icons/react';
+import { House, UserCircle, IdentificationBadge, Tray, GlobeSimple, ChatCircleDots, FileText, GearSix, BookmarkSimple } from '@phosphor-icons/react';
 
 export type NavGroupId = 'library' | 'profile' | 'tools';
 
@@ -33,7 +33,6 @@ export const NAV_ITEMS: NavigationItem[] = [
   { id: 'answer-bank', label: 'Application Answers', icon: BookmarkSimple, route: '/answer-bank', group: 'profile', activeFor: (p) => p === '/answer-bank' },
   { id: 'recruiters', label: 'Recruiters', icon: Tray, route: '/recruiters', group: 'tools', badgeKey: 'recruiters', activeFor: (p) => p === '/recruiters' },
   { id: 'job-portals', label: 'Job Portals', icon: GlobeSimple, route: '/job-portals', group: 'tools', activeFor: (p) => p === '/job-portals' },
-  { id: 'linkedin-posts', label: 'LinkedIn Posts', icon: PaperPlaneTilt, route: '/linkedin-posts', group: 'tools', activeFor: (p) => p === '/linkedin-posts' },
   { id: 'ai-interview', label: 'AI Interview', icon: ChatCircleDots, route: '/ai-interview', group: 'tools', activeFor: (p) => p === '/ai-interview' },
   { id: 'manual-jd', label: 'Manual JD', icon: FileText, route: '/manual-jd', group: 'tools', activeFor: (p) => p === '/manual-jd' },
   { id: 'settings', label: 'Settings', icon: GearSix, route: '/settings', group: 'tools', activeFor: (p) => p === '/settings' },
@@ -155,7 +154,7 @@ export function NavigationProvider({ onNavigate, badges = {}, user, installedVer
                   style={activeId !== item.id ? { color: 'var(--color-muted)' } : undefined}
                   aria-current={activeId === item.id ? 'page' : undefined}
                 >
-                  <span className="shrink-0" style={{ color: activeId === item.id ? 'var(--color-brand)' : item.id === 'recruiters' ? 'var(--color-cta)' : item.id === 'ai-interview' || item.id === 'linkedin-posts' ? '#7C3AED' : 'var(--color-faint)' }}>
+                  <span className="shrink-0" style={{ color: activeId === item.id ? 'var(--color-brand)' : item.id === 'recruiters' ? 'var(--color-cta)' : item.id === 'ai-interview' ? '#7C3AED' : 'var(--color-faint)' }}>
                     <item.icon size={17} weight="duotone" />
                   </span>
                   <span className="truncate">{item.label}</span>

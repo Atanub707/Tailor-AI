@@ -77,10 +77,6 @@ import {
   queryJobs,
   saveNewJobs,
   persistJobsWithUpgrade,
-  getLpHistory,
-  mergeLpHistory,
-  markLpHistorySaved,
-  clearLpHistory,
   runStorageMigration,
   fixMislabeledWorkTypes,
   repairJobDates,
@@ -116,12 +112,9 @@ import {
   listContactsCsv,
   backfillContacts,
   upsertContactsFromJob,
-  getPostsDailyUsage,
-  addPostsDailyUsage,
 } from './server/storage/fileStorage.js';
 import { hideCurrentUserJob, unhideCurrentUserJob, clearCurrentUserHidden } from './server/storage/hiddenJobs.js';
 import { ScraperFactory } from './server/scraper/scraperFactory.js';
-import { LinkedInPostsScraper } from './server/scraper/linkedInPostsScraper.js';
 import { LlmMatcher } from './server/matcher/llmMatcher.js';
 import { hasApiKeyConfigured, mapLlmError } from './server/llm/apiKeyGuard.js';
 import { generatePdfBuffer, generatePlainTextCv } from './server/builder/docxGenerator.js';
@@ -881,170 +874,6 @@ async function startServer() {
       res.json({ success: true, profile: loadCanonical(userId) });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
-    }
-  });
-
-  // ── LinkedIn Posts (job postings, last 24h) ──
-  // Daily cap (20/day, resets at midnight) applies to the APIFY engine only —
-  // it protects the user's token spend. The FREE engine is unlimited.
-  app.post('/api/linkedin-posts/search', async (req, res) => {
-    try {
-      const userId = getCurrentUserId();
-      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
-      const keywords = String(req.body?.keywords || '').trim();
-      if (!keywords) return res.status(400).json({ error: 'Keywords are required.' });
-      const engine = req.body?.engine === 'apify' ? 'apify' : 'free';
-      // Apify: show all ~100 posts the actor fetched. Free: cap at 20.
-      const limit = Math.min(engine === 'apify' ? 100 : 20, Math.max(1, Number(req.body?.limit) || 20));
-      const quota = getPostsDailyUsage(userId);
-      if (engine === 'apify' && quota.used >= quota.quota) {
-        return res.status(429).json({
-          valid: false,
-          error: `Apify daily limit reached: ${quota.quota} search used today. Resets at ${new Date(quota.resetAt).toLocaleTimeString()}. Switch to the Free engine — it has no limit.`,
-          quota,
-        });
-      }
-
-      let posts: Job[] = [];
-      let debug: Record<string, unknown> = {};
-      {
-        const scraper = new LinkedInPostsScraper();
-        posts = await scraper.scrape({
-          keywords,
-          location: '',
-          sources: [],
-          datePostedFilter: '24h',
-          jobType: 'all',
-          maxJobsPerSource: limit,
-          engine,
-        } as any);
-        debug = { ...scraper.lastDebug };
-        // Job-posting search only — anything else returns "not valid".
-        if (posts.length === 0) {
-          const remaining = engine === 'apify' ? Math.max(0, quota.quota - quota.used) : quota.quota;
-          // RESEARCH: distinguish "engines blocked/rate-limited" from "engines
-          // found links but none were job postings in the last 24h".
-          const discoveryFailed = scraper.lastDebug.linksFound === 0;
-          return res.status(200).json({
-            valid: false,
-            discoveryFailed,
-            message: discoveryFailed
-              ? `Search engines returned no results from this server — likely rate-limited or blocked (${scraper.lastDebug.queriesTried} queries tried). Try again in a minute.`
-              : 'not valid — engines found posts but none were job postings from the last 24 hours. Try broader keywords.',
-            debug: scraper.lastDebug,
-            posts: [],
-            addedCount: 0,
-            total: 0,
-            quota: { ...quota, remaining },
-          });
-        }
-      }
-      // Apify engine: cap the search at the remaining daily quota (10/day max).
-      const remaining = engine === 'apify' ? Math.max(0, quota.quota - quota.used) : posts.length;
-      const cappedPosts = engine === 'apify' ? posts.slice(0, remaining) : posts;
-      if (engine === 'apify' && cappedPosts.length === 0) {
-        return res.status(429).json({
-          valid: false,
-          error: `Apify daily limit reached: ${quota.quota} search used today. Resets at ${new Date(quota.resetAt).toLocaleTimeString()}. Switch to the Free engine — it has no limit.`,
-          quota,
-        });
-      }
-      // Search results are NOT auto-saved as jobs — they live on the search
-      // screen only, persisted per user in the lp_history table so they
-      // survive refresh/browser/device. Explicit saves go via
-      // POST /api/linkedin-posts/save.
-      if (posts.length > 0) {
-        mergeLpHistory(
-          userId,
-          posts.map((p) => ({
-            id: p.id,
-            title: p.title,
-            company: p.company,
-            url: p.url,
-            applyUrl: p.applyUrl,
-            postedDate: p.postedDate,
-            description: p.description,
-            hashtags: p.hashtags || [],
-          }))
-        );
-      }
-      const newUsed = engine === 'apify' ? addPostsDailyUsage(userId, cappedPosts.length) : quota.used;
-      res.json({
-        valid: true,
-        debug,
-        posts: posts.map((p) => ({
-          id: p.id,
-          title: p.title,
-          company: p.company,
-          url: p.url,
-          applyUrl: p.applyUrl,
-          postedDate: p.postedDate,
-          description: (p.description || '').slice(0, 500),
-          hashtags: p.hashtags || [],
-        })),
-        addedCount: 0,
-        upgradedCount: 0,
-        total: posts.length,
-        quota: { used: newUsed, quota: quota.quota, remaining: Math.max(0, quota.quota - newUsed), resetAt: quota.resetAt },
-      });
-    } catch (err: any) {
-      console.error('LinkedIn posts search error:', err);
-      res.status(500).json({ error: err?.message || 'Could not search LinkedIn posts.' });
-    }
-  });
-
-  // Save ONE LinkedIn post from the search screen to the user's job list
-  // (dashboard). Idempotent: already-saved posts are skipped.
-  app.post('/api/linkedin-posts/save', (req, res) => {
-    try {
-      const userId = getCurrentUserId();
-      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
-      const p = req.body?.post;
-      if (!p?.title || !p?.url) return res.status(400).json({ error: 'Post is required.' });
-      const job: Job = {
-        id: String(p.id || `linkedinpost-${crypto.createHash('sha1').update(String(p.url)).digest('base64url').slice(0, 20)}`),
-        title: String(p.title).slice(0, 110),
-        company: String(p.company || 'Unknown Company').slice(0, 100),
-        url: String(p.url),
-        applyUrl: String(p.applyUrl || ''),
-        location: '',
-        postedDate: String(p.postedDate || new Date().toISOString()),
-        description: String(p.description || '').slice(0, 3000),
-        hashtags: Array.isArray(p.hashtags) ? p.hashtags.map(String).slice(0, 10) : [],
-        source: 'LinkedInPosts',
-        jobType: 'Post',
-        state: 'pending',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      const { added } = persistJobsWithUpgrade([job]);
-      markLpHistorySaved(userId, job.id);
-      res.json({ saved: added.length > 0, alreadySaved: added.length === 0, id: job.id });
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message || 'Could not save post.' });
-    }
-  });
-
-  // LinkedIn Posts search history — per user, server-side. Returns every post
-  // found on the search screen so it survives refresh/browser/device.
-  app.get('/api/linkedin-posts/history', (req, res) => {
-    try {
-      const userId = getCurrentUserId();
-      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
-      res.json({ posts: getLpHistory(userId) });
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message || 'Could not load LinkedIn Posts history.' });
-    }
-  });
-
-  app.delete('/api/linkedin-posts/history', (req, res) => {
-    try {
-      const userId = getCurrentUserId();
-      if (!userId) return res.status(401).json({ error: 'Not signed in.' });
-      clearLpHistory(userId);
-      res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message || 'Could not clear LinkedIn Posts history.' });
     }
   });
 

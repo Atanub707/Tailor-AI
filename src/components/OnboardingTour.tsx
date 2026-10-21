@@ -42,7 +42,7 @@ export function startTour(): void {
         element: 'button[aria-label="Open menu"]',
         popover: {
           title: 'Navigate with the menu',
-          description: 'The hamburger menu is available on every screen. It holds <b>Home</b>, <b>Applications</b>, your <b>Applicant Profile</b> and <b>Master CV</b>, plus <b>Recruiters</b>, <b>Job Portals</b>, <b>LinkedIn Posts</b>, <b>AI Interview</b>, <b>Manual JD</b> and <b>Settings</b>.',
+          description: 'The hamburger menu is available on every screen. It holds <b>Home</b>, <b>Applications</b>, your <b>Applicant Profile</b> and <b>Master CV</b>, plus <b>Recruiters</b>, <b>Job Portals</b>, <b>AI Interview</b>, <b>Manual JD</b> and <b>Settings</b>.',
           side: 'bottom',
         },
       },

@@ -39,7 +39,6 @@ export const SOURCES: Record<JobSource, SourceMeta> = {
   Join: { id: 'Join', label: 'Join', flag: '🤝', country: 'Global', region: 'global', apifyActorId: 'ats-direct', pricePer1K: '$0.40' },
 
   // ── Built-in free scrapers ──
-  LinkedInPosts: { id: 'LinkedInPosts', label: 'LinkedIn Posts', flag: '📰', country: 'Global', region: 'global', pricePer1K: 'Free' },
   Arbeitnow: { id: 'Arbeitnow', label: 'Arbeitnow', flag: '🌍', country: 'Europe', region: 'eu' },
   SimplyHired: { id: 'SimplyHired', label: 'SimplyHired', flag: '🇺🇸', country: 'USA', region: 'us' },
   Dice: { id: 'Dice', label: 'Dice', flag: '🇺🇸', country: 'USA', region: 'us' },

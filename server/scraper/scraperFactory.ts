@@ -1,5 +1,4 @@
 import { LinkedInScraper } from './linkedInScraper.js';
-import { LinkedInPostsScraper } from './linkedInPostsScraper.js';
 import { ApifyLinkedInScraper } from './apifyScraper.js';
 import { RemoteJobsAggregatorScraper } from './remoteJobsAggregatorScraper.js';
 import { IndeedScraper } from './indeedScraper.js';
@@ -172,8 +171,6 @@ export class ScraperFactory {
               jobs = await new LinkedInScraper().scrape(params);
             }
           }
-        } else if (source === 'LinkedInPosts') {
-          jobs = await new LinkedInPostsScraper().scrape(params);
         } else if (source === 'Arbeitnow') {
           jobs = await new ArbeitnowScraper().scrape(params);
         } else if (source === 'SimplyHired') {

@@ -12,7 +12,6 @@ import { ManualJdScreen } from './components/ManualJdScreen';
 import { JobPortalsScreen } from './components/JobPortalsScreen';
 import { RecruitersScreen } from './components/RecruitersScreen';
 import { AiSystemScreen } from './components/AiSystemScreen';
-import { LinkedInPostsScreen } from './components/LinkedInPostsScreen';
 import { AnswerBankScreen } from './components/AnswerBankScreen';
 import { OnboardingTour, startTour } from './components/OnboardingTour';
 import { LoginScreen } from './components/LoginScreen';
@@ -36,12 +35,11 @@ export default function App() {
   const isManualJdOpen = pathname === '/manual-jd';
   const isJobPortalsOpen = pathname === '/job-portals';
   const isAiSystemOpen = pathname === '/ai-interview';
-  const isLinkedInPostsOpen = pathname === '/linkedin-posts';
   const isAnswerBankOpen = pathname === '/answer-bank';
 
   // Unknown paths (stale bookmarks, typos) land on the dashboard instead of
   // a blank screen. Done BEFORE any screen renders.
-  const knownPaths = ['/', '/settings', '/recruiters', '/master-cv', '/applicant-profile', '/manual-jd', '/job-portals', '/ai-interview', '/linkedin-posts', '/answer-bank'];
+  const knownPaths = ['/', '/settings', '/recruiters', '/master-cv', '/applicant-profile', '/manual-jd', '/job-portals', '/ai-interview', '/answer-bank'];
   const knownPrefixes: string[] = [];
   const [jobs, setJobs] = useState<Job[]>([]);
   const [masterCv, setMasterCv] = useState<MasterCv | null>(null);
@@ -569,7 +567,6 @@ export default function App() {
               case 'master-cv': navigate('/master-cv'); break;
               case 'recruiters': setRecruiterBadge(0); navigate('/recruiters'); break;
               case 'job-portals': navigate('/job-portals'); break;
-              case 'linkedin-posts': navigate('/linkedin-posts'); break;
               case 'ai-interview': navigate('/ai-interview'); break;
               case 'manual-jd': navigate('/manual-jd'); break;
               case 'settings': navigate('/settings'); break;
@@ -751,7 +748,6 @@ export default function App() {
 
           {/* AI Interview */}
           {isAiSystemOpen && <AiSystemScreen onClose={goHome} />}
-          {isLinkedInPostsOpen && <LinkedInPostsScreen onClose={goHome} />}
           <AnswerBankScreen isOpen={isAnswerBankOpen} onClose={goHome} />
         </NavigationProvider>
       )}

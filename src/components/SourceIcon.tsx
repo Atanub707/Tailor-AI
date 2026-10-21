@@ -16,7 +16,6 @@ const BRAND_PATHS: Record<string, string> = {
 
 const SOURCE_DOMAINS: Record<string, string> = {
   LinkedIn: 'linkedin.com',
-  LinkedInPosts: 'linkedin.com',
   Indeed: 'indeed.com',
   Naukri: 'naukri.com',
   Glassdoor: 'glassdoor.com',

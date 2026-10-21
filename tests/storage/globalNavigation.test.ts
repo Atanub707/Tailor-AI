@@ -15,7 +15,6 @@ const EXPECTED_ITEMS: Array<{ id: string; label: string; route: string; group: '
   { id: 'master-cv', label: 'Master CV', route: '/master-cv', group: 'profile' },
   { id: 'recruiters', label: 'Recruiters', route: '/recruiters', group: 'tools' },
   { id: 'job-portals', label: 'Job Portals', route: '/job-portals', group: 'tools' },
-  { id: 'linkedin-posts', label: 'LinkedIn Posts', route: '/linkedin-posts', group: 'tools' },
   { id: 'ai-interview', label: 'AI Interview', route: '/ai-interview', group: 'tools' },
   { id: 'manual-jd', label: 'Manual JD', route: '/manual-jd', group: 'tools' },
 ];
@@ -113,7 +112,7 @@ describe('App shell — navigation system', () => {
     expect(APP).toContain('<NavigationProvider');
     expect(APP).toContain('onNavigate=');
     expect(APP).toContain('</NavigationProvider>');
-    for (const file of ['SettingsModal.tsx', 'ManualJdScreen.tsx', 'ApplicantProfileScreen.tsx', 'MasterCvScreen.tsx', 'RecruitersScreen.tsx', 'JobPortalsScreen.tsx', 'LinkedInPostsScreen.tsx', 'AiSystemScreen.tsx']) {
+    for (const file of ['SettingsModal.tsx', 'ManualJdScreen.tsx', 'ApplicantProfileScreen.tsx', 'MasterCvScreen.tsx', 'RecruitersScreen.tsx', 'JobPortalsScreen.tsx', 'AiSystemScreen.tsx']) {
       const src = fs.readFileSync(path.join(process.cwd(), 'src/components', file), 'utf8');
       expect(src).toContain('HamburgerTrigger');
     }
@@ -126,7 +125,7 @@ describe('App shell — navigation system', () => {
       expect(topLevel).not.toMatch(/fixed inset-0 z-(3[0-9]|4[0-9]|5[0-9])/);
     }
     // Same guard for the CSS-defined screens: Settings, Recruiters, LinkedIn Posts, AI Interview.
-    for (const file of ['SettingsModal.tsx', 'RecruitersScreen.tsx', 'LinkedInPostsScreen.tsx', 'AiSystemScreen.tsx']) {
+    for (const file of ['SettingsModal.tsx', 'RecruitersScreen.tsx', 'AiSystemScreen.tsx']) {
       const src = fs.readFileSync(path.join(process.cwd(), 'src/components', file), 'utf8');
       expect(src).not.toMatch(/position:fixed;? ?inset:0;? z-index:(3[0-9]|4[0-9]|5[0-9]|6[0-9])/);
     }
@@ -185,7 +184,7 @@ describe('Settings in the hamburger AND the account menu', () => {
 
 describe('No stale duplicate navigation surfaces', () => {
   it('screens do not render their own hamburger or nav menus', () => {
-    for (const file of ['SettingsModal.tsx', 'JobPortalsScreen.tsx', 'ManualJdScreen.tsx', 'RecruitersScreen.tsx', 'LinkedInPostsScreen.tsx']) {
+    for (const file of ['SettingsModal.tsx', 'JobPortalsScreen.tsx', 'ManualJdScreen.tsx', 'RecruitersScreen.tsx']) {
       const src = fs.readFileSync(path.join(process.cwd(), 'src/components', file), 'utf8');
       expect(src).not.toContain('aria-label="Open menu"');
       expect(src).not.toContain('aria-label="Open navigation"');
@@ -193,7 +192,7 @@ describe('No stale duplicate navigation surfaces', () => {
   });
 
   it('screens keep their contextual headers — no full Home app bar, one trigger each', () => {
-    for (const file of ['SettingsModal.tsx', 'JobPortalsScreen.tsx', 'ManualJdScreen.tsx', 'RecruitersScreen.tsx', 'LinkedInPostsScreen.tsx', 'ApplicantProfileScreen.tsx', 'AiSystemScreen.tsx']) {
+    for (const file of ['SettingsModal.tsx', 'JobPortalsScreen.tsx', 'ManualJdScreen.tsx', 'RecruitersScreen.tsx', 'ApplicantProfileScreen.tsx', 'AiSystemScreen.tsx']) {
       const src = fs.readFileSync(path.join(process.cwd(), 'src/components', file), 'utf8');
       expect(src.match(/<HamburgerTrigger/g)?.length ?? 0).toBe(1);
       expect(src).not.toContain('Created by');
