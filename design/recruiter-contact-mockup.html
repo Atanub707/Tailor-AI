@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Recruiters — icon-first outreach mockup</title>
+<style>
+  :root {
+    --brand: #2563EB; --brand-strong: #1D4ED8; --brand-soft: #EFF6FF;
+    --ink: #0F172A; --muted: #64748B; --faint: #94A3B8;
+    --line: #E5E7EB; --canvas: #F9FAFB; --surface: #fff;
+    --green: #25D366; --in: #0A66C2;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; background: var(--canvas); color: var(--ink); -webkit-font-smoothing: antialiased; }
+  .page { max-width: 1180px; margin: 0 auto; padding: 36px 28px 64px; }
+  h1 { font-size: 22px; font-weight: 800; letter-spacing: -.02em; margin: 0 0 6px; }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 0 0 28px; max-width: 720px; line-height: 1.55; }
+  .label { font-size: 10.5px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); margin: 0 0 10px; }
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 22px; align-items: start; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+  .card + .card { margin-top: 22px; }
+  .card-hd { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .card-hd b { font-size: 13px; font-weight: 700; }
+  .card-hd .spacer { flex: 1; }
+  .tag { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 3px 7px; border-radius: 999px; }
+  .tag.now { background: #F1F5F9; color: var(--muted); }
+  .tag.new { background: #ECFDF5; color: #047857; }
+
+  /* ── list header/rows ─────────────────────────────── */
+  .lhead, .lrow { display: grid; grid-template-columns: minmax(0,1.7fr) minmax(0,.9fr) 190px 104px; gap: 12px; align-items: center; padding: 10px 16px; }
+  .lhead { font-size: 10.5px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; color: var(--faint); border-bottom: 1px solid var(--line); }
+  .lrow { border-bottom: 1px solid #F1F5F9; }
+  .lrow:last-child { border-bottom: 0; }
+  .lrow:hover { background: #F8FAFC; }
+  .who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .ava { width: 32px; height: 32px; border-radius: 999px; background: var(--brand-soft); color: var(--brand-strong); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; flex-shrink: 0; }
+  .nm { font-size: 13px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rl { font-size: 11.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .co { font-size: 12.5px; color: var(--muted); }
+  .mail-txt { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .phone-txt { font-size: 12px; color: var(--muted); }
+
+  /* ── icon reach cluster ───────────────────────────── */
+  .reach { display: flex; align-items: center; gap: 6px; }
+  .ib { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--line); background: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; position: relative; }
+  .ib:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(15,23,42,.10); }
+  .ib:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+  .ib svg { display: block; }
+  .ib.in { background: var(--in); border-color: var(--in); }
+  .ib.wa { background: var(--green); border-color: var(--green); }
+  .ib.mail svg { color: var(--brand); }
+  .ib.tel svg { color: #0F766E; }
+  .ib.off { opacity: .32; cursor: default; filter: grayscale(1); }
+  .ib.off:hover { transform: none; box-shadow: none; }
+  [data-tip] { position: relative; }
+  [data-tip]:hover::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%); background: #0F172A; color: #fff; font-size: 10.5px; font-weight: 600; padding: 4px 8px; border-radius: 6px; white-space: nowrap; z-index: 5; pointer-events: none; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; padding: 4px 9px; border-radius: 999px; }
+  .pill.sent { background: #ECFDF5; color: #047857; }
+  .pill.ready { background: #F1F5F9; color: var(--muted); }
+  .pill.fail { background: #FEF2F2; color: #B91C1C; }
+
+  /* ── record pane ──────────────────────────────────── */
+  .rec-head { display: flex; align-items: center; gap: 12px; padding: 16px; border-bottom: 1px solid var(--line); }
+  .bigava { width: 42px; height: 42px; border-radius: 999px; background: var(--brand-soft); color: var(--brand-strong); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; }
+  .rec-name { font-size: 14.5px; font-weight: 750; }
+  .rec-meta { font-size: 11.5px; color: var(--faint); margin-top: 1px; }
+  .rec-body { padding: 16px; }
+  .reach-row { display: flex; gap: 10px; }
+  .reach-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 12px 6px; border-radius: 10px; border: 1px solid var(--line); background: #fff; cursor: pointer; transition: border-color .12s ease, box-shadow .12s ease, transform .12s ease; }
+  .reach-btn:hover { border-color: #CBD5E1; box-shadow: 0 2px 10px rgba(15,23,42,.08); transform: translateY(-1px); }
+  .reach-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+  .reach-btn span { font-size: 10.5px; font-weight: 650; color: var(--muted); }
+  .reach-btn .logo { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+  .reach-btn .logo.in { background: var(--in); }
+  .reach-btn .logo.wa { background: var(--green); }
+  .reach-btn .logo.mail { background: var(--brand-soft); color: var(--brand); }
+  .reach-btn .logo.tel { background: #ECFDF5; color: #0F766E; }
+  .reach-btn.off { opacity: .4; cursor: default; }
+  .reach-btn.off:hover { border-color: var(--line); box-shadow: none; transform: none; }
+
+  /* ── emails ───────────────────────────────────────── */
+  .em { display: flex; gap: 11px; padding: 12px 16px; border-bottom: 1px solid #F1F5F9; }
+  .em:last-child { border-bottom: 0; }
+  .em-ico { width: 30px; height: 30px; border-radius: 8px; background: var(--brand-soft); color: var(--brand); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .em-ico.direct { background: #FFF7ED; color: #C2410C; }
+  .em-main { min-width: 0; flex: 1; }
+  .em-to { font-size: 12.5px; font-weight: 700; display: flex; align-items: center; gap: 7px; }
+  .em-to .direct-tag { font-size: 9px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #C2410C; background: #FFEDD5; border-radius: 999px; padding: 2px 6px; }
+  .em-sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .em-meta { font-size: 10.5px; color: var(--faint); margin-top: 4px; display: flex; align-items: center; gap: 7px; }
+  .chip { font-size: 10px; font-weight: 600; color: var(--muted); background: #F1F5F9; border-radius: 5px; padding: 2px 6px; }
+  .note { display: flex; gap: 8px; margin-top: 18px; font-size: 12px; color: var(--muted); line-height: 1.5; background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 10px; padding: 12px 14px; }
+  .note b { color: #92400E; }
+  .foot-note { margin-top: 26px; font-size: 11.5px; color: var(--faint); }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Recruiters — icon-first outreach</h1>
+  <p class="sub">Proposed redesign: LinkedIn joins email + phone in the contact row, and all reach actions become brand-logo buttons instead of raw addresses, usernames and URLs.</p>
+
+  <div class="grid">
+    <div>
+      <!-- Current -->
+      <p class="label">Current</p>
+      <div class="card">
+        <div class="lhead"><span>Who</span><span>Company</span><span>Email</span><span>Contact</span></div>
+        <div class="lrow">
+          <div class="who"><div class="ava">CC</div><div style="min-width:0"><div class="nm">Conner Cotting</div><div class="rl">Technical Recruiter · Platform Eng</div></div></div>
+          <div class="co">Stripe</div>
+          <div class="mail-txt">conner.cotting@stripe.com</div>
+          <div class="phone-txt">+1 415 555 0132</div>
+        </div>
+      </div>
+
+      <!-- Proposed -->
+      <p class="label" style="margin-top:24px">Proposed — logos, not links</p>
+      <div class="card">
+        <div class="lhead"><span>Who</span><span>Company</span><span>Reach</span><span>Outreach</span></div>
+
+        <div class="lrow">
+          <div class="who"><div class="ava">CC</div><div style="min-width:0"><div class="nm">Conner Cotting</div><div class="rl">Technical Recruiter · Platform Eng</div></div></div>
+          <div class="co">Stripe</div>
+          <div class="reach">
+            <button class="ib in" data-tip="LinkedIn profile" aria-label="Open LinkedIn profile"><svg width="15" height="15" viewBox="0 0 24 24" fill="#fff"><path d="M4.98 3.5a2.49 2.49 0 1 1 0 4.98 2.49 2.49 0 0 1 0-4.98zM3 9h4v12H3zM9 9h3.8v1.7h.05c.53-1 1.83-2.05 3.77-2.05 4.03 0 4.78 2.65 4.78 6.1V21h-4v-5.5c0-1.31-.02-3-1.83-3-1.83 0-2.11 1.43-2.11 2.9V21H9z"/></svg></button>
+            <button class="ib wa" data-tip="WhatsApp chat" aria-label="Open WhatsApp chat"><svg width="15" height="15" viewBox="0 0 24 24" fill="#fff"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm5.2 14.1c-.22.62-1.28 1.19-1.77 1.23-.45.04-.87.2-2.94-.61-2.48-.98-4.06-3.52-4.18-3.68-.12-.16-1-1.33-1-2.54s.63-1.8.86-2.05c.22-.24.49-.3.65-.3l.47.01c.15 0 .35-.06.55.42l.75 1.82c.06.13.1.28.02.45-.32.64-.66.62-.49.9.62 1.07 1.24 1.45 2.18 1.93.16.08.26.07.36-.04l.52-.6c.11-.14.27-.12.45-.06l1.7.8c.26.12.43.18.5.28.06.1.06.6-.16 1.24z"/></svg></button>
+            <button class="ib mail" data-tip="Email — conner.cotting@stripe.com (click to copy)" aria-label="Email Conner Cotting"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></button>
+            <button class="ib tel" data-tip="Call +1 415 555 0132" aria-label="Call Conner Cotting"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg></button>
+          </div>
+          <div><span class="pill sent">● Sent</span></div>
+        </div>
+
+        <div class="lrow">
+          <div class="who"><div class="ava">AT</div><div style="min-width:0"><div class="nm">Appu T</div><div class="rl">Talent Acquisition · SRE</div></div></div>
+          <div class="co">Freshworks</div>
+          <div class="reach">
+            <button class="ib in" data-tip="LinkedIn profile" aria-label="Open LinkedIn profile"><svg width="15" height="15" viewBox="0 0 24 24" fill="#fff"><path d="M4.98 3.5a2.49 2.49 0 1 1 0 4.98 2.49 2.49 0 0 1 0-4.98zM3 9h4v12H3zM9 9h3.8v1.7h.05c.53-1 1.83-2.05 3.77-2.05 4.03 0 4.78 2.65 4.78 6.1V21h-4v-5.5c0-1.31-.02-3-1.83-3-1.83 0-2.11 1.43-2.11 2.9V21H9z"/></svg></button>
+            <button class="ib wa off" data-tip="No phone on file" aria-label="WhatsApp unavailable" disabled><svg width="15" height="15" viewBox="0 0 24 24" fill="#fff"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm5.2 14.1c-.22.62-1.28 1.19-1.77 1.23-.45.04-.87.2-2.94-.61-2.48-.98-4.06-3.52-4.18-3.68-.12-.16-1-1.33-1-2.54s.63-1.8.86-2.05c.22-.24.49-.3.65-.3l.47.01c.15 0 .35-.06.55.42l.75 1.82c.06.13.1.28.02.45-.32.64-.66.62-.49.9.62 1.07 1.24 1.45 2.18 1.93.16.08.26.07.36-.04l.52-.6c.11-.14.27-.12.45-.06l1.7.8c.26.12.43.18.5.28.06.1.06.6-.16 1.24z"/></svg></button>
+            <button class="ib mail" data-tip="Email — appu.t@freshworks.com (click to copy)" aria-label="Email Appu T"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></button>
+            <button class="ib tel off" data-tip="No phone on file" aria-label="Phone unavailable" disabled><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg></button>
+          </div>
+          <div><span class="pill ready">Ready</span></div>
+        </div>
+
+        <div class="lrow">
+          <div class="who"><div class="ava">SM</div><div style="min-width:0"><div class="nm">Scott Murray</div><div class="rl">Engineering Manager</div></div></div>
+          <div class="co">Datadog</div>
+          <div class="reach">
+            <button class="ib in" data-tip="LinkedIn profile" aria-label="Open LinkedIn profile"><svg width="15" height="15" viewBox="0 0 24 24" fill="#fff"><path d="M4.98 3.5a2.49 2.49 0 1 1 0 4.98 2.49 2.49 0 0 1 0-4.98zM3 9h4v12H3zM9 9h3.8v1.7h.05c.53-1 1.83-2.05 3.77-2.05 4.03 0 4.78 2.65 4.78 6.1V21h-4v-5.5c0-1.31-.02-3-1.83-3-1.83 0-2.11 1.43-2.11 2.9V21H9z"/></svg></button>
+            <button class="ib wa" data-tip="WhatsApp chat" aria-label="Open WhatsApp chat"><svg width="15" height="15" viewBox="0 0 24 24" fill="#fff"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm5.2 14.1c-.22.62-1.28 1.19-1.77 1.23-.45.04-.87.2-2.94-.61-2.48-.98-4.06-3.52-4.18-3.68-.12-.16-1-1.33-1-2.54s.63-1.8.86-2.05c.22-.24.49-.3.65-.3l.47.01c.15 0 .35-.06.55.42l.75 1.82c.06.13.1.28.02.45-.32.64-.66.62-.49.9.62 1.07 1.24 1.45 2.18 1.93.16.08.26.07.36-.04l.52-.6c.11-.14.27-.12.45-.06l1.7.8c.26.12.43.18.5.28.06.1.06.6-.16 1.24z"/></svg></button>
+            <button class="ib mail off" data-tip="No email on file" aria-label="Email unavailable" disabled><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></button>
+            <button class="ib tel" data-tip="Call +44 20 7946 0958" aria-label="Call Scott Murray"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg></button>
+            <button class="ib" data-tip="Copy contact details" aria-label="Copy contact details" style="color:#64748B"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+          </div>
+          <div><span class="pill ready">New</span></div>
+        </div>
+      </div>
+
+      <div class="note">
+        <span>ℹ️</span>
+        <div><b>Missing data stays visible, not hidden:</b> unavailable channels render as dimmed logos with a tooltip ("No phone on file") — you can see at a glance which channel to use for each recruiter.</div>
+      </div>
+    </div>
+
+    <div>
+      <!-- Record pane -->
+      <p class="label">Contact record — Reach</p>
+      <div class="card">
+        <div class="rec-head">
+          <div class="bigava">CC</div>
+          <div>
+            <div class="rec-name">Conner Cotting</div>
+            <div class="rec-meta">Technical Recruiter · Stripe</div>
+          </div>
+        </div>
+        <div class="rec-body">
+          <div class="reach-row">
+            <button class="reach-btn" aria-label="Open LinkedIn profile">
+              <span class="logo in"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M4.98 3.5a2.49 2.49 0 1 1 0 4.98 2.49 2.49 0 0 1 0-4.98zM3 9h4v12H3zM9 9h3.8v1.7h.05c.53-1 1.83-2.05 3.77-2.05 4.03 0 4.78 2.65 4.78 6.1V21h-4v-5.5c0-1.31-.02-3-1.83-3-1.83 0-2.11 1.43-2.11 2.9V21H9z"/></svg></span>
+              <span>LinkedIn</span>
+            </button>
+            <button class="reach-btn" aria-label="Open WhatsApp chat">
+              <span class="logo wa"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm5.2 14.1c-.22.62-1.28 1.19-1.77 1.23-.45.04-.87.2-2.94-.61-2.48-.98-4.06-3.52-4.18-3.68-.12-.16-1-1.33-1-2.54s.63-1.8.86-2.05c.22-.24.49-.3.65-.3l.47.01c.15 0 .35-.06.55.42l.75 1.82c.06.13.1.28.02.45-.32.64-.66.62-.49.9.62 1.07 1.24 1.45 2.18 1.93.16.08.26.07.36-.04l.52-.6c.11-.14.27-.12.45-.06l1.7.8c.26.12.43.18.5.28.06.1.06.6-.16 1.24z"/></svg></span>
+              <span>WhatsApp</span>
+            </button>
+            <button class="reach-btn" aria-label="Write email">
+              <span class="logo mail"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></span>
+              <span>Email</span>
+            </button>
+            <button class="reach-btn off" aria-label="Phone unavailable" disabled>
+              <span class="logo tel"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span>
+              <span>Phone</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Emails list with the fix -->
+        <div class="card-hd" style="border-top:1px solid var(--line)">
+          <b>All sent emails</b><span class="spacer"></span><span class="tag new">Nothing missed</span>
+        </div>
+        <div>
+          <div class="em">
+            <div class="em-ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></div>
+            <div class="em-main">
+              <div class="em-to">conner.cotting@stripe.com</div>
+              <div class="em-sub">Platform Engineer — quick intro + tailored CV</div>
+              <div class="em-meta">Today, 14:32 · <span class="chip">Master CV.pdf</span></div>
+            </div>
+          </div>
+          <div class="em">
+            <div class="em-ico direct"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg></div>
+            <div class="em-main">
+              <div class="em-to">hiring@acme-corp.com <span class="direct-tag">Direct</span></div>
+              <div class="em-sub">Senior DevOps — application follow-up</div>
+              <div class="em-meta">Today, 13:05 · sent without a saved contact · logged automatically</div>
+            </div>
+          </div>
+          <div class="em">
+            <div class="em-ico direct"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg></div>
+            <div class="em-main">
+              <div class="em-to">recruiter@unknown.io <span class="direct-tag">Direct</span></div>
+              <div class="em-sub">Following up on the SRE opening</div>
+              <div class="em-meta">Yesterday, 18:41 · sent without a saved contact · logged automatically</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="note">
+        <span>📥</span>
+        <div><b>The missed-emails fix:</b> every send — including direct emails to addresses that aren't detected contacts — is written to one email log. "Direct" entries keep the recipient, subject and time so nothing disappears from the list.</div>
+      </div>
+    </div>
+  </div>
+
+  <p class="foot-note">Mockup only — tokens/typography mirror the Recruiters screen (brand #2563EB, slate palette, 12px cards).</p>
+</div>
+</body>
+</html>

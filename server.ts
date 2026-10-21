@@ -101,6 +101,8 @@ import {
   getContactById,
   recordContactEmail,
   recordContactEmailDetail,
+  recordSentEmail,
+  listSentEmails,
   listContactCompanies,
   listContactsForJob,
   setContactHidden,
@@ -2115,6 +2117,11 @@ Return valid JSON only — NO markdown, NO code fences:
     }
   });
 
+  // Global sent-email log: contact-linked AND direct sends, newest first.
+  app.get('/api/emails', (_req, res) => {
+    res.json({ emails: listSentEmails(200) });
+  });
+
   app.get('/api/contacts/:id/emails', (req, res) => {
     try {
       res.json({ emails: listContactEmails(req.params.id) });
@@ -2386,23 +2393,22 @@ Return valid JSON only, no markdown:
         }
       }
 
-      if (contactId) {
-        recordContactEmail(contactId, 'sent', info.messageId);
-        recordContactEmailDetail(contactId, {
-          recipient: to, subject, body,
-          attachmentName: attachMaster ? 'Master CV' : (attachment?.filename || null),
-          status: 'sent',
-        });
-      }
+      // EVERY send is logged — contact-linked OR direct (no contactId).
+      // Direct sends auto-link when the recipient matches a saved contact.
+      if (contactId) recordContactEmail(contactId, 'sent', info.messageId);
+      recordSentEmail({
+        contactId: contactId || null, recipient: to, subject, body,
+        attachmentName: attachMaster ? 'Master CV' : (attachment?.filename || null),
+        status: 'sent', messageId: info.messageId,
+      });
       res.json({ success: true, messageId: info.messageId });
     } catch (err: any) {
-      if (req.body?.contactId) {
-        recordContactEmail(req.body.contactId, 'failed');
-        recordContactEmailDetail(req.body.contactId, {
-          recipient: req.body.to,
-          subject: req.body.subject,
-          body: req.body.body,
-          status: 'failed',
+      if (req.body?.contactId) recordContactEmail(req.body.contactId, 'failed');
+      if (String(req.body?.to || '').includes('@')) {
+        recordSentEmail({
+          contactId: req.body?.contactId || null,
+          recipient: String(req.body.to), subject: String(req.body?.subject || ''),
+          body: String(req.body?.body || ''), status: 'failed',
         });
       }
       const msg = String(err?.message || 'Failed to send email.');

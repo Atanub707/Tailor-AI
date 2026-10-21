@@ -507,6 +507,7 @@ export function getDb(): Database.Database {
   ensureEmailColumns(db);
   ensureRecruitersFeatureColumns(db);
   ensureContactEmailsTable(db);
+  ensureSentEmailsTable(db);
   ensureCandidateProfileTable(db);
   ensurePostsDailyTable(db);
   ensureContactIndexes(db);
@@ -561,6 +562,30 @@ function ensureContactEmailsTable(db: Database.Database): void {
       sent_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_contact_emails_contact ON contact_emails(contact_id);
+  `);
+}
+
+function ensureSentEmailsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sent_emails (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      contact_id TEXT,
+      recipient TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      body TEXT NOT NULL,
+      attachment_name TEXT,
+      status TEXT NOT NULL,
+      message_id TEXT,
+      sent_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_sent_emails_user ON sent_emails(user_id, sent_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_sent_emails_contact ON sent_emails(contact_id);
+  `);
+  // One-time backfill from the legacy per-contact log (idempotent by id).
+  db.exec(`
+    INSERT OR IGNORE INTO sent_emails (id, user_id, contact_id, recipient, subject, body, attachment_name, status, sent_at)
+    SELECT id, user_id, contact_id, recipient, subject, body, attachment_name, status, sent_at FROM contact_emails;
   `);
 }
 
@@ -1425,24 +1450,67 @@ export function setContactPipeline(id: string, status: string | null): boolean {
   return getDb().prepare('UPDATE hr_contacts SET pipeline_status = ? WHERE id = ? AND user_id = ?').run(v, id, userId).changes > 0;
 }
 
-export function recordContactEmailDetail(contactId: string, detail: { recipient: string; subject: string; body: string; attachmentName?: string | null; status: 'sent' | 'failed' }): void {
+export interface SentEmailRecord extends ContactEmail {
+  contactId: string | null;
+  messageId?: string | null;
+  contactName?: string | null;
+  company?: string | null;
+}
+
+/** Record EVERY send — with or without a saved contact. Recipients that match
+ *  a known contact email are auto-linked, so direct sends still appear in that
+ *  contact's history; unlinked sends stay visible as 'Direct' entries. */
+export function recordSentEmail(detail: { contactId?: string | null; recipient: string; subject: string; body: string; attachmentName?: string | null; status: 'sent' | 'failed'; messageId?: string | null }): void {
   const userId = getCurrentUserId();
-  if (!userId || !contactId) return;
+  if (!userId || !detail.recipient) return;
+  let contactId = detail.contactId || null;
+  if (!contactId) {
+    const hit = getDb().prepare(
+      "SELECT id FROM hr_contacts WHERE user_id = ? AND hidden = 0 AND lower(email) = lower(?) LIMIT 1"
+    ).get(userId, detail.recipient) as { id: string } | undefined;
+    contactId = hit?.id || null;
+  }
   getDb().prepare(
-    `INSERT INTO contact_emails (id, user_id, contact_id, recipient, subject, body, attachment_name, status, sent_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(crypto.randomUUID(), userId, contactId, detail.recipient, detail.subject, detail.body, detail.attachmentName || null, detail.status, new Date().toISOString());
+    `INSERT INTO sent_emails (id, user_id, contact_id, recipient, subject, body, attachment_name, status, message_id, sent_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(crypto.randomUUID(), userId, contactId, detail.recipient, detail.subject, detail.body, detail.attachmentName || null, detail.status, detail.messageId || null, new Date().toISOString());
+}
+
+/** Back-compat wrapper used by the send route. */
+export function recordContactEmailDetail(contactId: string, detail: { recipient: string; subject: string; body: string; attachmentName?: string | null; status: 'sent' | 'failed' }): void {
+  recordSentEmail({ contactId, ...detail });
 }
 
 export function listContactEmails(contactId: string): ContactEmail[] {
   const userId = getCurrentUserId();
   if (!userId || !contactId) return [];
   const rows = getDb().prepare(
-    'SELECT * FROM contact_emails WHERE user_id = ? AND contact_id = ? ORDER BY sent_at DESC'
+    'SELECT * FROM sent_emails WHERE user_id = ? AND contact_id = ? ORDER BY sent_at DESC'
   ).all(userId, contactId) as any[];
   return rows.map((r) => ({
     id: r.id, recipient: r.recipient, subject: r.subject, body: r.body,
     attachmentName: r.attachment_name || null, status: r.status, sentAt: r.sent_at,
+  }));
+}
+
+/** Global sent log (Direct sends included), newest first. */
+export function listSentEmails(limit = 200): SentEmailRecord[] {
+  const userId = getCurrentUserId();
+  if (!userId) return [];
+  const rows = getDb().prepare(
+    `SELECT s.*, c.name AS contact_name, c.recruiter_name AS contact_recruiter_name, c.company AS contact_company
+     FROM sent_emails s
+     LEFT JOIN hr_contacts c ON c.id = s.contact_id
+     WHERE s.user_id = ?
+     ORDER BY s.sent_at DESC
+     LIMIT ?`
+  ).all(userId, Math.max(1, Math.min(1000, limit))) as any[];
+  return rows.map((r) => ({
+    id: r.id, recipient: r.recipient, subject: r.subject, body: r.body,
+    attachmentName: r.attachment_name || null, status: r.status, sentAt: r.sent_at,
+    contactId: r.contact_id || null, messageId: r.message_id || null,
+    contactName: r.contact_name || r.contact_recruiter_name || null,
+    company: r.contact_company || null,
   }));
 }
 

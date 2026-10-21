@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { HamburgerTrigger } from '../navigation';
-import { X, Search, CheckCircle2, Copy, Trash2, Mail, ExternalLink, Linkedin, Loader2, Sparkles, Send, FileText, Upload, PencilLine, Clock, BadgeCheck, Plus, AlertTriangle, MessageCircle, UserPlus } from 'lucide-react';
+import { X, Search, CheckCircle2, Copy, Trash2, Mail, ExternalLink, Linkedin, Loader2, Sparkles, Send, FileText, Upload, PencilLine, Clock, BadgeCheck, Plus, AlertTriangle, MessageCircle, UserPlus, Phone, Inbox } from 'lucide-react';
 import { filterByType, sortContacts, typeCounts, TYPE_LABELS } from '../lib/recruiters/filterUtils';
 import { followupDue, followupDaysLeft } from '../lib/recruiters/followupUtils';
 import { waLink, getWaMessage, setWaMessage, DEFAULT_WA_MESSAGE } from '../lib/recruiters/whatsapp';
@@ -106,6 +106,10 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [emailHistory, setEmailHistory] = useState<Record<string, SentEmail[]>>({});
+  // Global sent log — includes direct sends with no saved contact.
+  const [sentOpen, setSentOpen] = useState(false);
+  const [sentLoading, setSentLoading] = useState(false);
+  const [sentEmails, setSentEmails] = useState<Array<{ id: string; contactId?: string | null; recipient: string; subject: string; attachmentName?: string | null; status: string; sentAt: string; contactName?: string | null }>>([]);
   const [verifyMap, setVerifyMap] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -163,6 +167,17 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
     loadMasterCvName();
   };
 
+  const loadSentEmails = useCallback(async () => {
+    setSentLoading(true);
+    try {
+      const res = await fetch('/api/emails');
+      const d = await res.json();
+      setSentEmails(d.emails || []);
+    } catch { /* ignore */ } finally { setSentLoading(false); }
+  }, []);
+
+  const openSent = () => { setSentOpen(true); loadSentEmails(); };
+
   const loadHistory = useCallback(async (c: Contact) => {
     try {
       const res = await fetch(`/api/contacts/${c.id}/emails`);
@@ -214,6 +229,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
       const data = await res.json();
       if (!res.ok) { setComposeMsg({ ok: false, text: data.error || 'Send failed.' }); return; }
       setComposeMsg({ ok: true, text: 'Sent ✓' });
+      if (sentOpen) loadSentEmails();
       // Update the row status immediately.
       if (composeContact) {
         setContacts((prev) => prev.map((x) => x.id === composeContact.id
@@ -489,6 +505,9 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
             <span><b>{stats.sent}</b> contacted</span>
           </div>
         )}
+        <button className="rc-btn" onClick={openSent} title="Every email you've sent — direct sends included">
+          <Inbox size={13} /> Sent emails
+        </button>
         <button className="rc-btn" onClick={openManualCompose} title="Compose a fresh email to any address — no contact needed">
           <Mail size={13} /> New email
         </button>
@@ -532,7 +551,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
             </div>
 
             <div className="rc-listhead">
-              <span>Name</span><span>Company</span><span>Email</span><span>Phone</span><span>Outreach</span>
+              <span>Name</span><span>Company</span><span>Reach</span><span>Outreach</span>
             </div>
 
             <div className="rc-rows" ref={rowsRef}>
@@ -570,26 +589,43 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
                         </div>
                       </div>
                       <div className="rc-co">{c.company}</div>
-                      <div
-                        className="rc-mail"
-                        title={c.email ? 'Copy email' : undefined}
-                        onClick={(e) => { e.stopPropagation(); if (c.email) copyValue(c.email); }}
-                      >
-                        {c.email || <span className="rc-dash">—</span>}
-                      </div>
-                      <div className="rc-phone" title={c.phone ? 'Open WhatsApp chat (message pre-filled)' : undefined}>
-                        {c.phone ? (
-                          <a
-                            href={waLink(c.phone, waMessage)}
-                            target="_blank"
-                            rel="noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {c.phone}
-                          </a>
-                        ) : (
-                          <span className="rc-dash">—</span>
-                        )}
+                      <div className="rc-reach" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          className={`rc-ib in ${c.recruiterUrl ? '' : 'off'}`}
+                          title={c.recruiterUrl ? 'Open LinkedIn profile' : 'No LinkedIn profile on file'}
+                          aria-label="Open LinkedIn profile"
+                          disabled={!c.recruiterUrl}
+                          onClick={() => c.recruiterUrl && window.open(c.recruiterUrl, '_blank', 'noopener')}
+                        >
+                          <Linkedin size={13} />
+                        </button>
+                        <button
+                          className={`rc-ib wa ${c.phone ? '' : 'off'}`}
+                          title={c.phone ? 'WhatsApp chat (message pre-filled)' : 'No phone on file'}
+                          aria-label="Open WhatsApp chat"
+                          disabled={!c.phone}
+                          onClick={() => c.phone && window.open(waLink(c.phone, waMessage), '_blank', 'noopener')}
+                        >
+                          <MessageCircle size={13} />
+                        </button>
+                        <button
+                          className={`rc-ib mail ${c.email ? '' : 'off'}`}
+                          title={c.email ? `Copy email — ${c.email}` : 'No email on file'}
+                          aria-label="Copy email address"
+                          disabled={!c.email}
+                          onClick={() => c.email && copyValue(c.email)}
+                        >
+                          <Mail size={13} />
+                        </button>
+                        <button
+                          className={`rc-ib tel ${c.phone ? '' : 'off'}`}
+                          title={c.phone ? `Call ${c.phone}` : 'No phone on file'}
+                          aria-label="Call contact"
+                          disabled={!c.phone}
+                          onClick={() => { if (c.phone) window.location.href = `tel:${c.phone.replace(/[^\d+]/g, '')}`; }}
+                        >
+                          <Phone size={13} />
+                        </button>
                       </div>
                       <div>{outreachBadge(c)}</div>
                     </div>
@@ -681,42 +717,39 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
                   </button>
                 </div>
 
+                <div className="rc-reachrow">
+                  {selected.recruiterUrl ? (
+                    <a className="rc-rbtn" href={selected.recruiterUrl} target="_blank" rel="noreferrer" aria-label="Open LinkedIn profile">
+                      <span className="ico in"><Linkedin size={15} /></span> LinkedIn
+                    </a>
+                  ) : (
+                    <button className="rc-rbtn off" disabled aria-label="No LinkedIn profile"><span className="ico in"><Linkedin size={15} /></span> LinkedIn</button>
+                  )}
+                  {selected.phone ? (
+                    <a className="rc-rbtn" href={waLink(selected.phone, waMessage)} target="_blank" rel="noreferrer" aria-label="Open WhatsApp chat">
+                      <span className="ico wa"><MessageCircle size={15} /></span> WhatsApp
+                    </a>
+                  ) : (
+                    <button className="rc-rbtn off" disabled aria-label="No phone on file"><span className="ico wa"><MessageCircle size={15} /></span> WhatsApp</button>
+                  )}
+                  {selected.email ? (
+                    <button className="rc-rbtn" onClick={() => copyValue(selected.email!)} aria-label="Copy email address" title={selected.email}>
+                      <span className="ico mail"><Mail size={15} /></span> Email
+                    </button>
+                  ) : (
+                    <button className="rc-rbtn off" disabled aria-label="No email on file"><span className="ico mail"><Mail size={15} /></span> Email</button>
+                  )}
+                  {selected.phone ? (
+                    <a className="rc-rbtn" href={`tel:${selected.phone.replace(/[^\d+]/g, '')}`} aria-label="Call contact">
+                      <span className="ico tel"><Phone size={15} /></span> Phone
+                    </a>
+                  ) : (
+                    <button className="rc-rbtn off" disabled aria-label="No phone on file"><span className="ico tel"><Phone size={15} /></span> Phone</button>
+                  )}
+                </div>
+
                 <div className="rc-sect">Details</div>
                 <div className="rc-props">
-                  <div className="rc-prop">
-                    <div className="rc-k">Email</div>
-                    <div className="rc-v">
-                      {selected.email ? (
-                        <>
-                          <span className="rc-mono">{selected.email}</span>
-                          <button className="rc-copy" title="Copy" onClick={() => copyValue(selected.email!)}><Copy size={12} /></button>
-                        </>
-                      ) : <span className="rc-none">—</span>}
-                    </div>
-                  </div>
-                  <div className="rc-prop">
-                    <div className="rc-k">Phone</div>
-                    <div className="rc-v">
-                      {selected.phone ? (
-                        <>
-                          <a className="rc-mono" href={waLink(selected.phone, waMessage)} target="_blank" rel="noreferrer" title="Open WhatsApp chat (message pre-filled)">
-                            {selected.phone}
-                          </a>
-                          <button className="rc-copy" title="Copy" onClick={() => copyValue(selected.phone!)}><Copy size={12} /></button>
-                        </>
-                      ) : <span className="rc-none">—</span>}
-                    </div>
-                  </div>
-                  <div className="rc-prop">
-                    <div className="rc-k">LinkedIn</div>
-                    <div className="rc-v">
-                      {selected.recruiterUrl ? (
-                        <a href={selected.recruiterUrl} target="_blank" rel="noreferrer">
-                          <Linkedin size={12} /> {selected.recruiterUrl.replace(/^https?:\/\/(www\.)?/, '')}
-                        </a>
-                      ) : <span className="rc-none">—</span>}
-                    </div>
-                  </div>
                   <div className="rc-prop"><div className="rc-k">Company</div><div className="rc-v">{selected.company}</div></div>
                   <div className="rc-prop"><div className="rc-k">Designation</div><div className="rc-v">{designationOf(selected)}</div></div>
                   <div className="rc-prop">
@@ -885,6 +918,49 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
             </div>
           </aside>
           )}
+
+          {/* Global sent-email log — direct sends included */}
+          <div className={`rc-drawer ${sentOpen ? 'open' : ''}`} aria-hidden={!sentOpen}>
+            <div className="rc-drawer-head">
+              <h3>All sent emails</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className="rc-sentcount">{sentEmails.length}</span>
+                <button className="rc-drawer-x" onClick={() => setSentOpen(false)} aria-label="Close sent emails">
+                  <X size={15} />
+                </button>
+              </div>
+            </div>
+            <div className="rc-drawer-body">
+              {sentLoading ? (
+                <p className="rc-loading">Loading emails…</p>
+              ) : sentEmails.length === 0 ? (
+                <p className="rc-loading">No emails sent yet.</p>
+              ) : (
+                <div className="rc-sentlist">
+                  {sentEmails.map((e) => (
+                    <div key={e.id} className="rc-sentrow">
+                      <div className={`rc-sentico ${e.contactId ? '' : 'direct'}`}>
+                        {e.contactId ? <Mail size={13} /> : <Send size={13} />}
+                      </div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div className="rc-sentto">
+                          {e.recipient}
+                          {!e.contactId && <span className="rc-directtag">Direct</span>}
+                          {e.status === 'failed' && <span className="rc-directtag fail">Failed</span>}
+                        </div>
+                        <div className="rc-sentsubj">{e.subject || '(no subject)'}</div>
+                        <div className="rc-sentmeta">
+                          {fmtDay(e.sentAt)}
+                          {e.attachmentName ? ` · ${e.attachmentName}` : ''}
+                          {e.contactId ? (e.contactName ? ` · ${e.contactName}` : '') : ' · not linked to a contact'}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -931,13 +1007,50 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
         .rc-select:focus { border-color: var(--rc-brand); }
         /* list */
         .rc-list { min-width: 0; display: flex; flex-direction: column; }
-        .rc-listhead { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, .9fr) 108px; gap: 12px; padding: 9px 16px 9px 18px; border-bottom: 1px solid var(--rc-line); font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--rc-faint); }
+        .rc-listhead { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) 168px 104px; gap: 12px; padding: 9px 16px 9px 18px; border-bottom: 1px solid var(--rc-line); font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--rc-faint); }
         .rc-rows { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 8px; }
         .rc-loading { padding: 26px 18px; color: var(--rc-faint); font-size: 13px; }
-        .rc-row { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, .9fr) 108px; gap: 12px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--rc-line); cursor: pointer; position: relative; }
+        .rc-row { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) 168px 104px; gap: 12px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--rc-line); cursor: pointer; position: relative; }
         .rc-row:hover { background: #F8FAFC; }
         .rc-row.sel { background: var(--rc-brand-soft); }
         .rc-row.sel::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--rc-brand); }
+
+        /* ── icon-first reach (LinkedIn / WhatsApp / Email / Phone) ── */
+        .rc-reach { display: flex; align-items: center; gap: 6px; }
+        .rc-ib { width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--rc-line); background: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; color: var(--rc-muted); padding: 0; transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
+        .rc-ib:hover { transform: translateY(-1px); box-shadow: 0 2px 6px rgba(15, 23, 42, .10); border-color: #CBD5E1; }
+        .rc-ib:focus-visible { outline: 2px solid var(--rc-brand); outline-offset: 2px; }
+        .rc-ib.in { background: #0A66C2; border-color: #0A66C2; color: #fff; }
+        .rc-ib.wa { background: #25D366; border-color: #25D366; color: #fff; }
+        .rc-ib.mail { color: var(--rc-brand); }
+        .rc-ib.tel { color: #0F766E; }
+        .rc-ib.off { opacity: .34; cursor: default; filter: grayscale(1); }
+        .rc-ib.off:hover { transform: none; box-shadow: none; border-color: var(--rc-line); }
+
+        .rc-reachrow { display: flex; gap: 8px; margin: 12px 0 2px; }
+        .rc-rbtn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 6px; border-radius: 10px; border: 1px solid var(--rc-line); background: #fff; cursor: pointer; color: var(--rc-muted); text-decoration: none; font-family: inherit; font-size: 10.5px; font-weight: 650; transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
+        .rc-rbtn:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(15, 23, 42, .07); border-color: #CBD5E1; }
+        .rc-rbtn:focus-visible { outline: 2px solid var(--rc-brand); outline-offset: 2px; }
+        .rc-rbtn .ico { width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+        .rc-rbtn .ico.in { background: #0A66C2; color: #fff; }
+        .rc-rbtn .ico.wa { background: #25D366; color: #fff; }
+        .rc-rbtn .ico.mail { background: var(--rc-brand-soft); color: var(--rc-brand); }
+        .rc-rbtn .ico.tel { background: #ECFDF5; color: #0F766E; }
+        .rc-rbtn.off { opacity: .4; cursor: default; }
+        .rc-rbtn.off:hover { border-color: var(--rc-line); box-shadow: none; transform: none; }
+
+        /* ── global sent-email log ── */
+        .rc-sentcount { font-size: 11px; font-weight: 700; color: var(--rc-faint); background: var(--rc-canvas); border: 1px solid var(--rc-line); border-radius: 999px; padding: 2px 8px; }
+        .rc-sentlist { display: flex; flex-direction: column; }
+        .rc-sentrow { display: flex; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--rc-line); }
+        .rc-sentrow:last-child { border-bottom: 0; }
+        .rc-sentico { width: 30px; height: 30px; border-radius: 8px; background: var(--rc-brand-soft); color: var(--rc-brand); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .rc-sentico.direct { background: #FFF7ED; color: #C2410C; }
+        .rc-sentto { font-size: 12.5px; font-weight: 700; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .rc-directtag { font-size: 9px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: #C2410C; background: #FFEDD5; border-radius: 999px; padding: 2px 6px; }
+        .rc-directtag.fail { color: #B91C1C; background: #FEE2E2; }
+        .rc-sentsubj { font-size: 11.5px; color: var(--rc-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .rc-sentmeta { font-size: 10.5px; color: var(--rc-faint); margin-top: 3px; }
         .rc-row.focus { box-shadow: inset 0 0 0 1px var(--rc-brand); }
         .rc-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
         .rc-ava { width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; letter-spacing: .02em; background: var(--rc-brand-soft); color: var(--rc-brand-strong); }
