@@ -29,6 +29,7 @@ import { isWithinPostedWindow, applyRelevanceGuard } from '../storage/v2Tables.j
 const APIFY_SCRAPERS: Partial<Record<JobSource, () => ApifyBaseScraper>> = {
   LinkedIn: () => new ApifyLinkedInScraper(),
   RemoteJobs: () => new RemoteJobsAggregatorScraper(),
+  Reed: () => new ReedScraper(),
   Indeed: () => new IndeedScraper(),
   Naukri: () => new NaukriScraper(),
   Glassdoor: () => new GlassdoorScraper(),
