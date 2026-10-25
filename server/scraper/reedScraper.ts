@@ -1,105 +1,127 @@
-import { BaseScraper } from './baseScraper.js';
 import { Job, ScraperParams } from '../../src/types.js';
+import { ApifyBaseScraper, cleanDescription, normalizeIsoDate, parseSalary } from './apifyBase.js';
+import { composeJobTypeTag } from './workMode.js';
 
-export class ReedScraper extends BaseScraper {
+// Reed.co.uk via Apify actor `fetch_cat/reed-co-uk-jobs-scraper`
+// ($0.005/run + $0.05 per 1K listings). Replaces the old HTML scrape: the
+// actor returns structured salary, work-mode, contract, sector, employer and
+// (with includeDetails) the full posting description — the surface tailoring
+// consumes. Dates are filtered server-side by Reed itself.
+
+const DATE_FILTER: Record<string, string> = {
+  '24h': 'today',
+  '7d': 'last7days',
+  '30d': 'last30days',
+};
+
+const CONTRACT_MAP: Record<string, string> = {
+  'Full-time': 'fullTime',
+  'Part-time': 'partTime',
+  Contract: 'contract',
+  Temporary: 'temporary',
+};
+
+const REMOTE_INPUT: Record<string, string> = {
+  remote: 'remote',
+  hybrid: 'hybrid',
+  onsite: 'onSite',
+};
+
+export class ReedScraper extends ApifyBaseScraper {
   readonly source = 'Reed' as const;
+  readonly actorId = 'fetch_cat~reed-co-uk-jobs-scraper';
 
-  async scrape(params: ScraperParams): Promise<Job[]> {
-    const keywords = params.keywords.trim();
-    const location = params.location?.trim() || '';
-    const limit = params.maxJobsPerSource || 10;
-    const filter = params.datePostedFilter || 'all';
+  protected buildInput(params: ScraperParams): Record<string, any> {
+    const input: Record<string, any> = {
+      queries: [params.keywords.trim()].filter(Boolean),
+      maxItems: Math.min(Math.max(params.maxJobsPerSource || 10, 1), 200),
+      // Full description text/HTML is what Tailor + Score consume.
+      includeDetails: true,
+      postedBy: 'any',
+      maxRunSeconds: 240,
+      proxyConfiguration: { useApifyProxy: false },
+    };
 
-    const jobs: Job[] = [];
-    const seenIds = new Set<string>();
-
-    let maxAgeMs = Number.MAX_SAFE_INTEGER;
-    let dateParam = '';
-    if (filter === '24h') { maxAgeMs = 24 * 60 * 60 * 1000; dateParam = '&dateCreatedOffSet=today'; }
-    else if (filter === '7d') { maxAgeMs = 7 * 24 * 60 * 60 * 1000; dateParam = '&dateCreatedOffSet=lastSevenDays'; }
-    else if (filter === '30d') { maxAgeMs = 30 * 24 * 60 * 60 * 1000; dateParam = '&dateCreatedOffSet=lastThirtyDays'; }
-
-    try {
-      const url = `https://www.reed.co.uk/jobs/${encodeURIComponent(keywords.toLowerCase().replace(/\s+/g, '-'))}-jobs?q=${encodeURIComponent(keywords)}${dateParam}${location ? `&location=${encodeURIComponent(location)}` : ''}`;
-      const res = await fetch(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
-        signal: AbortSignal.timeout(15000),
-      });
-      if (!res.ok) { console.warn(`Reed returned ${res.status}`); return jobs; }
-
-      const html = await res.text();
-      const nd = html.match(/<script id=\"__NEXT_DATA__\"[^>]*>([^<]+)<\/script>/);
-      if (!nd) { console.warn('Reed: no __NEXT_DATA__'); return jobs; }
-
-      const data = JSON.parse(nd[1]);
-      const rawJobs = data?.props?.pageProps?.searchResults?.jobs || [];
-
-      for (const item of rawJobs) {
-        if (jobs.length >= limit) break;
-        const detail = item.jobDetail || item;
-        const jobId = detail.jobId;
-        if (!jobId || seenIds.has(jobId)) continue;
-        seenIds.add(jobId);
-
-        const dateStr = detail.displayDate || detail.dateCreated;
-        const postedDate = dateStr ? new Date(dateStr) : new Date();
-        if (postedDate.getTime() < Date.now() - maxAgeMs) continue;
-
-        const jobType = [detail.isFullTime ? 'Full-time' : '', detail.isPartTime ? 'Part-time' : '', detail.remoteWorkingOption].filter(Boolean).join(' · ') || 'Full-time';
-
-        // Build URL from job title
-        const slug = detail.jobTitle?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'job';
-        const jobUrl = `https://www.reed.co.uk/jobs/${slug}/${jobId}`;
-
-        jobs.push({
-          id: `reed-${jobId}`,
-          title: detail.jobTitle || 'Unknown Position',
-          company: detail.ouName || detail.employerName || 'Unknown Company',
-          location: detail.displayLocationName || location || 'Remote',
-          source: 'Reed',
-          description: detail.jobDescriptionSnippet || '',
-          url: jobUrl,
-          postedDate: postedDate.toISOString(),
-          postedDateParsed: postedDate.toISOString().split('T')[0],
-          salaryText: detail.salaryFrom || detail.salaryTo
-            ? `${detail.salaryCurrencyId === 1 ? '£' : '$'}${Number(detail.salaryFrom || 0).toLocaleString()} - ${detail.salaryCurrencyId === 1 ? '£' : '$'}${Number(detail.salaryTo || 0).toLocaleString()}`
-            : detail.salaryDescription || undefined,
-          jobType,
-          state: 'pending',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-      }
-
-      console.log(`Reed: ${jobs.length} jobs`);
-
-      // Fetch descriptions from detail pages
-      for (let i = 0; i < jobs.length; i++) {
-        await this.delay(1000 + Math.random() * 2000);
-        try {
-          const detailRes = await fetch(jobs[i].url, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
-            signal: AbortSignal.timeout(10000),
-          });
-          if (!detailRes.ok) continue;
-          const dh = await detailRes.text();
-          const ld = dh.match(/<script[^>]*type="application\/ld\+json"[^>]*>([^<]+)<\/script>/);
-          if (ld) {
-            try {
-              const parsed = JSON.parse(ld[1]);
-              const p = parsed['@type'] === 'JobPosting' ? parsed : null;
-              if (p?.description) {
-                jobs[i].description = p.description.replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n').trim();
-              }
-              if (p?.hiringOrganization?.name) jobs[i].company = p.hiringOrganization.name;
-            } catch {}
-          }
-        } catch {}
-        console.log(`  [Reed detail ${i + 1}/${jobs.length}] ${jobs[i].title}`);
-      }
-    } catch (err: any) {
-      console.warn('Reed error:', err?.message);
+    const location = (params.location || '').trim();
+    if (location && !/^(remote|anywhere|worldwide|open to remote)$/i.test(location)) {
+      input.location = location;
+      input.radius = 10;
     }
-    return jobs;
+
+    const datePosted = DATE_FILTER[String(params.datePostedFilter || 'all')];
+    if (datePosted) input.datePosted = datePosted;
+
+    const contract = CONTRACT_MAP[String(params.contractType || '')];
+    if (contract) input.jobType = contract;
+
+    const remote = REMOTE_INPUT[String(params.jobType || '')];
+    if (remote) input.remoteOption = remote;
+
+    return input;
+  }
+
+  protected mapItem(item: any): Job | null {
+    const title = String(item?.title || '').trim();
+    const url = String(item?.jobUrl || '').trim();
+    const externalId = String(item?.reedJobId || '').trim() || url;
+    if (!title || !url) return null;
+
+    // Work-mode truth: Reed exposes it explicitly — never text-classify.
+    const remoteRaw = String(item?.remoteWorkingOption || '').toLowerCase();
+    const workMode = /remote/.test(remoteRaw)
+      ? 'Remote'
+      : /hybrid/.test(remoteRaw)
+        ? 'Hybrid'
+        : /on.?site|office/.test(remoteRaw)
+          ? 'On-site'
+          : undefined;
+
+    const description =
+      cleanDescription(item?.descriptionText) ||
+      cleanDescription(item?.descriptionHtml) ||
+      cleanDescription(item?.descriptionSnippet);
+
+    const salaryText = String(item?.salary || '').trim() || undefined;
+    const parsedSalary = parseSalary(salaryText);
+    const rawMin = Number(item?.salaryMinimum);
+    const rawMax = Number(item?.salaryMaximum);
+    const salaryMin = Number.isFinite(rawMin) ? rawMin : parsedSalary.min;
+    const salaryMax = Number.isFinite(rawMax) ? rawMax : parsedSalary.max;
+
+    const postedDate = normalizeIsoDate(item?.postedAt || item?.updatedAt);
+    const employment = String(item?.jobType || item?.contractType || '').trim() || undefined;
+    const applyUrl = String(item?.externalApplyUrl || url).trim();
+    const now = new Date().toISOString();
+
+    return {
+      id: `reed-${externalId}`,
+      externalId,
+      title,
+      company: String(item?.companyName || 'Unknown Company').trim(),
+      companyId: String(item?.employerId || item?.companyName || '').trim(),
+      location: String(item?.location || '').trim() || 'UK',
+      description: description || 'Description not available',
+      url,
+      applyUrl,
+      source: 'Reed',
+      jobUrl: url,
+      jobType: composeJobTypeTag(employment, workMode, workMode === 'Remote'),
+      remote: workMode === 'Remote' ? true : undefined,
+      workMode,
+      postedDate: postedDate || undefined,
+      postedDateParsed: postedDate ? postedDate.split('T')[0] : undefined,
+      salaryText,
+      salaryMin,
+      salaryMax,
+      provider: 'apify',
+      fingerprint: `reed-${externalId}`,
+      scrapedAt: now,
+      createdAt: now,
+      updatedAt: now,
+      firstSeenAt: now,
+      lastSeenAt: now,
+      isActive: true,
+      state: 'pending',
+    } as unknown as Job;
   }
 }

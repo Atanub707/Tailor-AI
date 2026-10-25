@@ -42,7 +42,7 @@ export const SOURCES: Record<JobSource, SourceMeta> = {
   Arbeitnow: { id: 'Arbeitnow', label: 'Arbeitnow', flag: '🌍', country: 'Europe', region: 'eu' },
   SimplyHired: { id: 'SimplyHired', label: 'SimplyHired', flag: '🇺🇸', country: 'USA', region: 'us' },
   Dice: { id: 'Dice', label: 'Dice', flag: '🇺🇸', country: 'USA', region: 'us' },
-  Reed: { id: 'Reed', label: 'Reed', flag: '🇬🇧', country: 'UK', region: 'uk' },
+  Reed: { id: 'Reed', label: 'Reed', flag: '🇬🇧', country: 'UK', region: 'uk', apifyActorId: 'fetch_cat~reed-co-uk-jobs-scraper', needsApify: true, pricePer1K: '$0.05' },
   RemoteOK: { id: 'RemoteOK', label: 'RemoteOK', flag: '🌍', country: 'Global remote', region: 'global' },
   RemoteJobs: { id: 'RemoteJobs', label: 'RemoteJobs', flag: '🏝️', country: 'Global remote', region: 'global', apifyActorId: 'memo23~remote-jobs-aggregator', needsApify: true, pricePer1K: '$1.99' },
   // Boards delivered via the RemoteJobs aggregator actor — real sources on
