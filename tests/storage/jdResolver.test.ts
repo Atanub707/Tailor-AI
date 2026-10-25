@@ -46,6 +46,19 @@ function mockFetch(status: number, body: unknown) {
   };
 }
 
+function mockHtml(status: number, html: string) {
+  (globalThis as any).fetch = async () => {
+    fetchCount++;
+    return {
+      status,
+      ok: status >= 200 && status < 300,
+      headers: { get: () => 'text/html; charset=utf-8' },
+      text: async () => html,
+      json: async () => ({}),
+    };
+  };
+}
+
 describe('JD resolver', () => {
   beforeAll(() => {
     ensureV2Tables();
@@ -143,9 +156,35 @@ describe('JD resolver', () => {
     await expect(ensureJobDescription(baseJob({ fingerprint: 'gh-malformed' }))).rejects.toThrow(JDResolutionError);
   });
 
-  it('non-Greenhouse job without a JD is surfaced honestly, never fabricated', async () => {
+  it('non-Greenhouse job without a readable posting is surfaced honestly, never fabricated', async () => {
+    mockHtml(404, '<html><body>Not found</body></html>');
     const job = baseJob({ id: 'lev-1', fingerprint: 'lev-1', externalId: 'lev-1', source: 'Lever', atsPlatform: 'lever', url: 'https://jobs.lever.co/x/1', applyUrl: 'https://jobs.lever.co/x/1' });
-    await expect(ensureJobDescription(job)).rejects.toThrow(/doesn't include a usable description/);
+    await expect(ensureJobDescription(job)).rejects.toThrow(/Couldn't read this job's description/);
+  });
+
+  it('DIRECT FALLBACK: an aggregator row with no description resolves from its public posting page', async () => {
+    const job = baseJob({
+      id: 'arb-1', fingerprint: 'arb-1', externalId: 'arb-1', source: 'Arbeitnow', atsPlatform: undefined,
+      url: 'https://www.arbeitnow.co.uk/jobs/companies/acme/devops-engineer-1',
+      applyUrl: 'https://www.arbeitnow.co.uk/jobs/companies/acme/devops-engineer-1',
+      description: '',
+    });
+    runWithUser(USER, () => { saveNewJobs([job]); });
+    mockHtml(200, `<html><head><title>Job</title>
+      <script type="application/ld+json">{"@context":"https://schema.org","@type":"JobPosting","title":"DevOps Engineer","description":"<p>Responsibilities: deploy Kubernetes clusters, manage Terraform modules, run CI/CD pipelines, and own observability with Prometheus and Grafana across production environments.</p><ul><li>On-call rotation</li></ul>"}</script></head><body>
+      <nav>Popular Locations Categories About</nav>
+      <header>Site header</header>
+      <main><h1>DevOps Engineer</h1><p>Widget copy that is NOT the posting.</p></main>
+      <footer>Imprint Privacy</footer></body></html>`);
+    const out = await runWithUser(USER, () => ensureJobDescription(job));
+    expect(fetchCount).toBe(1);
+    expect(out.description).toMatch(/deploy Kubernetes clusters/i);
+    expect(out.description).not.toMatch(/Popular Locations/); // page chrome stripped
+    expect(out.description).not.toMatch(/Widget copy/); // JSON-LD posting wins over page widgets
+    expect(out.description).not.toMatch(/Imprint Privacy/);
+    // Persisted on the user's job record so Tailor/Score reuse it.
+    const stored = getDb().prepare('SELECT data FROM jobs WHERE id = ?').get('arb-1') as { data: string } | undefined;
+    expect(JSON.parse(stored!.data).description).toMatch(/Terraform modules/i);
   });
 
   it('meaningful-JD threshold is conservative', () => {

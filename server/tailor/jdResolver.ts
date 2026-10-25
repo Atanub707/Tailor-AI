@@ -42,7 +42,13 @@ export function sanitizeDescription(html: string): string {
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
     .replace(/<!--[\s\S]*?-->/g, ' ');
-  const text = stripHtml(withoutActive);
+  // Strip page chrome so a full-page fetch yields the posting, not the nav.
+  const withoutChrome = withoutActive
+    .replace(/<nav[\s\S]*?<\/nav>/gi, ' ')
+    .replace(/<header[\s\S]*?<\/header>/gi, ' ')
+    .replace(/<footer[\s\S]*?<\/footer>/gi, ' ')
+    .replace(/<aside[\s\S]*?<\/aside>/gi, ' ');
+  const text = stripHtml(withoutChrome);
   // Restore list structure: bullet markers for li/ul lists are already newline
   // separated by stripHtml; re-collapse runs of blank lines.
   return text.replace(/\n{3,}/g, '\n\n').trim();
@@ -109,22 +115,74 @@ async function fetchGreenhouseJd(slug: string, externalId: string): Promise<stri
   return sanitizeDescription(data.content);
 }
 
+/** Many boards embed schema.org JobPosting JSON-LD — its `description` is the
+ *  CLEAN posting HTML (no nav/footer chrome, no duplicated widgets). */
+function extractJobPostingLd(rawHtml: string): string | null {
+  const blocks = [...rawHtml.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
+  for (const m of blocks) {
+    try {
+      const parsed = JSON.parse(String(m[1] || '').trim());
+      const nodes = Array.isArray(parsed) ? parsed : (parsed && parsed['@graph'] ? parsed['@graph'] : [parsed]);
+      for (const node of nodes) {
+        if (!node || typeof node !== 'object') continue;
+        const type = (node as any)['@type'];
+        const isJobPosting = type === 'JobPosting' || (Array.isArray(type) && type.includes('JobPosting'));
+        if (!isJobPosting) continue;
+        const desc = (node as any).description;
+        if (typeof desc === 'string' && desc.trim()) {
+          const text = sanitizeDescription(desc);
+          if (isMeaningfulDescription(text)) return text;
+        }
+      }
+    } catch { /* malformed JSON-LD block — try the next one */ }
+  }
+  return null;
+}
+
+/** Fetch the public posting page itself. Aggregator/remote boards (RemoteJobs
+ *  rows: Arbeitnow, RemoteOK, Remotive, Himalayas, Jobicy…) frequently ship
+ *  list payloads WITHOUT descriptions, while their posting pages are public
+ *  and fully readable. Best-effort: null when the page can't provide a real JD. */
+async function fetchDirectJd(job: Job): Promise<string | null> {
+  const url = String((job as any).jobUrl || job.url || job.applyUrl || '');
+  if (!/^https?:\/\//i.test(url)) return null;
+  let res: Response;
+  try {
+    res = await timeoutFetch(url, 20000);
+  } catch {
+    return null;
+  }
+  if (!res.ok) return null;
+  const contentType = String(res.headers?.get?.('content-type') || '');
+  if (contentType && !/html|text/i.test(contentType)) return null;
+  let raw = '';
+  try {
+    raw = await res.text();
+  } catch {
+    return null;
+  }
+  if (!raw || raw.length > 3_000_000) return null;
+  const text = extractJobPostingLd(raw) || sanitizeDescription(raw);
+  return isMeaningfulDescription(text) ? text : null;
+}
+
 /**
  * Ensure a job carries a meaningful full JD. Returns the (possibly
  * description-enriched) job; throws JDResolutionError when the JD cannot be
  * resolved — callers must NOT proceed to the LLM in that case.
  */
-export async function ensureJobDescription(job: Job): Promise<Job> {
-  if (isMeaningfulDescription(job.description)) return job;
+export async function ensureJobDescription(job: Job, opts: { force?: boolean } = {}): Promise<Job> {
+  if (!opts.force && isMeaningfulDescription(job.description)) return job;
 
   const isGreenhouse = String(job.source || job.atsPlatform || '').toLowerCase() === 'greenhouse';
   if (!isGreenhouse) {
-    // Other providers (e.g. Lever) supply descriptions in their list payloads;
-    // if one is genuinely missing, surface honestly rather than fabricating.
-    if (!isMeaningfulDescription(job.description)) {
-      throw new JDResolutionError("This job posting doesn't include a usable description from the employer, so an application can't be prepared against it. Open the posting via View to review it, or apply for the role manually.");
+    // Aggregator/remote-board rows + any other provider: read the public
+    // posting page. If that fails too, surface honestly (never fabricate).
+    const direct = await fetchDirectJd(job);
+    if (direct) {
+      return updateJobInStorage({ ...job, description: direct } as Job);
     }
-    return job;
+    throw new JDResolutionError("Couldn't read this job's description from the posting page (it may require a login or render via JavaScript). Open the posting via View to review it, or apply for the role manually.");
   }
 
   const identity = greenhouseIdentity(job);

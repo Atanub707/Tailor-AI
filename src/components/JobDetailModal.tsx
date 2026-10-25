@@ -206,6 +206,33 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   const [activeTab, setActiveTab] = useState<'details' | 'gap' | 'tailored'>(initialTab || 'details');
   const [tailorMode, setTailorMode] = useState<'strict' | 'enhanced'>(job?.tailorMode ?? 'enhanced');
 
+  // Some sources (RemoteJobs boards) arrive without a description in their
+  // feed payload. Resolve it from the public posting page the first time the
+  // user opens the job — the server persists it for Tailor/Score too.
+  const [resolvedDescription, setResolvedDescription] = useState<{ id: string; text: string } | null>(null);
+  const [resolvingJd, setResolvingJd] = useState(false);
+  useEffect(() => {
+    if (!job) return;
+    const current = (job.description || '').trim();
+    if (current.length >= 80 || !(job.url || job.applyUrl || job.jobUrl)) return;
+    let cancelled = false;
+    setResolvingJd(true);
+    fetch(`/api/jobs/${encodeURIComponent(job.id)}/resolve-description`, { method: 'POST' })
+      .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => null) }))
+      .then(({ ok, data }) => {
+        if (!cancelled && ok && data?.job?.description) {
+          setResolvedDescription({ id: job.id, text: String(data.job.description) });
+        }
+      })
+      .catch(() => { /* tab keeps the honest empty state */ })
+      .finally(() => { if (!cancelled) setResolvingJd(false); });
+    return () => { cancelled = true; };
+  }, [job?.id]);
+
+  const effectiveDescription = job
+    ? (resolvedDescription && resolvedDescription.id === job.id ? resolvedDescription.text : (job.description || ''))
+    : '';
+
   const handleTailorModeChange = (mode: 'strict' | 'enhanced') => {
     setTailorMode(mode);
     onTailorModeChange?.(mode);
@@ -524,7 +551,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      const text = job.description;
+                      const text = effectiveDescription;
                       if (navigator.clipboard?.writeText) {
                         navigator.clipboard.writeText(text);
                       } else {
@@ -545,9 +572,15 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                     Copy
                   </button>
                 </div>
-                <div className="whitespace-pre-wrap font-sans space-y-2">
-                  {job.description.replace(/^[ \t]*Show more[ \t]*$/gim, '').replace(/^[ \t]*Show less[ \t]*$/gim, '').trim()}
-                </div>
+                {effectiveDescription.trim() ? (
+                  <div className="whitespace-pre-wrap font-sans space-y-2">
+                    {effectiveDescription.replace(/^[ \t]*Show more[ \t]*$/gim, '').replace(/^[ \t]*Show less[ \t]*$/gim, '').trim()}
+                  </div>
+                ) : (
+                  <p className="text-[11.5px] italic text-[var(--color-faint)]">
+                    {resolvingJd ? 'Resolving the description from the posting page…' : 'No description available for this posting.'}
+                  </p>
+                )}
 
                 {jobEmails.length > 0 && (
                   <div className="mt-4 border border-[var(--color-cta-line)] bg-[var(--color-cta-soft)]/60 rounded-xl p-3">

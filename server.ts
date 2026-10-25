@@ -3394,6 +3394,28 @@ const sanitizeAttemptDryRun = (a: any) => ({
   });
 
   // Tailor CV for Single Job
+  // Lazy JD resolution for the detail view: aggregator rows (RemoteJobs
+  // boards) often arrive without descriptions — read the posting page once
+  // and persist it on the user's job record.
+  app.post('/api/jobs/:id/resolve-description', async (req, res) => {
+    try {
+      const job = getJobById(req.params.id);
+      if (!job) {
+        res.status(404).json({ error: 'Job not found.' });
+        return;
+      }
+      const { ensureJobDescription } = await import('./server/tailor/jdResolver.js');
+      const full = await ensureJobDescription(job, { force: !!req.body?.force });
+      res.json({ success: true, job: full });
+    } catch (err: any) {
+      if (err?.name === 'JDResolutionError') {
+        res.status(422).json({ error: err.message });
+        return;
+      }
+      res.status(500).json({ error: err?.message || 'Could not resolve the job description.' });
+    }
+  });
+
   app.post('/api/jobs/:id/tailor', async (req, res) => {
     if (!hasApiKeyConfigured()) {
       res.status(428).json({ error: 'No API token configured — add your API key in Settings. This process will not run.', code: 'no_api_key' });
