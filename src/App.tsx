@@ -283,10 +283,13 @@ export default function App() {
         // result count — NEVER addedCount (addedCount = newly persisted only).
         setActiveStateTab('all');
         setPage(1);
-        // Scope the library to the source that was searched — "search
-        // Workable" must never leave other sources mixed into the list.
+        // Scope the library to the source that was searched — but ONLY when
+        // that search produced results. An empty search must never make the
+        // whole job library look deleted (owner hit exactly this: searching
+        // Personio showed "No postings" while 336 jobs existed).
         const searchedSource = params.sources?.[0];
-        if (searchedSource) setSourceFilter(searchedSource);
+        const gotResults = Number(data.scrapedTotal || data.returnedCount || 0) > 0 || Number(data.addedCount || 0) > 0;
+        if (searchedSource && gotResults) setSourceFilter(searchedSource);
         await fetchJobs();
         // Notification badge: new recruiters found in this scrape's
         // descriptions (accumulates until the Recruiters screen is opened).

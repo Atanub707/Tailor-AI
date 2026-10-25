@@ -634,10 +634,23 @@ export const JobMatrix: React.FC<JobMatrixProps> = ({
       {paginatedJobs.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-[14px] border border-dashed border-[var(--color-hairline2)]">
           <Briefcase className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-          <p className="text-xs font-semibold text-slate-700">No postings match your filter</p>
-          <p className="text-[11px] text-slate-400 mt-1 max-w-sm mx-auto">
-            Use the scraper above to search for live job listings.
+          <p className="text-xs font-semibold text-slate-700">
+            {sourceFilter !== 'all' ? `No ${sourceFilter} jobs yet` : 'No postings match your filter'}
           </p>
+          <p className="text-[11px] text-slate-400 mt-1 max-w-sm mx-auto">
+            {sourceFilter !== 'all'
+              ? 'Your other jobs are still here — clear the source filter to see them.'
+              : 'Use the scraper above to search for live job listings.'}
+          </p>
+          {sourceFilter !== 'all' && (
+            <button
+              type="button"
+              onClick={() => setSourceFilter('all')}
+              className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11.5px] font-bold bg-[var(--color-brand)] text-white hover:bg-[var(--color-brand-strong)] transition-colors cursor-pointer"
+            >
+              Show all jobs
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-3">
