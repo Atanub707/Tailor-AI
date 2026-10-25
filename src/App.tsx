@@ -283,6 +283,10 @@ export default function App() {
         // result count — NEVER addedCount (addedCount = newly persisted only).
         setActiveStateTab('all');
         setPage(1);
+        // Scope the library to the source that was searched — "search
+        // Workable" must never leave other sources mixed into the list.
+        const searchedSource = params.sources?.[0];
+        if (searchedSource) setSourceFilter(searchedSource);
         await fetchJobs();
         // Notification badge: new recruiters found in this scrape's
         // descriptions (accumulates until the Recruiters screen is opened).

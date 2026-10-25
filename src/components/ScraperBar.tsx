@@ -24,14 +24,14 @@ interface ScraperBarProps {
   apifyAvailable?: boolean; // Apify enabled + token saved — lights up Apify-only sources
 }
 
-// The FINAL production source list — only sources that can actually return
-// jobs today. 5 Apify job boards + 10 free scrapers + 3 direct-API ATS.
-// The 14 other ATS (Workable, Workday, BambooHR, …) are NOT shown: they have
-// no working implementation and would mislead users.
+// The FINAL production source list — every chip below returns real jobs:
+// job boards + free scrapers + direct-API ATS (G/L/A/SmartRecruiters) +
+// career-site ATS sources (paid actor, isolated per platform).
 const VISIBLE_SOURCES: JobSource[] = [
   'LinkedIn', 'Indeed', 'Naukri', 'Glassdoor', 'Upwork',
   'Arbeitnow', 'RemoteJobs', 'SimplyHired', 'Dice', 'Reed', 'MyCareersFuture', 'Cutshort', 'Gupy', 'JobsCh', 'Daijob', 'MyJobMag',
-  'Greenhouse', 'Lever', 'Ashby',
+  'Greenhouse', 'Lever', 'Ashby', 'SmartRecruiters',
+  'Workable', 'BambooHR', 'Personio', 'Recruitee', 'Teamtailor', 'JazzHR', 'Pinpoint',
 ];
 const COMING_SOON: JobSource[] = [];
 

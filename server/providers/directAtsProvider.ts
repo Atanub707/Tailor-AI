@@ -34,7 +34,12 @@ const PRIORITY_BY_PLATFORM: Record<string, string[]> = {
   greenhouse: ['stripe', 'airbnb', 'datadog', 'reddit', 'dropbox', 'coinbase', 'instacart', 'roblox', 'duolingo', 'gitlab', 'mongodb', 'twilio', 'webflow', 'vercel', 'databricks', 'chime', 'gusto', 'brex', 'nubank', 'asana', 'okta'],
   lever: ['palantir', 'kraken'],
   ashby: ['openai', 'notion', 'perplexity', 'linear', 'reddit'],
-  smartrecruiters: ['amazon', 'airbnb', 'dropbox', 'palantir', 'perplexity'],
+  // Verified live (free probes, 2026-10): the SR API is company-ID based and
+  // most guessed IDs return 0 — BoschGroup is a real 5k-job board.
+  smartrecruiters: ['BoschGroup'],
+  // Verified live Workable boards with active DevOps/infra roles (of 160
+  // sampled, ~5% had any — random slices alone often return zero).
+  workable: ['2070health', '1global', 'ajaib', 'activate-interactive-pte-ltd', 'advansys-esc-1', 'aerones', 'agileactors', 'abtrace'],
 };
 
 function pickBoards(platform: string, cap: number): { companyName: string; slug: string }[] {
@@ -50,18 +55,41 @@ function pickBoards(platform: string, cap: number): { companyName: string; slug:
     ? (db.prepare(`SELECT companyName, careerUrl FROM company_career_sites WHERE isActive = 1 AND ${where} AND (${priorities.map(() => `careerUrl LIKE ?`).join(' OR ')}) ORDER BY rowid LIMIT 3`).all(...args, ...priorities) as { companyName: string; careerUrl: string }[])
     : [];
   const tailRows = db.prepare(`SELECT companyName, careerUrl FROM company_career_sites WHERE isActive = 1 AND ${where} ORDER BY rowid`).all(...args) as { companyName: string; careerUrl: string }[];
-  const tail = tailRows.filter((r) => !priorities.some((p) => r.careerUrl.toLowerCase().includes(p.slice(1, -1))));
+  const tail = tailRows.filter((r) => !priorities.some((p) => r.careerUrl.toLowerCase().includes(p.slice(1, -1).toLowerCase())));
   const tailCap = Math.max(cap - prioRows.length, 1);
   // Advance ~1 board per 15s of wall clock — each search lands on a fresh
   // slice; wraps so every board is eventually reached.
   const offset = Math.floor(Date.now() / 15000) % Math.max(tail.length, tailCap);
   const slice = [...tail.slice(offset), ...tail.slice(0, offset)].slice(0, tailCap);
+  const seenBoards = new Set<string>();
   return [...prioRows, ...slice]
+    .filter((r) => { const k = (r.careerUrl || '').toLowerCase(); if (seenBoards.has(k)) return false; seenBoards.add(k); return true; })
     .map((r) => {
       const m = (r.careerUrl || '').match(SLUG_RE[platform]);
       return m ? { companyName: r.companyName, slug: m[1] } : null;
     })
     .filter((x): x is { companyName: string; slug: string } => !!x);
+}
+
+/** Board URLs for a platform (priority boards + rotating tail) — the input
+ *  for the career-site ATS actor. Same rotation as pickBoards so repeated
+ *  searches explore new companies instead of re-reading the same jobs. */
+export function pickBoardUrls(platform: string, cap: number): { companyName: string; careerUrl: string }[] {
+  ensureV2Tables();
+  const db = getDb();
+  const priorities = (PRIORITY_BY_PLATFORM[platform] || []).map((s) => `%/${s}%` as const);
+  const where = `LOWER(atsPlatform) = ?`;
+  const prioRows = priorities.length
+    ? (db.prepare(`SELECT companyName, careerUrl FROM company_career_sites WHERE isActive = 1 AND ${where} AND (${priorities.map(() => `careerUrl LIKE ?`).join(' OR ')}) ORDER BY rowid LIMIT 8`).all(platform, ...priorities) as { companyName: string; careerUrl: string }[])
+    : [];
+  const tailRows = db.prepare(`SELECT companyName, careerUrl FROM company_career_sites WHERE isActive = 1 AND ${where} ORDER BY rowid`).all(platform) as { companyName: string; careerUrl: string }[];
+  const tail = tailRows.filter((r) => !priorities.some((p) => r.careerUrl.toLowerCase().includes(p.slice(1, -1).toLowerCase())));
+  const tailCap = Math.max(cap - prioRows.length, 1);
+  const offset = Math.floor(Date.now() / 15000) % Math.max(tail.length, tailCap);
+  const slice = [...tail.slice(offset), ...tail.slice(0, offset)].slice(0, tailCap);
+  const seenBoards = new Set<string>();
+  return [...prioRows, ...slice]
+    .filter((r) => { const k = (r.careerUrl || '').toLowerCase(); if (!/^https?:\/\//i.test(k) || seenBoards.has(k)) return false; seenBoards.add(k); return true; });
 }
 
 // Test seam: override the network fetcher (fixtures/mocks, never live calls).
@@ -81,8 +109,14 @@ async function fetchJson(url: string, timeoutMs = 15000): Promise<any> {
 
 // Single source of truth for board API URLs — shared by the interactive
 // search path (scrapeDirectAts) and the board-level watcher fetch.
-function boardUrl(platform: string, slug: string): string {
+function boardUrl(platform: string, slug: string, query?: string): string {
   const base = API_BASE[platform];
+  if (platform === 'smartrecruiters') {
+    // SR's API supports server-side keyword search (`q`) — without it we'd
+    // fetch the first N postings of a 5k-job board and never see the role.
+    const q = query && query.trim() ? `?limit=50&q=${encodeURIComponent(query.trim())}` : '?limit=50';
+    return `${base}/${encodeURIComponent(slug)}/postings${q}`;
+  }
   return `${base}/${encodeURIComponent(slug)}${platform === 'lever' ? '?mode=json' : ''}${platform === 'greenhouse' ? '/jobs' : ''}`;
 }
 
@@ -240,10 +274,25 @@ function ashbyJob(j: any, companyName: string, platform: string): Job | null {
   } as unknown as Job;
 }
 
-function srJob(j: any, companyName: string, platform: string): Job | null {
-  const url = j.externalUrl || j.internalUrl;
-  if (!j.name || !url) return null;
-  const sections = (j.jobAd?.sections || []).map((s: any) => s.content || '').filter(Boolean).join('\n\n');
+function srSectionsText(jobAd: any): string {
+  const secs = jobAd?.sections;
+  if (Array.isArray(secs)) return secs.map((s: any) => s?.text || s?.content || '').filter(Boolean).join('\n\n');
+  if (secs && typeof secs === 'object') {
+    return Object.values(secs)
+      .map((v: any) => (typeof v === 'string' ? v : v?.text || v?.content || ''))
+      .filter(Boolean)
+      .join('\n\n');
+  }
+  return '';
+}
+
+function srJob(j: any, companyName: string, platform: string, slug?: string): Job | null {
+  if (!j.name) return null;
+  // List rows carry no public URL — construct the canonical posting URL.
+  const url = j.postingUrl || j.externalUrl || j.internalUrl
+    || (slug && j.id ? `https://jobs.smartrecruiters.com/${encodeURIComponent(slug)}/${encodeURIComponent(String(j.id))}` : '');
+  if (!url) return null;
+  const sections = srSectionsText(j.jobAd);
   const location = [j.location?.city, j.location?.country].filter(Boolean).join(', ') || j.location?.city;
   // SmartRecruiters: releasedDate (ms epoch) is the posting date.
   const d = normalizeDates(j.releasedDate ?? j.publicationDate, j.publicationDate, undefined);
@@ -310,18 +359,52 @@ export async function scrapeDirectAts(
 
   const base = API_BASE[platform];
   if (!base) return [];
-  const norm = (fn: (j: any, c: string, p: string) => Job | null) => async (b: { companyName: string; slug: string }) => {
+  const norm = (fn: (j: any, c: string, p: string, slug?: string) => Job | null) => async (b: { companyName: string; slug: string }) => {
     try {
-      const url = boardUrl(platform, b.slug);
+      const srQuery = keywords.find((t) => t.length > 2) || keywords.join(' ');
+      const url = boardUrl(platform, b.slug, platform === 'smartrecruiters' ? srQuery : undefined);
       const data = await fetchJson(url);
       const raw = platform === 'smartrecruiters' ? data.content : platform === 'ashby' ? data.jobs : data.jobs || data;
       if (!Array.isArray(raw)) return [];
       // Budget: keep at most 50 per board, newest-first.
       const jobs = raw
-        .map((j: any) => fn(j, b.companyName, platform))
+        .map((j: any) => fn(j, b.companyName, platform, b.slug))
         .filter((j: Job | null): j is Job => !!j)
         .sort((a: Job, c: Job) => new Date(c.postedDate || 0).getTime() - new Date(a.postedDate || 0).getTime())
         .slice(0, Math.max(cap, 15));
+      // SmartRecruiters list rows are snippet-free — open the detail endpoint
+      // for the jobs we'd keep (≤ cap) to get the full description + apply URL.
+      if (platform === 'smartrecruiters') {
+        const kept = jobs.slice(0, cap);
+        await Promise.all(kept.map(async (job) => {
+          try {
+            const detailUrl = `${base}/${encodeURIComponent(b.slug)}/postings/${encodeURIComponent(String(job.externalId))}`;
+            const detail = await fetchJson(detailUrl);
+            const text = srSectionsText(detail?.jobAd);
+            if (text) job.description = stripHtml(text);
+            if (detail?.applyUrl) job.applyUrl = detail.applyUrl;
+            if (detail?.postingUrl) {
+              job.url = detail.postingUrl;
+              (job as any).jobUrl = detail.postingUrl;
+            }
+          } catch { /* keep the list row */ }
+        }));
+        // SR's `q` is fuzzy (OR-ish): keep only rows whose title/company/
+        // description mentions a query term — is same evidence the actor path
+        // relies on.
+        const terms = keywords.filter((t) => t.length > 2).map((t) => t.toLowerCase());
+        if (terms.length) {
+          const relevant = jobs.filter((job) => {
+            const hay = `${job.title} ${job.company || ''} ${job.description || ''}`.toLowerCase();
+            return terms.some((t) => hay.includes(t));
+          });
+          if (relevant.length !== jobs.length) {
+            console.log(`[DirectATS] SmartRecruiters ${b.slug}: ${jobs.length - relevant.length} off-query rows dropped`);
+          }
+          jobs.length = 0;
+          jobs.push(...relevant);
+        }
+      }
       console.log(`[DirectATS] ${source} ${b.slug}: ${jobs.length} jobs`);
       return jobs;
     } catch (err: any) {

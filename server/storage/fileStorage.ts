@@ -974,7 +974,11 @@ export function saveNewJobs(newJobs: Job[]): { added: Job[]; skipped: number; ne
           });
           if (existing) {
             const parsed = JSON.parse(existing.data) as Job;
-            if (job.source && parsed.source !== job.source) {
+            // Only upgrade a PLACEHOLDER source (legacy 'Custom' rows). Two
+            // real sources must never relabel the same job — that made a job
+            // flip between source filters after a duplicate search.
+            const placeholder = !parsed.source || parsed.source === 'Custom';
+            if (job.source && placeholder) {
               updateJobInStorage({ ...parsed, source: job.source, atsPlatform: (job as any).atsPlatform || (parsed as any).atsPlatform } as Job);
             }
           }

@@ -48,19 +48,28 @@ describe('single-source + source isolation', () => {
     }
   });
 
-  it('locked ATS sources absent from UI list', () => {
+  it('only functional ATS sources are selectable (locked ones stay hidden)', () => {
     const src = fs.readFileSync('src/components/ScraperBar.tsx', 'utf8');
-    // VISIBLE_SOURCES is the single source of truth — extract it and assert
-    // none of the non-functional ATS are selectable.
+    // VISIBLE_SOURCES is the single source of truth; locked platforms with
+    // no working route must never be selectable.
     const m = src.match(/const VISIBLE_SOURCES: JobSource\[\] = \[([^\]]+)\]/);
     expect(m).toBeTruthy();
     const visible = (m?.[1] || '').split(',').map((s) => s.trim().replace(/'/g, ''));
-    for (const hidden of ['Workable', 'Workday', 'BambooHR', 'JazzHR', 'iCIMS', 'Personio', 'Rippling', 'Teamtailor', 'Recruitee', 'Pinpoint', 'Jobvite', 'SmartRecruiters', 'Comeet', 'Join']) {
+    for (const hidden of ['Workday', 'iCIMS', 'Rippling', 'Jobvite', 'Comeet', 'Join']) {
       expect(visible).not.toContain(hidden);
     }
-    expect(visible).toContain('Greenhouse');
-    expect(visible).toContain('Lever');
-    expect(visible).toContain('Ashby');
+    // Free direct APIs + the career-site ATS wave are selectable.
+    for (const shown of ['Greenhouse', 'Lever', 'Ashby', 'SmartRecruiters', 'Workable', 'BambooHR', 'Personio', 'Recruitee', 'Teamtailor', 'JazzHR', 'Pinpoint']) {
+      expect(visible).toContain(shown);
+    }
+    // Greenhouse/Lever/Ashby/SmartRecruiters must never be paid sources.
+    const sourcesSrc = fs.readFileSync('src/constants/sources.ts', 'utf8');
+    for (const free of ['Greenhouse', 'Lever', 'Ashby', 'SmartRecruiters']) {
+      const row = sourcesSrc.split('\n').find((l) => l.trim().startsWith(`${free}:`));
+      expect(row, free).toBeTruthy();
+      expect(row).not.toContain('apifyActorId');
+      expect(row).not.toContain('pricePer1K');
+    }
   });
 
   it('V1 search still works (queryJobs + saveNewJobs roundtrip)', async () => {

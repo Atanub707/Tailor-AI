@@ -10,6 +10,7 @@ import { ArbeitnowScraper } from './arbeitnowScraper.js';
 import { SimplyHiredScraper } from './simplyHiredScraper.js';
 import { DiceScraper } from './diceScraper.js';
 import { ReedScraper } from './reedScraper.js';
+import { CareerSiteAtsScraper, CAREER_ATS_SPECS } from './careerSiteAtsScraper.js';
 import { RemoteOkScraper } from './remoteOkScraper.js';
 import { WeWorkRemotelyScraper } from './weWorkRemotelyScraper.js';
 import { MyCareersFutureScraper } from './myCareersFutureScraper.js';
@@ -34,6 +35,8 @@ const APIFY_SCRAPERS: Partial<Record<JobSource, () => ApifyBaseScraper>> = {
   Naukri: () => new NaukriScraper(),
   Glassdoor: () => new GlassdoorScraper(),
   Upwork: () => new UpworkScraper(),
+  // Career-site ATS sources — one paid actor, isolated per platform.
+  ...Object.fromEntries(CAREER_ATS_SPECS.map((s) => [s.source, () => new CareerSiteAtsScraper(s.source)])),
 };
 
 // ATS sources (Greenhouse, Lever, Ashby, Workable, …). The three with FREE
@@ -65,6 +68,7 @@ const FREE_API_SOURCES: Partial<Record<JobSource, string>> = {
   Greenhouse: 'greenhouse',
   Lever: 'lever',
   Ashby: 'ashby',
+  SmartRecruiters: 'smartrecruiters',
 };
 
 async function scrapeAtsDirect(source: JobSource, params: ScraperParams): Promise<Job[]> {
@@ -127,7 +131,8 @@ export class ScraperFactory {
         ScraperFactory.lastSkippedSources.push({ source, reason: 'paid/enterprise-only API — locked until free access is available' });
         continue;
       }
-      const isApifySource = !!meta?.apifyActorId;
+      const isDirectAts = !!FREE_API_SOURCES[source];
+      const isApifySource = !!meta?.apifyActorId || isDirectAts;
       // robots.txt only governs sources WE crawl directly. Apify-powered
       // sources run on Apify's infrastructure — their actors do the crawling
       // — so the guard must never skip them (LinkedIn was wrongly skipped
@@ -142,10 +147,10 @@ export class ScraperFactory {
       try {
         let jobs: Job[] = [];
 
-        // ATS sources: free-API boards route through the direct provider (no Apify
-        // needed — Greenhouse/Lever/Ashby public APIs). Unsupported ATS are
-        // not wired in V1.
-        if (ATS_PLATFORM_BY_SOURCE[source]) {
+        // ATS sources: free-API boards route through the direct provider (no
+        // Apify needed — Greenhouse/Lever/Ashby/SmartRecruiters public APIs).
+        // Apify-backed sources (incl. the career-site ATS actor) run next.
+        if (FREE_API_SOURCES[source]) {
           jobs = await scrapeAtsDirect(source, params);
         } else if (meta?.apifyActorId) {
           // Apify path — generic for all Apify-powered sources.
@@ -251,10 +256,28 @@ export class ScraperFactory {
       // the `if (relevant.length > 0)` guard skipped the filter exactly when a
       // board's fresh slice was entirely irrelevant — leaking Account Exec /
       // Data Engineer / Customer Success jobs into the DB.
-      allJobs = applyRelevanceGuard(allJobs, query);
+      //
+      // UPSTREAM-FILTERED SOURCES ARE EXEMPT: the career-site ATS actor and
+      // SmartRecruiters apply the keyword server-side across title/skills/
+      // DESCRIPTION (e.g. a "Backend Engineer" whose body names DevOps). A
+      // title-only re-check would throw away every one of those matches.
+      const PRECHECKED = new Set<JobSource>([
+        ...CAREER_ATS_SPECS.map((s) => s.source),
+        'SmartRecruiters',
+      ]);
+      const keep = new Set(applyRelevanceGuard(allJobs.filter((j) => !PRECHECKED.has(j.source)), query));
+      allJobs = allJobs.filter((j) => PRECHECKED.has(j.source) || keep.has(j));
       if (allJobs.length !== before) {
         console.log(`[ScraperFactory] Relevance guard: ${before - allJobs.length} jobs dropped (score 0 for "${query}")`);
       }
+    }
+
+    // Hard per-source cap — promised by the UI's "Limit" control. Providers
+    // may over-return internally (direct ATS samples several boards).
+    const cap = Math.max(1, Number(params.maxJobsPerSource) || 15);
+    if (allJobs.length > cap) {
+      console.log(`[ScraperFactory] Cap: keeping ${cap} of ${allJobs.length} jobs (per-source limit)`);
+      allJobs = allJobs.slice(0, cap);
     }
 
     return allJobs;
