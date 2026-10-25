@@ -121,6 +121,9 @@ export const ScraperBar: React.FC<ScraperBarProps> = ({ onScrape, isLoading, api
         return `${r.source}: ${short}`;
       };
       setScrapeSuccessMsg(`Searched — skipped: ${result.skippedSources.map(fmt).join(' · ')}`);
+    } else if (datePostedFilter === '24h') {
+      const srcList = selectedSources.join(' + ');
+      setScrapeSuccessMsg(`Searched ${srcList} — no jobs posted in the last 24 hours. Try POSTED → “Last 7 days” for a wider result set.`);
     } else {
       const srcList = selectedSources.join(' + ');
       setScrapeSuccessMsg(`Searched ${srcList} — No results found in the selected window. Try different keywords, a wider posted window, or search again later.`);

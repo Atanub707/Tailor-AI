@@ -111,7 +111,7 @@ describe('Career-site ATS sources (memo23/career-site-ats-jobs-api)', () => {
     expect(lastBody.includeDescription).toBe(true);
     expect(lastBody.keywords).toBe('devops');
     expect(lastBody.location).toBe('London');
-    expect(lastBody.remoteOnly).toBe(true);
+    expect(lastBody.remoteOnly).toBeUndefined(); // local work-mode truth decides
     expect(lastBody.employmentType).toBe('contract');
     expect(typeof lastBody.postedAfter).toBe('string');
   });

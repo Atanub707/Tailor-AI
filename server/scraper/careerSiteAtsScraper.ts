@@ -56,7 +56,7 @@ export class CareerSiteAtsScraper extends ApifyBaseScraper {
     // ATS boards are individually small and many are dormant — sample a wide
     // slice (priorities are always included by pickBoardUrls) so a search has
     // real recall. Billing is bounded by maxItemsTotal, not by board count.
-    const boardCount = Math.min(40, Math.max(24, cap * 4));
+    const boardCount = Math.min(80, Math.max(48, cap * 6));
     const boards = pickBoardUrls(this.spec.platform, boardCount);
     if (!boards.length) {
       this.lastError = `No ${this.source} boards are indexed yet — add companies on ${this.source} to the career-site registry to search this source.`;
@@ -102,8 +102,6 @@ export class CareerSiteAtsScraper extends ApifyBaseScraper {
       input.postedAfter = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
     }
 
-    if (params.jobType === 'remote') input.remoteOnly = true;
-
     const employment: Record<string, string> = {
       'Full-time': 'full',
       'Part-time': 'part',
@@ -114,6 +112,10 @@ export class CareerSiteAtsScraper extends ApifyBaseScraper {
     const stem = employment[String(params.contractType || '')];
     if (stem) input.employmentType = stem;
 
+    // NOTE: no actor-side `remoteOnly` — it drops rows whose work mode is
+    // merely UNKNOWN. Work-mode truth is applied locally from explicit
+    // fields (workplaceType/isRemote) and only explicit contradictions are
+    // removed for a Remote search.
     return input;
   }
 
