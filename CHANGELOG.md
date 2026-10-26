@@ -1,5 +1,25 @@
 # Changelog
 
+## v2.14.0 (2026-10-26)
+
+### 🌐 More sources — each one real, each one isolated
+
+- **Reed.co.uk** now runs on the `fetch_cat/reed-co-uk-jobs-scraper` actor ($0.05/1K): structured salary, explicit work mode, posted dates, external apply links and full descriptions (was a brittle HTML scrape).
+- **Seven new ATS sources** via `memo23/career-site-ats-jobs-api` ($2.50/1K + start event): **Workable, BambooHR, Personio, Recruitee, Teamtailor, JazzHR, Pinpoint** — each its own chip with its own real brand icon.
+- **Per-source isolation by construction**: searches are pinned to boards on the selected platform and rows from any other ATS are dropped — "Workable" never returns BambooHR jobs. Greenhouse/Lever/Ashby stay on their free direct APIs.
+- **SmartRecruiters works again** via its free public API: keyword search, constructed posting URLs, detail-enriched descriptions and fuzzy-result filtering.
+- Real bundled source logos (`public/logos/sources`) — no runtime favicon service, no emoji fallbacks.
+- 24h searches on sparse ATS sources now say "no jobs in the last 24h — try Last 7 days" instead of a generic empty message.
+
+### 🧾 Descriptions that actually exist
+
+- **Missing descriptions resolve from the public posting page**: schema.org `JobPosting` JSON-LD first, stripped page text as fallback, persisted on the job. The detail modal auto-resolves on open; Tailor/Score reuse it. (Live proof: the Tether/Arbeitnow row went 0 → 7,605 chars of clean JD.)
+
+### 🗂️ List behavior
+
+- **Searches only append** to the library — new jobs land on top and the Source filter is never changed by a search. An empty search can no longer make the list look wiped; an active source filter now explains itself with a one-click "Show all jobs".
+- Hard per-source cap enforced after filtering; duplicate jobs never flip between real sources.
+
 ## v2.13.0 (2026-10-21)
 
 ### 🧪 Tailoring that actually tailors
