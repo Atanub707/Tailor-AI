@@ -99,7 +99,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
   useEffect(() => {
     setWaMessageState(getWaMessage());
   }, []);
-  const [attachMode, setAttachMode] = useState<'none' | 'master' | 'file'>('none');
+  const [attachMode, setAttachMode] = useState<'none' | 'master' | 'file' | 'cover'>('none');
   const [attachFile, setAttachFile] = useState<{ name: string; data: string } | null>(null);
   const [masterCvName, setMasterCvName] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -209,6 +209,7 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
           body: composeBody,
           attachMaster: attachMode === 'master',
           attachment: attachMode === 'file' && attachFile ? { filename: attachFile.name, data: attachFile.data } : undefined,
+          attachCoverLetterJobId: attachMode === 'cover' ? (composeContact?.sourceJobId || undefined) : undefined,
         }),
       });
       const data = await res.json();
@@ -866,9 +867,25 @@ export const RecruitersScreen: React.FC<RecruitersScreenProps> = ({ isOpen, onCl
                       <Upload size={13} /> From file manager
                     </button>
                     <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.txt,.png,.jpg" style={{ display: 'none' }} onChange={pickAttachmentFile} />
+                    {composeContact?.sourceJobId && (
+                      <button
+                        type="button"
+                        onClick={() => { setAttachMode(attachMode === 'cover' ? 'none' : 'cover'); setAttachFile(null); setComposeMsg(null); }}
+                        className={`rc-btn rc-small ${attachMode === 'cover' ? 'on' : ''}`}
+                        title="Attach this job's verified cover letter"
+                      >
+                        <FileText size={12} /> Cover letter (this job)
+                      </button>
+                    )}
                     {attachMode === 'master' && (
                       <span className="rc-attachchip">
                         <FileText size={12} /> <span className="rc-truncate">{masterCvName || 'Master CV'}</span>
+                        <button type="button" onClick={() => setAttachMode('none')} aria-label="Remove attachment"><X size={12} /></button>
+                      </span>
+                    )}
+                    {attachMode === 'cover' && (
+                      <span className="rc-attachchip">
+                        <FileText size={12} /> <span className="rc-truncate">Cover letter for this job</span>
                         <button type="button" onClick={() => setAttachMode('none')} aria-label="Remove attachment"><X size={12} /></button>
                       </span>
                     )}

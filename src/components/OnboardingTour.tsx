@@ -34,7 +34,7 @@ export function startTour(): void {
         element: 'button[title*="LinkedIn — Global"]',
         popover: {
           title: 'Pick your sources',
-          description: 'Each chip is a job source. Apify-powered sources (LinkedIn, Indeed, Naukri, Glassdoor, Upwork) work with your Apify key; built-in sources are free.',
+          description: 'Each chip is a job source. Apify-powered sources (LinkedIn, Indeed, Naukri, Glassdoor, Upwork, ATS Jobs) work with your Apify key; built-in sources are free.',
           side: 'bottom',
         },
       },

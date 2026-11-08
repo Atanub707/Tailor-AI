@@ -208,3 +208,26 @@ describe('Agent decision core (one layer, pure)', () => {
     expect(d.submit).toBe(false); // act first, then re-observe
   });
 });
+
+describe('Agent decision — cover letter upload', () => {
+  const fileState = () => base({
+    fields: [
+      { ref: 'ta1', kind: 'file', name: 'resume', label: 'Resume/CV', value: '' },
+      { ref: 'ta2', kind: 'file', name: 'cover_letter', label: 'Cover Letter', value: '' },
+    ],
+  });
+
+  it('uploads the frozen verified letter when the package carries one', () => {
+    const d = composeDecision(fileState(), new Map(), { coverLetterAvailable: true });
+    expect(d.actions).toEqual([
+      { action: 'upload_resume', ref: 'ta1' },
+      { action: 'upload_cover_letter', ref: 'ta2' },
+    ]);
+  });
+
+  it('never uploads a cover letter when none is verified for this job', () => {
+    const d = composeDecision(fileState(), new Map(), { coverLetterAvailable: false });
+    expect(d.actions).toEqual([{ action: 'upload_resume', ref: 'ta1' }]);
+    expect(d.notes.join(' ')).toContain('cover letter');
+  });
+});

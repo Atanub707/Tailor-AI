@@ -27,6 +27,9 @@ import {
   Calendar,
   ExternalLink,
   Users,
+  FileText,
+  AlertTriangle,
+  Star,
 } from 'lucide-react';
 
 interface JobMatrixProps {
@@ -39,6 +42,8 @@ interface JobMatrixProps {
   setSearchTerm: (v: string) => void;
   sourceFilter: 'all' | JobSource;
   setSourceFilter: (v: 'all' | JobSource) => void;
+  coverLetterFilter: 'all' | 'has' | 'verified' | 'unverified';
+  setCoverLetterFilter: (v: 'all' | 'has' | 'verified' | 'unverified') => void;
   sortBy: 'createdAt' | 'postedDate' | 'matchScore' | 'salaryMax';
   setSortBy: (v: 'createdAt' | 'postedDate' | 'matchScore' | 'salaryMax') => void;
   page: number;
@@ -48,6 +53,7 @@ interface JobMatrixProps {
   onSelectJob: (job: Job) => void;
   onOpenRecruiter?: (job: Job) => void;
   onSelectTailoredReview: (job: Job) => void;
+  onSelectCoverLetter: (job: Job) => void;
   onMatchJob: (jobId: string) => Promise<void>;
   onTailorJob: (jobId: string) => Promise<void>;
   onDeleteJob: (jobId: string) => Promise<void>;
@@ -88,6 +94,7 @@ const JobCard = React.memo(function JobCard({
   onSelectJob,
   onOpenRecruiter,
   onSelectTailoredReview,
+  onSelectCoverLetter,
   onMatchJob,
   onTailorJob,
   onDeleteJob,
@@ -102,6 +109,7 @@ const JobCard = React.memo(function JobCard({
   onSelectJob: (job: Job) => void;
   onOpenRecruiter?: (job: Job) => void;
   onSelectTailoredReview: (job: Job) => void;
+  onSelectCoverLetter: (job: Job) => void;
   onMatchJob: (jobId: string) => Promise<void>;
   onTailorJob: (jobId: string) => Promise<void>;
   onDeleteJob: (jobId: string) => Promise<void>;
@@ -138,8 +146,9 @@ const JobCard = React.memo(function JobCard({
     void onMatchJob(job.id);
   };
 
-  // Applied — marks the job applied (green toggle). No navigation,
-  // no tracker — it's just a status on the card.
+  // Star — the card's bookmark/applied toggle (one click, no navigation).
+  // It still writes the job's applied state so the Applied tab/filter stays
+  // truthful; the visual is a star, not a second apply button.
   const toggleApplied = async () => {
     await onUpdateStatus(job.id, job.state === 'applied' ? 'pending' : 'applied');
   };
@@ -157,6 +166,22 @@ const JobCard = React.memo(function JobCard({
       {/* Details — click opens Job Details */}
       <div className="space-y-1.5 flex-1 min-w-0">
         <div className="flex flex-wrap items-center gap-2 text-xs">
+          {/* Star = bookmark/applied mark — the only applied toggle on the card */}
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); void toggleApplied(); }}
+            title={job.state === 'applied' ? 'Remove bookmark' : 'Bookmark this job'}
+            aria-label={job.state === 'applied' ? `Remove bookmark for ${job.title}` : `Bookmark ${job.title}`}
+            aria-pressed={job.state === 'applied'}
+            className={`inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md border transition-all cursor-pointer ${
+              job.state === 'applied'
+                ? 'bg-emerald-50 text-emerald-600 border-emerald-300 shadow-xs'
+                : 'bg-white text-slate-300 border-slate-200 hover:text-amber-500 hover:border-amber-300 hover:bg-amber-50'
+            }`}
+          >
+            <Star className="w-3.5 h-3.5" fill={job.state === 'applied' ? 'currentColor' : 'none'} strokeWidth={2.2} />
+          </button>
+
           {/* Source tag (external link) */}
           <a
             href={getValidJobUrl(job)}
@@ -199,6 +224,23 @@ const JobCard = React.memo(function JobCard({
               <Users className="w-3 h-3 text-slate-400" />
               <span>{applicantCountLabel(job)}</span>
             </span>
+          )}
+          {job.coverLetter?.text && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onSelectCoverLetter(job); }}
+              title={job.coverLetter.verified
+                ? 'Cover letter ready — open it'
+                : 'Cover letter needs review — open it'}
+              className={`inline-flex items-center space-x-1 text-[11px] px-2 py-0.5 rounded border font-semibold transition-colors cursor-pointer ${
+                job.coverLetter.verified
+                  ? 'text-violet-700 bg-violet-50 border-violet-200 hover:bg-violet-100'
+                  : 'text-amber-700 bg-amber-50 border-amber-200 hover:bg-amber-100'
+              }`}
+            >
+              {job.coverLetter.verified ? <FileText className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+              <span>{job.coverLetter.verified ? 'Cover letter ready' : 'Cover letter needs review'}</span>
+            </button>
           )}
         </div>
 
@@ -389,20 +431,6 @@ const JobCard = React.memo(function JobCard({
             Apply link above is untouched. */}
         <AutoApplyButton job={job} />
 
-        {/* Applied — always the same label; turns green once applied (click toggles) */}
-        <button
-          onClick={() => void toggleApplied()}
-          title={job.state === 'applied' ? 'Mark as not applied' : 'Mark as applied'}
-          aria-pressed={job.state === 'applied'}
-          className={`inline-flex items-center justify-center gap-1.5 h-[38px] px-3.5 rounded-lg text-xs font-extrabold border transition-colors cursor-pointer ${
-            job.state === 'applied'
-              ? 'bg-green-50 text-green-700 border-green-300'
-              : 'bg-white text-[var(--color-muted)] border-[var(--color-hairline)] hover:border-green-300 hover:text-green-600'
-          }`}
-        >
-          {job.state === 'applied' ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <span className="w-3.5 h-3.5 rounded-full border border-current opacity-60" />}
-          <span>Applied</span>
-        </button>
 
         {/* Remove job — no confirmation */}
         <button
@@ -416,7 +444,7 @@ const JobCard = React.memo(function JobCard({
       </div>
     </div>
   );
-}, (prev, next) => prev.job === next.job && prev.scoreMsg === next.scoreMsg && prev.tailorMsg === next.tailorMsg && prev.onUpdateStatus === next.onUpdateStatus && prev.onSelectTailoredReview === next.onSelectTailoredReview);
+}, (prev, next) => prev.job === next.job && prev.scoreMsg === next.scoreMsg && prev.tailorMsg === next.tailorMsg && prev.onUpdateStatus === next.onUpdateStatus && prev.onSelectTailoredReview === next.onSelectTailoredReview && prev.onSelectCoverLetter === next.onSelectCoverLetter);
 
 export const JobMatrix: React.FC<JobMatrixProps> = ({
   jobs,
@@ -428,6 +456,8 @@ export const JobMatrix: React.FC<JobMatrixProps> = ({
   setSearchTerm,
   sourceFilter,
   setSourceFilter,
+  coverLetterFilter,
+  setCoverLetterFilter,
   page,
   setPage,
   pageSize,
@@ -435,6 +465,7 @@ export const JobMatrix: React.FC<JobMatrixProps> = ({
   onSelectJob,
   onOpenRecruiter,
   onSelectTailoredReview,
+  onSelectCoverLetter,
   onMatchJob,
   onTailorJob,
   onDeleteJob,
@@ -554,7 +585,7 @@ export const JobMatrix: React.FC<JobMatrixProps> = ({
         </div>
 
         {/* Batch Operations */}
-        <div className="flex items-center space-x-3 w-full sm:w-auto justify-end">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
           <div className="flex items-center space-x-1.5">
             <span className="text-slate-500 font-medium">Source:</span>
             <select
@@ -568,6 +599,20 @@ export const JobMatrix: React.FC<JobMatrixProps> = ({
                 .map((src) => (
                   <option key={src} value={src}>{SOURCES[src].label}</option>
                 ))}
+            </select>
+          </div>
+          <div className="flex items-center space-x-1.5">
+            <span className="text-slate-500 font-medium">Cover letter:</span>
+            <select
+              value={coverLetterFilter}
+              onChange={(e) => setCoverLetterFilter(e.target.value as any)}
+              aria-label="Filter by cover letter status"
+              className="bg-white border-[1.5px] border-[var(--color-hairline2)] rounded-[9px] px-2.5 py-1.5 font-semibold cursor-pointer focus:outline-none focus:border-[var(--color-brand)]"
+            >
+              <option value="all">All</option>
+              <option value="has">Has letter</option>
+              <option value="verified">Verified</option>
+              <option value="unverified">Needs review</option>
             </select>
           </div>
           <button
@@ -665,6 +710,7 @@ export const JobMatrix: React.FC<JobMatrixProps> = ({
                 onSelectJob={onSelectJob}
                 onOpenRecruiter={onOpenRecruiter}
                 onSelectTailoredReview={onSelectTailoredReview}
+                onSelectCoverLetter={onSelectCoverLetter}
                 onMatchJob={onMatchJob}
                 onTailorJob={onTailorJob}
                 onDeleteJob={onDeleteJob}

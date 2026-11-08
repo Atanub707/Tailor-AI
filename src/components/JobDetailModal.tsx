@@ -26,6 +26,9 @@ import {
   Printer,
   Users,
   Download,
+  FileText,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react';
 
 interface JobDetailModalProps {
@@ -36,7 +39,7 @@ interface JobDetailModalProps {
   onTailorModeChange?: (mode: 'strict' | 'enhanced') => void;
   onUpdateStatus: (jobId: string, state: JobState) => Promise<void>;
   isLoading: boolean;
-  initialTab?: 'details' | 'gap' | 'tailored';
+  initialTab?: 'details' | 'gap' | 'tailored' | 'cover';
   cvTemplate?: TemplateId;
   masterCv?: import('../types').MasterCv | null;
 }
@@ -203,8 +206,51 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   initialTab,
   masterCv,
 }) => {
-  const [activeTab, setActiveTab] = useState<'details' | 'gap' | 'tailored'>(initialTab || 'details');
+  const [activeTab, setActiveTab] = useState<'details' | 'gap' | 'tailored' | 'cover'>(initialTab || 'details');
   const [tailorMode, setTailorMode] = useState<'strict' | 'enhanced'>(job?.tailorMode ?? 'enhanced');
+
+  // Cover letter — local mirror of the persisted job.coverLetter so the tab
+  // reflects a just-generated letter without needing a list refresh.
+  const [coverLetter, setCoverLetter] = useState(job?.coverLetter);
+  const [coverLetterBusy, setCoverLetterBusy] = useState(false);
+  const [coverLetterError, setCoverLetterError] = useState<string | null>(null);
+  const [copiedCoverLetter, setCopiedCoverLetter] = useState(false);
+  useEffect(() => {
+    setCoverLetter(job?.coverLetter);
+    setCoverLetterError(null);
+  }, [job?.id, job?.coverLetter?.generatedAt, job?.coverLetter?.verified]);
+
+  const generateCoverLetter = async (force = false) => {
+    if (!job) return;
+    setCoverLetterBusy(true);
+    setCoverLetterError(null);
+    try {
+      const res = await fetch(`/api/jobs/${encodeURIComponent(job.id)}/cover-letter`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setCoverLetterError(data?.error || 'Cover letter generation failed.');
+        return;
+      }
+      setCoverLetter(data?.coverLetter);
+    } catch {
+      setCoverLetterError('Cover letter generation failed — check your connection.');
+    } finally {
+      setCoverLetterBusy(false);
+    }
+  };
+
+  const copyCoverLetter = async () => {
+    if (!coverLetter?.text) return;
+    try {
+      await navigator.clipboard.writeText(coverLetter.text);
+      setCopiedCoverLetter(true);
+      setTimeout(() => setCopiedCoverLetter(false), 1500);
+    } catch { /* clipboard unavailable */ }
+  };
 
   // Some sources (RemoteJobs boards) arrive without a description in their
   // feed payload. Resolve it from the public posting page the first time the
@@ -474,6 +520,28 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
             {tailored && (
               <span className="ml-1 px-1.5 py-0.2 rounded bg-[var(--color-cta-soft)] text-emerald-800 font-bold text-[10px]">
                 Ready
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveTab('cover')}
+            className={`pb-2 px-3 border-b-2 transition-colors cursor-pointer flex items-center space-x-1.5 ${
+              activeTab === 'cover'
+                ? 'border-violet-600 text-violet-700 font-bold'
+                : 'border-transparent text-[var(--color-faint)] hover:text-[var(--color-ink)]'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5 text-violet-600" />
+            <span>Cover Letter</span>
+            {coverLetter?.verified && (
+              <span className="ml-1 px-1.5 py-0.2 rounded bg-violet-50 text-violet-700 font-bold text-[10px] border border-violet-200">
+                Ready
+              </span>
+            )}
+            {coverLetter && !coverLetter.verified && (
+              <span className="ml-1 px-1.5 py-0.2 rounded bg-amber-50 text-amber-700 font-bold text-[10px] border border-amber-200">
+                Review
               </span>
             )}
           </button>
@@ -1139,6 +1207,116 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                   <div id="printable-cv" className="bg-white border border-[var(--color-hairline2)] rounded-lg p-4 shadow-sm overflow-hidden">
                     <CvPdfPreview cv={compressedCvToPdfShape(tailored)} template={cvTemplate} fitToWidth />
                   </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 4: Cover Letter */}
+          {activeTab === 'cover' && (
+            <div className="space-y-4 text-xs">
+              <div className="flex items-start justify-between gap-4 bg-[#FAFAF9] p-3 rounded-lg border border-[var(--color-hairline)]">
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <FileText className="w-4 h-4 text-violet-600" />
+                    <span className="font-semibold text-[var(--color-ink)]">Cover Letter</span>
+                    {coverLetter?.verified ? (
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-[10px] inline-flex items-center space-x-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        <span>Verified from your CV</span>
+                      </span>
+                    ) : coverLetter ? (
+                      <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-bold text-[10px] inline-flex items-center space-x-1">
+                        <AlertTriangle className="w-3 h-3" />
+                        <span>Needs review</span>
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full bg-white text-[var(--color-faint)] border border-[var(--color-hairline)] font-bold text-[10px]">
+                        Not generated
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-[var(--color-faint)] mt-1">
+                    Written only from your Master CV{tailored ? ' and this tailored resume' : ''} for this job
+                    {coverLetter?.generatedAt ? ` · ${new Date(coverLetter.generatedAt).toLocaleString()}` : ''}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => generateCoverLetter(Boolean(coverLetter?.text))}
+                    disabled={coverLetterBusy}
+                    className="px-3 py-1.5 rounded-md bg-[var(--color-ink)] hover:bg-[#14113B] text-white font-semibold flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    {coverLetterBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : coverLetter?.text ? <RefreshCw className="w-3.5 h-3.5" /> : <Sparkles className="w-3.5 h-3.5 text-[var(--color-cta)]" />}
+                    <span>{coverLetterBusy ? 'Writing…' : coverLetter?.text ? 'Regenerate' : 'Generate Letter'}</span>
+                  </button>
+                  {coverLetter?.verified && (
+                    <a
+                      href={`/api/jobs/${encodeURIComponent(job.id)}/cover-letter.pdf`}
+                      className="px-3 py-1.5 rounded-md bg-white hover:bg-[var(--color-brand-soft)] border border-[var(--color-hairline)] font-medium text-[var(--color-muted)] flex items-center space-x-1.5"
+                    >
+                      <Download className="w-3.5 h-3.5 text-[var(--color-faint)]" />
+                      <span>PDF</span>
+                    </a>
+                  )}
+                  {coverLetter?.text && (
+                    <button
+                      type="button"
+                      onClick={copyCoverLetter}
+                      className="px-3 py-1.5 rounded-md bg-white hover:bg-[var(--color-brand-soft)] border border-[var(--color-hairline)] font-medium text-[var(--color-muted)] flex items-center space-x-1.5 cursor-pointer"
+                    >
+                      {copiedCoverLetter ? <Check className="w-3.5 h-3.5 text-[var(--color-cta)]" /> : <Copy className="w-3.5 h-3.5 text-[var(--color-faint)]" />}
+                      <span>{copiedCoverLetter ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {coverLetterError && (
+                <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-[11px] flex items-start space-x-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{coverLetterError}</span>
+                </div>
+              )}
+
+              {coverLetter?.error && (
+                <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] flex items-start space-x-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{coverLetter.error}</span>
+                </div>
+              )}
+
+              {coverLetter?.issues && coverLetter.issues.length > 0 && (
+                <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
+                  <div className="font-bold text-amber-800 mb-1">This draft is not verified and will not be uploaded:</div>
+                  <ul className="list-disc pl-5 space-y-0.5 text-amber-800">
+                    {coverLetter.issues.slice(0, 8).map((issue, i) => <li key={i}>{issue}</li>)}
+                  </ul>
+                  <p className="mt-1.5 text-[10px] text-amber-700">Regenerate to try again — you can also copy and edit it yourself.</p>
+                </div>
+              )}
+
+              {coverLetterBusy && !coverLetter?.text ? (
+                <div className="text-center py-12 bg-[#FAFAF9] rounded-lg border border-[var(--color-hairline)]">
+                  <Loader2 className="w-6 h-6 text-violet-600 mx-auto mb-2 animate-spin" />
+                  <p className="text-[var(--color-faint)]">Writing a grounded cover letter for {job.company}…</p>
+                </div>
+              ) : coverLetter?.text ? (
+                <div className="bg-white border border-[var(--color-hairline2)] rounded-lg p-6 shadow-sm">
+                  <div className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-[var(--color-ink)] font-serif">{coverLetter.text}</div>
+                  <div className="mt-4 pt-3 border-t border-[var(--color-hairline)] text-[10px] text-[var(--color-faint)]">
+                    {coverLetter.text.trim().split(/\s+/).filter(Boolean).length} words
+                    {coverLetter.model ? ` · ${coverLetter.model}` : ''}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-12 bg-[#FAFAF9] rounded-lg border border-[var(--color-hairline)]">
+                  <FileText className="w-8 h-8 text-violet-400 mx-auto mb-2" />
+                  <h3 className="text-xs font-bold text-[var(--color-ink)]">No Cover Letter Yet</h3>
+                  <p className="text-xs text-[var(--color-faint)] mt-1 max-w-md mx-auto">
+                    A short, factual letter for this role and company. Tailor generates one automatically after you tailor the resume — or generate it now.
+                  </p>
                 </div>
               )}
             </div>

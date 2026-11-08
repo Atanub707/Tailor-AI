@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { HamburgerTrigger } from '../navigation';
 import { CandidateProfilePanel } from './CandidateProfilePanel';
 import { AppConfig, LlmProvider } from '../types';
-import { ArrowLeft, User, UserCircle, LockKey, PlugsConnected, Brain, RocketLaunch, EnvelopeSimple, Key, CheckCircle, CaretRight, Warning, Pulse, Check, Eye, EyeSlash, ArrowSquareOut, Info } from '@phosphor-icons/react';
+import { ArrowLeft, User, UserCircle, LockKey, PlugsConnected, Brain, RocketLaunch, EnvelopeSimple, Key, CheckCircle, CaretRight, Warning, Pulse, Check, Eye, EyeSlash, ArrowSquareOut, Info, FileText } from '@phosphor-icons/react';
 import { RECOVERY_QUESTIONS } from '../constants/recoveryQuestions';
 import { PROVIDER_BASE_URLS as LLM_PRESETS, PROVIDER_FALLBACK_MODELS } from '../constants/llmPresets';
 import { codes as currencyCodes, code as currencyCodeInfo } from 'currency-codes';
@@ -513,6 +513,36 @@ const APIFY_REFERRAL_URL = 'https://console.apify.com/sign-up?fpr=xu9hcp';
                         {testState === 'ok' && <span className="st-test-ok"><CheckCircle size={14} weight="bold" /> Connected · {testMsg}</span>}
                         {testState === 'error' && <span className="st-test-err"><Warning size={14} weight="bold" /> {testMsg}</span>}
                       </div>
+                    </div>
+                  </div>
+
+                  <div className="st-card">
+                    <div className="st-card-head">
+                      <div className="st-card-ico violet"><FileText size={17} weight="duotone" /></div>
+                      <div className="st-t"><b>Cover letters</b><span className="st-d">A short, factual letter for each job you tailor.</span></div>
+                      <div className="st-spacer" />
+                      <span className={`st-tag ${(formData.coverLetter?.autoGenerate ?? true) ? 'green' : 'amber'}`}>
+                        {(formData.coverLetter?.autoGenerate ?? true) ? 'Automatic' : 'Manual'}
+                      </span>
+                    </div>
+                    <div className="st-card-body">
+                      <div className="st-row">
+                        <div className="st-lbl">
+                          <b>Write a cover letter after each tailor</b>
+                          <span>Adds a few seconds per tailored job. You can always generate one from the job's Cover Letter tab.</span>
+                        </div>
+                        <button
+                          className={`st-sw ${(formData.coverLetter?.autoGenerate ?? true) ? 'on' : ''}`}
+                          role="switch"
+                          aria-checked={formData.coverLetter?.autoGenerate ?? true}
+                          aria-label="Toggle automatic cover letters"
+                          onClick={() => setFormDataTouched({
+                            ...formData,
+                            coverLetter: { autoGenerate: !(formData.coverLetter?.autoGenerate ?? true) },
+                          })}
+                        />
+                      </div>
+                      <p className="st-hint">Letters use only facts from your Master CV. A draft that fails verification is never uploaded or attached.</p>
                     </div>
                   </div>
                 </div>

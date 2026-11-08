@@ -27,6 +27,8 @@ export interface BuildPackageInput {
   answers?: ResolvedAnswer[];
   generatedContent?: ApplicationPackage['generatedContent'];
   questions?: ApplicationPackage['questions'];
+  /** Rendered verified cover-letter PDF for this exact job (optional). */
+  coverLetterArtifact?: { pdfHash: string; pdfSize: number; filename: string } | null;
 }
 
 export function computePackageKeys(input: BuildPackageInput): {
@@ -38,6 +40,7 @@ export function computePackageKeys(input: BuildPackageInput): {
   fitScore?: number;
   tailoredResumeVersionId?: string;
   tailorEngineVersion?: number;
+  coverLetterPdfHash?: string;
   answersState: string;
 } {
   return {
@@ -49,6 +52,7 @@ export function computePackageKeys(input: BuildPackageInput): {
     fitScore: input.fit?.score ?? 0,
     tailoredResumeVersionId: input.tailoredCv ? snapshotHash(input.tailoredCv) : undefined,
     tailorEngineVersion: input.tailoredCv ? 1 : undefined,
+    coverLetterPdfHash: input.coverLetterArtifact?.pdfHash,
     answersState: answerStateKey(input.answers ?? resolveDeterministicAnswers(input.masterCv, input.profile, input.job)),
   };
 }
@@ -203,6 +207,29 @@ export async function buildPackage(input: BuildPackageInput, masterCvUpdatedAt: 
   pkg.answers = answers;
   pkg.questions = input.questions ?? [];
   pkg.generatedContent = input.generatedContent ?? { generatedAnswers: [] };
+  const letter = input.job.coverLetter;
+  if (letter?.verified && letter.text?.trim()) {
+    pkg.generatedContent = {
+      ...pkg.generatedContent,
+      coverLetter: { text: letter.text, verified: true },
+    };
+    if (input.coverLetterArtifact) {
+      pkg.coverLetterSnapshot = {
+        pdfHash: input.coverLetterArtifact.pdfHash,
+        pdfSize: input.coverLetterArtifact.pdfSize,
+        filename: input.coverLetterArtifact.filename,
+        verified: true,
+      };
+    }
+  }
+  if (input.coverLetterArtifact) {
+    pkg.coverLetterSnapshot = pkg.coverLetterSnapshot || {
+      pdfHash: input.coverLetterArtifact.pdfHash,
+      pdfSize: input.coverLetterArtifact.pdfSize,
+      filename: input.coverLetterArtifact.filename,
+      verified: true,
+    };
+  }
 
   const keys = computePackageKeys(input);
   keys.masterCvUpdatedAt = masterCvUpdatedAt;
@@ -227,6 +254,7 @@ export function computeSnapshotHash(pkg: ApplicationPackage): string {
     answers: pkg.answers,
     questions: pkg.questions,
     generated: pkg.generatedContent,
+    coverLetter: pkg.coverLetterSnapshot,
   });
 }
 

@@ -31,6 +31,7 @@ export interface PackageInputKeys {
   fitScore?: number;
   tailoredResumeVersionId?: string;
   tailorEngineVersion?: number;
+  coverLetterPdfHash?: string;
   answersState: string;
 }
 
@@ -45,6 +46,7 @@ export function packageInputFingerprint(keys: PackageInputKeys): string {
     fitScore: keys.fitScore ?? 0,
     tailoredResumeVersionId: keys.tailoredResumeVersionId ?? '',
     tailorEngineVersion: keys.tailorEngineVersion ?? 0,
+    coverLetterPdfHash: keys.coverLetterPdfHash ?? '',
     answersState: keys.answersState,
   });
   return createHash('sha256').update(stable).digest('hex').slice(0, 32);
@@ -120,6 +122,7 @@ export function freshPackage(userId: string, jobId: string, version: number): Ap
     answers: [],
     questions: [],
     generatedContent: { generatedAnswers: [] },
+    coverLetterSnapshot: null,
     validation: { ready: false, status: 'DRAFT', missingPrerequisites: [], missingFields: [], needsInput: [], blockers: [], warnings: [] },
     inputFingerprint: '',
     snapshotHash: '',

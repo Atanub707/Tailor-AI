@@ -58,13 +58,17 @@ describe('single-source + source isolation', () => {
     for (const hidden of ['Workday', 'iCIMS', 'Rippling', 'Jobvite', 'Comeet', 'Join']) {
       expect(visible).not.toContain(hidden);
     }
-    // Free direct APIs + the career-site ATS wave are selectable.
-    for (const shown of ['Greenhouse', 'Lever', 'Ashby', 'SmartRecruiters', 'Workable', 'BambooHR', 'Personio', 'Recruitee', 'Teamtailor', 'JazzHR', 'Pinpoint']) {
+    // Free direct APIs + the Jobo ATS Jobs feed are selectable.
+    for (const shown of ['Greenhouse', 'Lever', 'Ashby', 'ATS Jobs']) {
       expect(visible).toContain(shown);
     }
-    // Greenhouse/Lever/Ashby/SmartRecruiters must never be paid sources.
+    // Removed ATS sources must never return as selectable chips.
+    for (const gone of ['SmartRecruiters', 'Workable', 'BambooHR', 'Personio', 'Recruitee', 'Teamtailor', 'JazzHR', 'Pinpoint']) {
+      expect(visible).not.toContain(gone);
+    }
+    // Greenhouse/Lever/Ashby must never be paid sources.
     const sourcesSrc = fs.readFileSync('src/constants/sources.ts', 'utf8');
-    for (const free of ['Greenhouse', 'Lever', 'Ashby', 'SmartRecruiters']) {
+    for (const free of ['Greenhouse', 'Lever', 'Ashby']) {
       const row = sourcesSrc.split('\n').find((l) => l.trim().startsWith(`${free}:`));
       expect(row, free).toBeTruthy();
       expect(row).not.toContain('apifyActorId');

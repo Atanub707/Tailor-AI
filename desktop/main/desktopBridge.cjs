@@ -326,6 +326,13 @@ function createDesktopBridge({ manager, backendBase, onFocus, port = PORT, bootI
             if (rr.ok) resumeBytes = Buffer.from(await rr.arrayBuffer());
           } catch { /* run continues; reported as RESUME_NOT_ATTACHED */ }
         }
+        let coverLetterBytes = null;
+        if (data.plan && data.plan.coverLetter && data.coverLetterUrl) {
+          try {
+            const cr = await fetch(`${backendBase}${data.coverLetterUrl}`);
+            if (cr.ok) coverLetterBytes = Buffer.from(await cr.arrayBuffer());
+          } catch { /* run continues; cover-letter control stays empty */ }
+        }
         const session = manager.createSession({
           executionId: data.executionId,
           userId: data.userId,
@@ -334,6 +341,9 @@ function createDesktopBridge({ manager, backendBase, onFocus, port = PORT, bootI
           resumeBytes,
           resumeSha256: data.plan && data.plan.resume ? data.plan.resume.sha256 : undefined,
           resumeFilename: data.plan && data.plan.resume ? data.plan.resume.filename : undefined,
+          coverLetterBytes,
+          coverLetterSha256: data.plan && data.plan.coverLetter ? data.plan.coverLetter.sha256 : undefined,
+          coverLetterFilename: data.plan && data.plan.coverLetter ? data.plan.coverLetter.filename : undefined,
           preAuthorizedSubmit: data.preAuthorizedSubmit === true,
           statusToken: data.statusToken,
           backendBase,

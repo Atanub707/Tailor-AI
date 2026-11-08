@@ -244,7 +244,8 @@ describe('BrowserSessionManager — lifecycle, checkpoints, crash-safety', () =>
   });
 
   it('resume uses the EXACT frozen artifact: hash checked before attach, file kept until dispose', () => {
-    expect(sessionSrc).toContain('RESUME_HASH_MISMATCH');
+    expect(sessionSrc).toMatch(/\$\{kind\}_HASH_MISMATCH/);
+    expect(sessionSrc).toContain("kind: 'RESUME'");
     expect(sessionSrc).toContain("crypto.createHash('sha256')");
     expect(sessionSrc).toContain("dbg.sendCommand('DOM.setFileInputFiles'");
     // The artifact MUST stay on disk — Chromium reads it at SUBMIT time.

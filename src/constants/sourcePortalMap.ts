@@ -31,6 +31,7 @@ export const LIVE_SOURCES = [
   { source: 'Greenhouse', portal: null },
   { source: 'Lever', portal: null },
   { source: 'Ashby', portal: null },
+  { source: 'ATS Jobs', portal: null },
 ] as const satisfies readonly SourcePortalLink[];
 
 export type LiveSourceName = (typeof LIVE_SOURCES)[number]['source'];

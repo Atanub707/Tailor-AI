@@ -115,6 +115,13 @@ export interface ApplicationPackage {
     coverLetter?: { text: string; verified: boolean };
     generatedAnswers: Array<{ questionId: string; answer: string; verified: boolean }>;
   };
+  /** Exact verified cover-letter PDF frozen with the package (Auto Apply). */
+  coverLetterSnapshot: {
+    pdfHash: string;
+    pdfSize: number;
+    filename: string;
+    verified: true;
+  } | null;
   validation: PackageValidation;
   inputFingerprint: string;
   /** Immutable hash of frozen submission-preparation content only — excludes

@@ -1,5 +1,46 @@
 # Changelog
 
+## v2.16.0 (2026-10-29)
+
+### 🌐 150+ ATS platforms through one real API
+
+- **New source: ATS Jobs (Jobo)** — `jobo.world/ats-jobs-api`, $1.30/1K. One normalized feed across 150+ ATS platforms (Workday, iCIMS, Taleo, SuccessFactors, Manatal, Breezy, Comeet and dozens more), with the originating platform preserved in `atsPlatform`.
+- **Every search control maps through**: query (title + curated alternative titles), location, remote/hybrid/on-site, contract type, experience level and posted window — no client-side re-filtering that would drop valid alt-title matches.
+- **Removed** the SmartRecruiters, Workable, BambooHR, Personio, Recruitee, Teamtailor, JazzHR and Pinpoint selectors and their scrapers. Greenhouse, Lever and Ashby remain on their free public APIs; ATS Jobs is the paid route for everything else.
+- **20 selectable sources** now: 16 job boards + Greenhouse, Lever, Ashby and ATS Jobs. Website copy and the source logo wall updated to match.
+- Live proof: a 7-day “DevOps Engineer” search returned real roles from Manatal, Taleo, Breezy, Comeet and Lever in 7.7s.
+
+
+## v2.16.1 (2026-11-03)
+
+### ✉️ Cover letters on the job list
+
+- Cards now show **Cover letter ready** (verified) or **Cover letter needs review** (unverified) and open the job directly on its Cover Letter tab.
+- New homepage filter: **Has letter / Verified / Needs review** — server-side, so counts stay honest across pages.
+
+### ⭐ Bookmarks on the card
+
+- The separate **Applied** button is gone. A single star at the left of every job card is the bookmark/applied toggle: outlined when idle, filled green when starred. It writes the same applied state, so the Applied tab and counts stay truthful — with no duplicate apply button.
+
+### 🧪 Verification
+
+- 1,343 tests passing; TypeScript clean; production bundle built.
+
+## v2.15.0 (2026-10-29)
+
+### ✉️ Cover letters — factual, verified, and actually submitted
+
+- **A real cover letter for every tailored job**: generated from the Master CV, applicant profile and the tailored resume, then checked by a deterministic validator before it can be used. Runs automatically after every tailor (manual, consent and batch) — or on demand from the new **Cover Letter** tab.
+- **Only facts survive**: the validator rejects placeholders, clichés, missing company/role, missing sign-off, unsupported numbers, unsupported skills, and any JD technology the candidate's own record does not contain (YAML, Gitflow, PRINCE2 and similar are caught by name). One retry feeds the exact failures back to the model; a draft that still fails is stored honestly as **Needs review** and can never be uploaded.
+- **Preview, copy, download**: a selectable-text PDF rendered with embedded fonts (ATS-readable), content-addressed like the resume artifact.
+- **Auto Apply uploads the verified letter** into the form's cover-letter field only — never the resume field, never an unverified draft. The exact PDF is frozen into the application package and served to the desktop over the token-scoped loopback endpoint.
+- **Recruiter email**: an optional “Cover letter (this job)” attachment in the compose drawer, verified-only.
+- **Settings → Cover letters**: automatic generation on/off (default on), with honest wording that unverified drafts are never uploaded.
+
+### 🧪 Verification
+
+- 1,342 tests passing across 104 files; TypeScript clean; production bundle built.
+
 ## v2.14.0 (2026-10-26)
 
 ### 🌐 More sources — each one real, each one isolated

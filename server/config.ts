@@ -46,6 +46,9 @@ const DEFAULT_CONFIG: AppConfig = {
   appearance: {
     theme: 'system',
   },
+  coverLetter: {
+    autoGenerate: true,
+  },
 };
 
 export function loadConfig(): AppConfig {
@@ -99,6 +102,9 @@ export function loadConfig(): AppConfig {
       appearance: {
         theme: (['light', 'dark', 'system'].includes(parsed.appearance?.theme) ? parsed.appearance.theme : DEFAULT_CONFIG.appearance.theme) as any,
       },
+      coverLetter: {
+        autoGenerate: String(parsed.coverLetter?.autoGenerate ?? 'true').toLowerCase() !== 'false',
+      },
     };
   } catch (err) {
     console.error('Failed to load config.ini, using defaults:', err);
@@ -130,7 +136,7 @@ export function saveConfig(config: AppConfig): void {
     } catch { /* ignore — start from scratch */ }
     const valid = (v: any) => v !== undefined && v !== null && typeof v === 'object' && Object.keys(v).length > 0;
     const out: Record<string, any> = {};
-    for (const sec of ['thresholds', 'llm', 'storage', 'scraper', 'apify', 'email', 'appearance'] as const) {
+    for (const sec of ['thresholds', 'llm', 'storage', 'scraper', 'apify', 'email', 'appearance', 'coverLetter'] as const) {
       const incoming = (config as any)[sec];
       if (valid(incoming)) out[sec] = incoming;
       else if (valid(existing[sec])) out[sec] = existing[sec];

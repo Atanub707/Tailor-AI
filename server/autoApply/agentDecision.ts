@@ -23,7 +23,7 @@ import {
 } from './questionIntents.js';
 import { layaConfigFromEnv } from './decisionEngine.js';
 import { LayaDecisionEngine } from './layaDecisionEngine.js';
-import { getMasterCv, runWithUser } from '../storage/fileStorage.js';
+import { getMasterCv, getJobById, runWithUser } from '../storage/fileStorage.js';
 import { getApplicantProfile } from '../storage/applicantProfile.js';
 import { consultModelForFields, matchesOption, consultEnabled } from './modelConsult.js';
 
@@ -151,7 +151,7 @@ export interface ObservedState {
 }
 
 export interface AgentAction {
-  action: 'type' | 'select' | 'check' | 'click' | 'upload_resume';
+  action: 'type' | 'select' | 'check' | 'click' | 'upload_resume' | 'upload_cover_letter';
   ref: string;
   value?: string;
   option?: string;
@@ -262,7 +262,7 @@ function isConditionalFreeText(f: ObservedField): boolean {
 }
 
 /** PURE decision core — state + resolved values → the next primitives. */
-export function composeDecision(state: ObservedState, values: Map<string, string>): AgentDecision {
+export function composeDecision(state: ObservedState, values: Map<string, string>, opts: { coverLetterAvailable?: boolean } = {}): AgentDecision {
   const notes: string[] = [];
   if (state.captchaPresent) {
     return { actions: [], asks: [], pause: 'CAPTCHA_REQUIRED', submit: false, notes: ['CAPTCHA visible — human checkpoint'] };
@@ -298,12 +298,17 @@ export function composeDecision(state: ObservedState, values: Map<string, string
     }
 
     if (f.kind === 'file') {
-      // Only the RESUME is ever uploaded; cover letters and unlabelled file
-      // fields stay for manual handling (an unlabelled second upload widget
-      // must never receive the resume).
+      // The RESUME is always uploaded. A cover-letter control receives the
+      // frozen verified letter when the package carries one; otherwise it is
+      // left for manual handling (an unlabelled second upload widget must
+      // never receive the resume).
       const idn = `${f.name || ''} ${f.label || ''}`;
       if (/cover/i.test(idn)) {
-        notes.push('optional cover letter left empty');
+        if (opts.coverLetterAvailable) {
+          actions.push({ action: 'upload_cover_letter', ref: f.ref });
+        } else {
+          notes.push('optional cover letter left empty');
+        }
       } else if (/resume|cv/i.test(idn)) {
         actions.push({ action: 'upload_resume', ref: f.ref });
       } else {
@@ -696,5 +701,12 @@ export async function agentDecide(input: { userId: string; state: ObservedState;
   const state = input.state;
   if (state.captchaPresent || !state.formPresent) return composeDecision(state, new Map());
   const values = await resolveAgentValues(input.userId, state.fields || [], input.jobId);
-  return composeDecision(state, values);
+  let coverLetterAvailable = false;
+  if (input.jobId) {
+    try {
+      const job = getJobById(input.jobId);
+      coverLetterAvailable = Boolean(job?.coverLetter?.verified && job.coverLetter.pdfHash);
+    } catch { /* stay false — never upload an unverified letter */ }
+  }
+  return composeDecision(state, values, { coverLetterAvailable });
 }

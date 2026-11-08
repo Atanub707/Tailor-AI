@@ -17,6 +17,7 @@ import {
   markDesktopSubmitting,
   confirmDesktopSubmit,
   supersedeOtherBootExecutions,
+  buildPlanPayload,
   getActiveExecutionsForUser as getActiveExecs,
 } from '../../server/autoApply/desktopHandoff.js';
 import { getReceiptByAttempt, saveSubmissionReceipt } from '../../server/autoApply/submissionStore.js';
@@ -383,5 +384,50 @@ describe('Boot-bound crash recovery (no zombie BUSY)', () => {
     const actives = getActiveExecs(db, 'u1');
     expect(actives.map((x) => x.executionId)).toEqual([b.executionId]);
     expect(supersedeOtherBootExecutions(db, 'u1', '')).toBe(0); // never without a boot id
+  });
+});
+
+
+describe('Desktop handoff — cover letter artifacts', () => {
+  it('carries the frozen cover-letter metadata into the plan payload', () => {
+    const plan: any = {
+      provider: 'lever',
+      inspection: { url: 'https://jobs.lever.co/acme/123' },
+      target: { externalJobId: 'lev-123', company: 'Acme', title: 'DevOps Engineer', applyUrl: 'https://jobs.lever.co/acme/123' },
+      mappedFields: [],
+      requirementsFingerprint: 'fp',
+    };
+    const pkg: any = {
+      resumeSnapshot: { pdfHash: 'a'.repeat(64) },
+      coverLetterSnapshot: { pdfHash: 'b'.repeat(64), pdfSize: 1000, filename: 'Cover-Letter-Acme-DevOps-Engineer.pdf', verified: true },
+      answers: [{ key: 'fullName', value: 'Atanu Biswas' }],
+      jobSnapshot: { company: 'Acme', title: 'DevOps Engineer' },
+      applicantSnapshot: { personal: {} },
+    };
+    const payload = buildPlanPayload('u1', 'attempt-1', plan, pkg);
+    expect(payload?.resume?.sha256).toBe('a'.repeat(64));
+    expect(payload?.coverLetter).toEqual({
+      sha256: 'b'.repeat(64),
+      filename: 'Cover-Letter-Acme-DevOps-Engineer.pdf',
+      mimeType: 'application/pdf',
+    });
+  });
+
+  it('omits the cover letter when the package carries none', () => {
+    const plan: any = {
+      provider: 'lever',
+      inspection: { url: 'https://jobs.lever.co/acme/123' },
+      target: { externalJobId: 'lev-123', company: 'Acme', title: 'DevOps Engineer' },
+      mappedFields: [],
+      requirementsFingerprint: 'fp',
+    };
+    const pkg: any = {
+      resumeSnapshot: { pdfHash: 'a'.repeat(64) },
+      coverLetterSnapshot: null,
+      answers: [],
+      jobSnapshot: { company: 'Acme', title: 'DevOps Engineer' },
+      applicantSnapshot: { personal: {} },
+    };
+    expect(buildPlanPayload('u1', 'attempt-1', plan, pkg)?.coverLetter).toBeNull();
   });
 });

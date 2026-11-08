@@ -1,5 +1,5 @@
 export type JobState = 'pending' | 'matched' | 'tailored' | 'ready' | 'applied';
-export type JobSource = 'LinkedIn' | 'Indeed' | 'Naukri' | 'Glassdoor' | 'Upwork' | 'Arbeitnow' | 'SimplyHired' | 'Dice' | 'Reed' | 'RemoteOK' | 'WeWorkRemotely' | 'RemoteJobs' | 'Remotive' | 'Himalayas' | 'Jobicy' | 'Relomote' | 'MyCareersFuture' | 'Cutshort' | 'Gupy' | 'JobsCh' | 'Daijob' | 'MyJobMag' | 'Greenhouse' | 'Lever' | 'Ashby' | 'Workable' | 'Workday' | 'SmartRecruiters' | 'Teamtailor' | 'Personio' | 'BambooHR' | 'Rippling' | 'JazzHR' | 'Recruitee' | 'iCIMS' | 'Jobvite' | 'Comeet' | 'Pinpoint' | 'Join' | 'Custom';
+export type JobSource = 'LinkedIn' | 'Indeed' | 'Naukri' | 'Glassdoor' | 'Upwork' | 'Arbeitnow' | 'SimplyHired' | 'Dice' | 'Reed' | 'RemoteOK' | 'WeWorkRemotely' | 'RemoteJobs' | 'Remotive' | 'Himalayas' | 'Jobicy' | 'Relomote' | 'MyCareersFuture' | 'Cutshort' | 'Gupy' | 'JobsCh' | 'Daijob' | 'MyJobMag' | 'Greenhouse' | 'Lever' | 'Ashby' | 'ATS Jobs' | 'Workday' | 'Rippling' | 'iCIMS' | 'Jobvite' | 'Comeet' | 'Join' | 'Custom';
 
 export interface Job {
   id: string;
@@ -40,6 +40,8 @@ export interface Job {
 
   // AI Tailoring output
   tailoredCv?: TailoredCv;
+  /** Per-job cover letter — generated only from verified Master CV facts. */
+  coverLetter?: CoverLetter;
   /** Per-application consent: JD terms the user affirmed they genuinely
    *  have — fed to the tailor as includeSkills. NEVER touches the Master CV. */
   tailorConsentSkills?: string[];
@@ -145,6 +147,25 @@ export interface TailoringAudit {
      *  rewrite (honest, never fabricated — flagged for manual repair). */
     metricDropped: string[];
   };
+}
+
+/** Facts the deterministic cover-letter validator checks against a job. */
+export interface CoverLetterJobFacts {
+  company: string;
+  role: string;
+  hasRecipientName: boolean;
+}
+
+export interface CoverLetter {
+  text: string;
+  verified: boolean;
+  generatedAt: string;
+  model?: string;
+  tailoredCvHash?: string;
+  pdfHash?: string;
+  pdfSize?: number;
+  issues?: string[];
+  error?: string;
 }
 
 export interface TailoredCv {
@@ -444,6 +465,10 @@ export interface AppConfig {
   appearance: {
     theme: 'light' | 'dark' | 'system';
   };
+  coverLetter?: {
+    /** Generate a cover letter automatically after every successful tailor. */
+    autoGenerate: boolean;
+  };
 }
 
 export interface JobFilterQueryParams {
@@ -456,6 +481,8 @@ export interface JobFilterQueryParams {
   location?: string;
   datePostedFilter?: 'all' | '24h' | '7d' | '30d';
   under10Applicants?: boolean;
+  /** Cover-letter presence/verification filter for the jobs list. */
+  coverLetterFilter?: 'all' | 'has' | 'verified' | 'unverified';
   minScore?: number;
   maxScore?: number;
   sortBy?: 'postedDate' | 'matchScore' | 'createdAt' | 'company' | 'title' | 'salaryMax';

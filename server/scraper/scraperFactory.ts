@@ -10,7 +10,7 @@ import { ArbeitnowScraper } from './arbeitnowScraper.js';
 import { SimplyHiredScraper } from './simplyHiredScraper.js';
 import { DiceScraper } from './diceScraper.js';
 import { ReedScraper } from './reedScraper.js';
-import { CareerSiteAtsScraper, CAREER_ATS_SPECS } from './careerSiteAtsScraper.js';
+import { AtsJobsScraper } from './atsJobsScraper.js';
 import { RemoteOkScraper } from './remoteOkScraper.js';
 import { WeWorkRemotelyScraper } from './weWorkRemotelyScraper.js';
 import { MyCareersFutureScraper } from './myCareersFutureScraper.js';
@@ -35,31 +35,22 @@ const APIFY_SCRAPERS: Partial<Record<JobSource, () => ApifyBaseScraper>> = {
   Naukri: () => new NaukriScraper(),
   Glassdoor: () => new GlassdoorScraper(),
   Upwork: () => new UpworkScraper(),
-  // Career-site ATS sources — one paid actor, isolated per platform.
-  ...Object.fromEntries(CAREER_ATS_SPECS.map((s) => [s.source, () => new CareerSiteAtsScraper(s.source)])),
+  // One normalized feed across 150+ ATS platforms (Jobo).
+  'ATS Jobs': () => new AtsJobsScraper(),
 };
 
-// ATS sources (Greenhouse, Lever, Ashby, Workable, …). The three with FREE
-// public job APIs (Greenhouse, Lever, Ashby) are fetched directly — zero
-// Apify credits. Other ATS platforms have no direct integration in V1; V2
-// covered by the V2 search path.
+// ATS sources. Greenhouse, Lever and Ashby have FREE public job APIs and
+// are fetched directly — zero Apify credits. Every other ATS platform is
+// reached through the Jobo ATS Jobs API (one paid, normalized feed).
 export const ATS_PLATFORM_BY_SOURCE: Partial<Record<JobSource, string>> = {
   Greenhouse: 'greenhouse',
   Lever: 'lever',
   Ashby: 'ashby',
-  Workable: 'workable',
   Workday: 'workday',
-  SmartRecruiters: 'smartrecruiters',
-  Teamtailor: 'teamtailor',
-  Personio: 'personio',
-  BambooHR: 'bamboohr',
   Rippling: 'rippling',
-  JazzHR: 'jazzhr',
-  Recruitee: 'recruitee',
   iCIMS: 'icims',
   Jobvite: 'jobvite',
   Comeet: 'comeet',
-  Pinpoint: 'pinpoint',
   Join: 'join',
 };
 
@@ -68,7 +59,6 @@ const FREE_API_SOURCES: Partial<Record<JobSource, string>> = {
   Greenhouse: 'greenhouse',
   Lever: 'lever',
   Ashby: 'ashby',
-  SmartRecruiters: 'smartrecruiters',
 };
 
 async function scrapeAtsDirect(source: JobSource, params: ScraperParams): Promise<Job[]> {
@@ -122,10 +112,9 @@ export class ScraperFactory {
     for (const source of sources) {
       const domain = SOURCE_DOMAINS[source];
       const meta = SOURCES[source];
-      // Locked sources (paid/enterprise-only ATS APIs — BambooHR, Workday,
-      // iCIMS, JazzHR, Jobvite, Personio, Recruitee, Rippling, Pinpoint,
-      // Teamtailor) are disabled until a free route exists. Enforced server-side
-      // too — never spend Apify credits on them.
+      // Locked sources (paid/enterprise-only ATS APIs — Workday, iCIMS,
+      // Rippling, Jobvite, Comeet, Join) are disabled until a free route
+      // exists. Enforced server-side too — never spend Apify credits on them.
       if (meta?.locked) {
         console.warn(`[ScraperFactory] ${source}: skipped — paid/enterprise-only API (locked)`);
         ScraperFactory.lastSkippedSources.push({ source, reason: 'paid/enterprise-only API — locked until free access is available' });
@@ -148,8 +137,8 @@ export class ScraperFactory {
         let jobs: Job[] = [];
 
         // ATS sources: free-API boards route through the direct provider (no
-        // Apify needed — Greenhouse/Lever/Ashby/SmartRecruiters public APIs).
-        // Apify-backed sources (incl. the career-site ATS actor) run next.
+        // Apify needed — Greenhouse/Lever/Ashby public APIs). Apify-backed
+        // sources (incl. the Jobo ATS Jobs API) run next.
         if (FREE_API_SOURCES[source]) {
           jobs = await scrapeAtsDirect(source, params);
         } else if (meta?.apifyActorId) {
@@ -257,14 +246,10 @@ export class ScraperFactory {
       // board's fresh slice was entirely irrelevant — leaking Account Exec /
       // Data Engineer / Customer Success jobs into the DB.
       //
-      // UPSTREAM-FILTERED SOURCES ARE EXEMPT: the career-site ATS actor and
-      // SmartRecruiters apply the keyword server-side across title/skills/
-      // DESCRIPTION (e.g. a "Backend Engineer" whose body names DevOps). A
-      // title-only re-check would throw away every one of those matches.
-      const PRECHECKED = new Set<JobSource>([
-        ...CAREER_ATS_SPECS.map((s) => s.source),
-        'SmartRecruiters',
-      ]);
+      // UPSTREAM-FILTERED SOURCES ARE EXEMPT: the Jobo ATS Jobs API applies
+      // the query server-side (title + curated same-role titles), so a
+      // title-only re-check would discard valid alternative-title matches.
+      const PRECHECKED = new Set<JobSource>(['ATS Jobs']);
       const keep = new Set(applyRelevanceGuard(allJobs.filter((j) => !PRECHECKED.has(j.source)), query));
       allJobs = allJobs.filter((j) => PRECHECKED.has(j.source) || keep.has(j));
       if (allJobs.length !== before) {

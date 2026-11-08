@@ -25,13 +25,12 @@ interface ScraperBarProps {
 }
 
 // The FINAL production source list — every chip below returns real jobs:
-// job boards + free scrapers + direct-API ATS (G/L/A/SmartRecruiters) +
-// career-site ATS sources (paid actor, isolated per platform).
+// job boards + free scrapers + direct-API ATS (Greenhouse/Lever/Ashby) +
+// the Jobo ATS Jobs API (150+ platforms through one paid actor).
 const VISIBLE_SOURCES: JobSource[] = [
   'LinkedIn', 'Indeed', 'Naukri', 'Glassdoor', 'Upwork',
   'Arbeitnow', 'RemoteJobs', 'SimplyHired', 'Dice', 'Reed', 'MyCareersFuture', 'Cutshort', 'Gupy', 'JobsCh', 'Daijob', 'MyJobMag',
-  'Greenhouse', 'Lever', 'Ashby', 'SmartRecruiters',
-  'Workable', 'BambooHR', 'Personio', 'Recruitee', 'Teamtailor', 'JazzHR', 'Pinpoint',
+  'Greenhouse', 'Lever', 'Ashby', 'ATS Jobs',
 ];
 const COMING_SOON: JobSource[] = [];
 

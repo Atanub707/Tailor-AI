@@ -28,12 +28,12 @@ const EXPECTED_PAIRS: Array<[string, string]> = [
   ['MyJobMag', 'MyJobMag (NG)'],
 ];
 
-const NON_PORTAL_SOURCES = ['Upwork', 'RemoteJobs', 'JobsCh', 'Greenhouse', 'Lever', 'Ashby'];
+const NON_PORTAL_SOURCES = ['Upwork', 'RemoteJobs', 'JobsCh', 'Greenhouse', 'Lever', 'Ashby', 'ATS Jobs'];
 
 describe('source -> portal map', () => {
-  it('lists the 19 scraped sources', () => {
-    expect(LIVE_SOURCES).toHaveLength(19);
-    expect(new Set(LIVE_SOURCES.map((s) => s.source)).size).toBe(19);
+  it('lists the 20 scraped sources', () => {
+    expect(LIVE_SOURCES).toHaveLength(20);
+    expect(new Set(LIVE_SOURCES.map((s) => s.source)).size).toBe(20);
   });
 
   it('maps only the 13 overlapping names onto real portal entries', () => {
@@ -56,7 +56,7 @@ describe('source -> portal map', () => {
     expect(actual).toEqual(expected);
   });
 
-  it('leaves the six non-portal sources unmapped', () => {
+  it('leaves the non-portal sources unmapped', () => {
     const unmapped = LIVE_SOURCES.filter((s) => s.portal === null).map((s) => s.source);
     expect(unmapped.sort()).toEqual([...NON_PORTAL_SOURCES].sort());
 

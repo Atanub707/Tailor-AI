@@ -51,7 +51,7 @@ export default function App() {
   // Current-search view: when set, the job list shows ONLY the jobs of this
   // search context (searchId → search_jobs → jobs). null = the full library.
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
-  const [selectedJobTab, setSelectedJobTab] = useState<'details' | 'gap' | 'tailored'>('details');
+  const [selectedJobTab, setSelectedJobTab] = useState<'details' | 'gap' | 'tailored' | 'cover'>('details');
 
   // Drawers and Modals — visibility comes from the URL above; these hold
   // transient payloads only.
@@ -80,6 +80,7 @@ export default function App() {
   // GET /api/jobs to exactly the jobs that search produced — NOT the toolbar
   // search box (which is a manual text filter, unrelated to scrape keywords).
   const [sourceFilter, setSourceFilter] = useState<'all' | JobSource>('all');
+  const [coverLetterFilter, setCoverLetterFilter] = useState<'all' | 'has' | 'verified' | 'unverified'>('all');
   const [sortBy, setSortBy] = useState<'createdAt' | 'postedDate' | 'matchScore' | 'salaryMax'>('createdAt');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -132,6 +133,7 @@ export default function App() {
     const params = new URLSearchParams({
       state: activeStateTab,
       source: sourceFilter,
+      coverLetterFilter,
       search: searchTerm,
       sortBy,
       sortOrder: 'desc',
@@ -150,7 +152,7 @@ export default function App() {
     if (statsRes.ok) {
       setStats(await statsRes.json());
     }
-  }, [activeStateTab, sourceFilter, searchTerm, sortBy, page, pageSize]);
+  }, [activeStateTab, sourceFilter, coverLetterFilter, searchTerm, sortBy, page, pageSize]);
 
   // Back/Close from any screen: land on the dashboard with FRESH data from
   // the server (newly saved LinkedIn posts, scraped jobs, updated scores)
@@ -251,7 +253,7 @@ export default function App() {
   // Reset to page 1 when a filter changes
   useEffect(() => {
     setPage(1);
-  }, [activeStateTab, sourceFilter, searchTerm, sortBy, pageSize]);
+  }, [activeStateTab, sourceFilter, coverLetterFilter, searchTerm, sortBy, pageSize]);
 
   // Scrape Handler
   const handleScrape = async (params: {
@@ -657,6 +659,8 @@ export default function App() {
               setSearchTerm={setSearchTerm}
               sourceFilter={sourceFilter}
               setSourceFilter={setSourceFilter}
+              coverLetterFilter={coverLetterFilter}
+              setCoverLetterFilter={setCoverLetterFilter}
               sortBy={sortBy}
               setSortBy={setSortBy}
               page={page}
@@ -671,6 +675,10 @@ export default function App() {
               onSelectTailoredReview={(job) => {
                 selectJobFresh(job);
                 setSelectedJobTab('tailored');
+              }}
+              onSelectCoverLetter={(job) => {
+                selectJobFresh(job);
+                setSelectedJobTab('cover');
               }}
               onMatchJob={handleMatchJob}
               onTailorJob={handleTailorJob}

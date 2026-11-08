@@ -113,13 +113,14 @@ describe('Job discovery UX — card surface', () => {
     expect(CARD).not.toContain('ATS SCORE');
   });
 
-  it('Applied toggles green in place — the label never changes', () => {
-    expect(CARD).toContain('<span>Applied</span>');
-    expect(CARD).not.toContain('Unmark applied');
-    expect(CARD).toContain('border-green-300');
+  it('the star is the single bookmark/applied toggle on the card', () => {
+    // One star, at the left of the card — no second Applied button.
+    expect(CARD).toContain('Bookmark this job');
+    expect(CARD).toContain('Remove bookmark');
     expect(CARD).toContain('aria-pressed={job.state === \'applied\'}');
-    expect(CARD).toContain("title={job.state === 'applied' ? 'Mark as not applied' : 'Mark as applied'}");
+    expect(CARD).toContain('border-green-300');
     expect(CARD).toContain('onUpdateStatus');
+    expect(CARD).not.toContain('Mark as applied');
   });
 
   it('Remove is a direct card action', () => {

@@ -2142,7 +2142,7 @@ Return valid JSON only, no markdown:
   // fly; attachment { filename, data(base64) } attaches an uploaded file.
   app.post('/api/emails/send', async (req, res) => {
     try {
-      const { contactId, to, subject, body, attachMaster, attachment } = req.body || {};
+      const { contactId, to, subject, body, attachMaster, attachment, attachCoverLetterJobId } = req.body || {};
       const emailCfg = loadConfig().email;
       if (!emailCfg.host || !emailCfg.user || !emailCfg.password) {
         res.status(400).json({ error: 'SMTP is not configured — add it in Settings → Email.' });
@@ -2194,6 +2194,18 @@ Return valid JSON only, no markdown:
         if (attachment && typeof attachment.filename === 'string' && typeof attachment.data === 'string') {
           attachments.push({ filename: attachment.filename, content: Buffer.from(attachment.data, 'base64') });
         }
+        if (attachCoverLetterJobId) {
+          const letterJob = getJobById(String(attachCoverLetterJobId));
+          if (!letterJob?.coverLetter?.verified || !letterJob.coverLetter.pdfHash) {
+            throw Object.assign(new Error('No verified cover letter exists for that job yet.'), { code: 'COVER_LETTER_MISSING' });
+          }
+          const { ensureCoverLetterPdf, coverLetterFilename } = await import('./server/coverLetter/coverLetterPdf.js');
+          const { readPdfArtifact } = await import('./server/applicationPackage/artifactStore.js');
+          const letter = letterJob.coverLetter.pdfHash
+            ? letterJob.coverLetter
+            : (await ensureCoverLetterPdf(letterJob)).letter;
+          attachments.push({ filename: coverLetterFilename(letterJob), content: readPdfArtifact(letter.pdfHash!) });
+        }
 
         return transport.sendMail({
           from,
@@ -2230,11 +2242,15 @@ Return valid JSON only, no markdown:
       if (resolvedContactId) recordContactEmail(resolvedContactId, 'sent', info.messageId);
       recordSentEmail({
         contactId: resolvedContactId, recipient: to, subject, body,
-        attachmentName: attachMaster ? 'Master CV' : (attachment?.filename || null),
+        attachmentName: attachMaster ? 'Master CV' : attachCoverLetterJobId ? 'Cover letter' : (attachment?.filename || null),
         status: 'sent', messageId: info.messageId,
       });
       res.json({ success: true, messageId: info.messageId });
     } catch (err: any) {
+      if (err?.code === 'COVER_LETTER_MISSING') {
+        res.status(422).json({ error: err.message, code: err.code });
+        return;
+      }
       if (req.body?.contactId) recordContactEmail(req.body.contactId, 'failed');
       if (String(req.body?.to || '').includes('@')) {
         recordSentEmail({
@@ -2311,6 +2327,7 @@ Return valid JSON only, no markdown:
         location: (req.query.location as string) || '',
         datePostedFilter: (req.query.datePostedFilter as any) || 'all',
         under10Applicants: req.query.under10Applicants === 'true',
+        coverLetterFilter: (req.query.coverLetterFilter as any) || 'all',
         minScore: req.query.minScore ? Number(req.query.minScore) : undefined,
         maxScore: req.query.maxScore ? Number(req.query.maxScore) : undefined,
         sortBy: (req.query.sortBy as any) || 'createdAt',
@@ -2755,6 +2772,9 @@ const sanitizeAttemptDryRun = (a: any) => ({
         statusToken: exec.statusToken,
         preAuthorizedSubmit,
         resumeUrl: `/api/auto-apply/desktop-execution/resume?token=${encodeURIComponent(exec.statusToken)}`,
+        coverLetterUrl: payload.coverLetter
+          ? `/api/auto-apply/desktop-execution/cover-letter?token=${encodeURIComponent(exec.statusToken)}`
+          : undefined,
         plan: payload,
       });
     } catch { return res.status(500).json({ error: 'CLAIM_ERROR' }); }
@@ -2852,6 +2872,32 @@ const sanitizeAttemptDryRun = (a: any) => ({
       res.setHeader('Cache-Control', 'no-store');
       return void res.send(bytes);
     } catch { return res.status(500).json({ error: 'RESUME_ERROR' }); }
+  });
+
+  app.get('/api/auto-apply/desktop-execution/cover-letter', async (req, res) => {
+    try {
+      const { assertLoopbackHost } = await import('./server/autoApply/loopback.js');
+      assertLoopbackHost(req.headers.host);
+      const token = typeof req.query?.token === 'string' ? req.query.token : '';
+      if (!token) return res.status(400).json({ error: 'MISSING_TOKEN' });
+      const { getExecutionByStatusToken } = await import('./server/autoApply/desktopHandoff.js');
+      const exec = getExecutionByStatusToken(getDb(), token);
+      if (!exec) return res.status(401).json({ error: 'UNKNOWN_EXECUTION' });
+      const { getAttempt } = await import('./server/applicationEngine/executionStore.js');
+      const { getPackageById } = await import('./server/applicationPackage/packageStore.js');
+      const attempt = getAttempt(getDb(), exec.userId, exec.attemptId);
+      const pkg = attempt ? getPackageById(exec.userId, attempt.packageId) : undefined;
+      const snap = pkg?.coverLetterSnapshot;
+      if (!snap?.pdfHash) return res.status(404).json({ error: 'COVER_LETTER_MISSING' });
+      const { readPdfArtifact } = await import('./server/applicationPackage/artifactStore.js');
+      const bytes = readPdfArtifact(snap.pdfHash);
+      if (!bytes.length || bytes.length > 5 * 1024 * 1024) return res.status(413).json({ error: 'ARTIFACT_INVALID' });
+      if (bytes.subarray(0, 5).toString('ascii') !== '%PDF-') return res.status(422).json({ error: 'ARTIFACT_INVALID' });
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${String(snap.filename || 'cover-letter.pdf').replace(/[^a-zA-Z0-9._-]/g, '_')}"`);
+      res.setHeader('Cache-Control', 'no-store');
+      return void res.send(bytes);
+    } catch { return res.status(500).json({ error: 'COVER_LETTER_ERROR' }); }
   });
 
   // Chrome polls this (authed) for the live per-job status.
@@ -3197,6 +3243,22 @@ const sanitizeAttemptDryRun = (a: any) => ({
     return { deps, fullJob, profile, masterCv, jd, fit, tailoredCv };
   };
 
+  /** Freeze the verified cover-letter PDF for a package (null when absent). */
+  const coverLetterArtifactFor = async (job: Job): Promise<{ pdfHash: string; pdfSize: number; filename: string } | null> => {
+    if (!job.coverLetter?.verified || !job.coverLetter.text?.trim()) return null;
+    try {
+      const { ensureCoverLetterPdf } = await import('./server/coverLetter/coverLetterPdf.js');
+      const out = await ensureCoverLetterPdf(job);
+      if (out.letter.pdfHash !== job.coverLetter.pdfHash) {
+        updateJobInStorage({ ...job, coverLetter: out.letter } as Job);
+      }
+      return { pdfHash: out.pdfHash, pdfSize: out.pdfSize, filename: out.filename };
+    } catch (err: any) {
+      console.warn(`[Package] cover-letter PDF skipped for ${job.id}: ${String(err?.message || err).slice(0, 160)}`);
+      return null;
+    }
+  };
+
   // Create or reuse the current package for a job.
   app.post('/api/jobs/:id/application-package', async (req, res) => {
     try {
@@ -3219,13 +3281,16 @@ const sanitizeAttemptDryRun = (a: any) => ({
           const { tailorJob } = await import('./server/tailor/tailorService.js');
           const mode = req.body?.mode === 'strict' ? 'strict' : 'enhanced';
           const result = await tailorJob(ctx.fullJob, { userId, mode });
-          updateJobInStorage({
+          const tailoredJob = updateJobInStorage({
             ...ctx.fullJob,
             tailoredCv: result.tailoredCv,
             state: 'tailored',
             tailoredAt: new Date().toISOString(),
             tailorMode: mode,
           } as Job);
+          const { attachCoverLetterAfterTailor } = await import('./server/coverLetter/attachToTailor.js');
+          await attachCoverLetterAfterTailor(tailoredJob);
+          ctx.fullJob = getJobById(job.id) || tailoredJob;
           tailoredCv = result.tailoredCv;
           autoTailored = true;
         } catch (tailorErr: any) {
@@ -3235,7 +3300,8 @@ const sanitizeAttemptDryRun = (a: any) => ({
       const { buildPackage, computePackageKeys } = await import('./server/applicationPackage/packageEngine.js');
       const { getLatestPackage, storePackage, packageInputFingerprint } = await import('./server/applicationPackage/packageStore.js');
       const latest = getLatestPackage(userId, job.id);
-      const keys = computePackageKeys({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredCv });
+      const coverLetterArtifact = await coverLetterArtifactFor(ctx.fullJob);
+      const keys = computePackageKeys({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredCv, coverLetterArtifact });
       keys.masterCvUpdatedAt = ctx.deps.getMasterCvUpdatedAt(userId);
       const fp = packageInputFingerprint(keys);
       // Reuse only a READY package — a DRAFT one (missing prerequisites at
@@ -3244,7 +3310,7 @@ const sanitizeAttemptDryRun = (a: any) => ({
         res.json({ package: latest, reused: true, cvSource: latest.resumeSnapshot?.source ?? null, autoTailored, autoTailorError });
         return;
       }
-      const pkg = await buildPackage({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredCv }, ctx.deps.getMasterCvUpdatedAt(userId));
+      const pkg = await buildPackage({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredCv, coverLetterArtifact }, ctx.deps.getMasterCvUpdatedAt(userId));
       storePackage(pkg);
       res.json({ package: pkg, reused: false, cvSource: pkg.resumeSnapshot?.source ?? null, autoTailored, autoTailorError });
     } catch (err: any) {
@@ -3344,7 +3410,8 @@ const sanitizeAttemptDryRun = (a: any) => ({
       const ctx = await packageContext(userId, job);
       const { buildPackage } = await import('./server/applicationPackage/packageEngine.js');
       const { storePackage } = await import('./server/applicationPackage/packageStore.js');
-      const pkg = await buildPackage({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredCv: ctx.tailoredCv, answers: old.answers, questions: old.questions }, ctx.deps.getMasterCvUpdatedAt(userId));
+      const coverLetterArtifact = await coverLetterArtifactFor(ctx.fullJob);
+      const pkg = await buildPackage({ userId, job: ctx.fullJob, jd: ctx.jd, profile: ctx.profile, masterCv: ctx.masterCv, fit: ctx.fit, tailoredCv: ctx.tailoredCv, answers: old.answers, questions: old.questions, coverLetterArtifact }, ctx.deps.getMasterCvUpdatedAt(userId));
       storePackage(pkg);
       res.json({ package: pkg, oldStatus: old.status });
     } catch (err: any) {
@@ -3413,6 +3480,59 @@ const sanitizeAttemptDryRun = (a: any) => ({
         return;
       }
       res.status(500).json({ error: err?.message || 'Could not resolve the job description.' });
+    }
+  });
+
+  // Cover letter — generated from the Master CV + tailored resume ONLY.
+  app.post('/api/jobs/:id/cover-letter', async (req, res) => {
+    if (!hasApiKeyConfigured()) {
+      res.status(428).json({ error: 'No API token configured — add your API key in Settings. This process will not run.', code: 'no_api_key' });
+      return;
+    }
+    try {
+      const job = getJobById(req.params.id);
+      if (!job) {
+        res.status(404).json({ error: 'Job not found.' });
+        return;
+      }
+      const { generateAndStoreCoverLetter } = await import('./server/coverLetter/attachToTailor.js');
+      const coverLetter = await generateAndStoreCoverLetter(job, { force: !!req.body?.force });
+      res.json({ success: true, coverLetter });
+    } catch (err: any) {
+      const mapped = mapLlmError(err);
+      console.error('Cover letter error:', err);
+      res.status(mapped.status).json({ error: mapped.message, code: mapped.code });
+    }
+  });
+
+  app.get('/api/jobs/:id/cover-letter.pdf', async (req, res) => {
+    try {
+      const job = getJobById(req.params.id);
+      if (!job) {
+        res.status(404).json({ error: 'Job not found.' });
+        return;
+      }
+      if (!job.coverLetter?.verified || !job.coverLetter.text?.trim()) {
+        res.status(422).json({ error: 'Generate a verified cover letter first.' });
+        return;
+      }
+      const { ensureCoverLetterPdf, coverLetterFilename } = await import('./server/coverLetter/coverLetterPdf.js');
+      const { readPdfArtifact } = await import('./server/applicationPackage/artifactStore.js');
+      const { saveCoverLetter } = await import('./server/storage/fileStorage.js');
+      let letter = job.coverLetter;
+      if (!letter.pdfHash) {
+        const out = await ensureCoverLetterPdf(job);
+        letter = out.letter;
+        saveCoverLetter(job.id, letter);
+      }
+      const buf = readPdfArtifact(letter.pdfHash!);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${coverLetterFilename(job)}"`);
+      res.setHeader('Content-Length', String(buf.length));
+      res.send(buf);
+    } catch (err: any) {
+      console.error('Cover letter PDF error:', err);
+      res.status(500).json({ error: err?.message || 'Could not render the cover-letter PDF.' });
     }
   });
 
@@ -3498,11 +3618,15 @@ const sanitizeAttemptDryRun = (a: any) => ({
         tailorMode: mode,
       } as Job);
 
+      const { attachCoverLetterAfterTailor } = await import('./server/coverLetter/attachToTailor.js');
+      const coverLetter = await attachCoverLetterAfterTailor(updatedJob);
+
       res.json({
         success: true,
         tailoredCv: tailoredResult.tailoredCv,
         version: tailoredResult.version,
-        job: updatedJob,
+        job: coverLetter ? (getJobById(updatedJob.id) || updatedJob) : updatedJob,
+        coverLetter,
       });
     } catch (err: any) {
       const mapped = mapLlmError(err);
@@ -3595,11 +3719,15 @@ const sanitizeAttemptDryRun = (a: any) => ({
         tailorConsentSkills: consent,
       } as Job);
 
+      const { attachCoverLetterAfterTailor } = await import('./server/coverLetter/attachToTailor.js');
+      const coverLetter = await attachCoverLetterAfterTailor(updatedJob);
+
       res.json({
         success: true,
         tailoredCv: tailoredResult.tailoredCv,
         consented: consent,
-        job: updatedJob,
+        job: coverLetter ? (getJobById(updatedJob.id) || updatedJob) : updatedJob,
+        coverLetter,
       });
     } catch (err: any) {
       const mapped = mapLlmError(err);
@@ -3650,7 +3778,9 @@ const sanitizeAttemptDryRun = (a: any) => ({
               tailorMode: mode,
             } as Job);
 
-            tailoredResults.push(updated);
+            const { attachCoverLetterAfterTailor } = await import('./server/coverLetter/attachToTailor.js');
+            await attachCoverLetterAfterTailor(updated);
+            tailoredResults.push(getJobById(updated.id) || updated);
           } catch (err) {
             console.warn(`Batch tailor skipped for job ${job.id}:`, err?.name === 'TailorVerificationFailedError' ? 'factual verification failed — resume not published' : err);
           }

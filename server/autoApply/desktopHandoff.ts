@@ -417,7 +417,7 @@ export function buildPlanPayload(
   userId: string,
   attemptId: string,
   plan: SubmissionPlan,
-  pkg: Pick<ApplicationPackage, 'resumeSnapshot' | 'answers' | 'jobSnapshot' | 'applicantSnapshot'>
+  pkg: Pick<ApplicationPackage, 'resumeSnapshot' | 'coverLetterSnapshot' | 'answers' | 'jobSnapshot' | 'applicantSnapshot'>
 ): {
   provider: 'lever' | 'greenhouse' | 'ashby';
   attemptId: string;
@@ -428,6 +428,7 @@ export function buildPlanPayload(
   requirementsFingerprint: string;
   fields: Array<{ providerFieldId: string; label: string; type: string; required: boolean; approvedValue: string | boolean | string[] }>;
   resume: { sha256: string; filename: string; mimeType: string } | null;
+  coverLetter: { sha256: string; filename: string; mimeType: string } | null;
 } | null {
   const rawUrl = String((plan as { inspection?: { url?: string } }).inspection?.url || plan.target?.applyUrl || '');
   // Lever needs the /apply form route; Ashby needs /application; Greenhouse
@@ -455,6 +456,9 @@ export function buildPlanPayload(
   const resume = pkg.resumeSnapshot?.pdfHash
     ? { sha256: pkg.resumeSnapshot.pdfHash, filename: resumeAttachmentFilename(pkg as ApplicationPackage), mimeType: 'application/pdf' }
     : null;
+  const coverLetter = pkg.coverLetterSnapshot?.pdfHash
+    ? { sha256: pkg.coverLetterSnapshot.pdfHash, filename: pkg.coverLetterSnapshot.filename, mimeType: 'application/pdf' }
+    : null;
   return {
     provider: isLever ? 'lever' : isAshby ? 'ashby' : 'greenhouse',
     attemptId,
@@ -465,5 +469,6 @@ export function buildPlanPayload(
     requirementsFingerprint: plan.requirementsFingerprint || '',
     fields,
     resume,
+    coverLetter,
   };
 }

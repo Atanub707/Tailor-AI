@@ -31,13 +31,16 @@ const AUTO_CLOSE_SUBMITTED_MS = 12_000; // let the confirmation page render, the
 const AUTO_CLOSE_READY_MS = 10 * 60 * 1000; // explicit-review window stays open (10 min)
 
 class Session {
-  constructor(manager, { executionId, userId, attemptId, plan, resumeBytes, resumeSha256, resumeFilename, preAuthorizedSubmit }) {
+  constructor(manager, { executionId, userId, attemptId, plan, resumeBytes, resumeSha256, resumeFilename, coverLetterBytes, coverLetterSha256, coverLetterFilename, preAuthorizedSubmit }) {
     this.manager = manager;
     this.executionId = String(executionId);
     this.userId = String(userId || '');
     this.attemptId = String(attemptId || '');
     this.currentPlan = plan;
     this.lastResume = resumeBytes ? { bytes: resumeBytes, sha256: resumeSha256, filename: resumeFilename } : null;
+    this.lastCoverLetter = coverLetterBytes
+      ? { bytes: coverLetterBytes, sha256: coverLetterSha256, filename: coverLetterFilename }
+      : null;
     this.preAuthorizedSubmit = preAuthorizedSubmit === true;
     this.state = 'STARTING';
     this.canonical = null;
@@ -125,39 +128,44 @@ class Session {
     this.state = 'CLOSED';
   }
 
-  /** Exact frozen resume bytes via CDP (real file, real change event, hash-verified). */
-  async attachResume(bytes, expectedSha256, filename) {
+  /** Exact frozen file bytes via CDP (real file, real change event,
+   *  hash-verified). `ref` targets one observed file control directly; when
+   *  absent the provider's resume selector is used. */
+  async attachFile(bytes, expectedSha256, filename, opts = {}) {
     const wc = this.wc;
     const buf = Buffer.from(bytes);
+    const kind = String(opts.kind || 'RESUME');
     if (expectedSha256) {
       const got = crypto.createHash('sha256').update(buf).digest('hex');
       if (got !== String(expectedSha256).toLowerCase()) {
-        this.emit('RESUME_ATTACHMENT_FAILED', 'hash-mismatch');
-        return { ok: false, reason: 'RESUME_HASH_MISMATCH' };
+        this.emit(`${kind}_ATTACHMENT_FAILED`, 'hash-mismatch');
+        return { ok: false, reason: `${kind}_HASH_MISMATCH` };
       }
     }
     let tmpDir = null;
     try {
       const dbg = wc.debugger;
       if (!dbg.isAttached()) dbg.attach('1.3');
-      const resumeSel = typeof this.adapter.resumeSelector === 'function'
-        ? this.adapter.resumeSelector()
-        : 'input[type="file"][name="resume"], input[type="file"]#resume';
+      const selector = opts.ref
+        ? `[data-ta-ref="${String(opts.ref).replace(/[^a-zA-Z0-9_-]/g, '')}"]`
+        : (typeof this.adapter.resumeSelector === 'function'
+          ? this.adapter.resumeSelector()
+          : 'input[type="file"][name="resume"], input[type="file"]#resume');
       const { root } = await dbg.sendCommand('DOM.getDocument');
-      const { nodeId } = await dbg.sendCommand('DOM.querySelector', { nodeId: root.nodeId, selector: resumeSel });
-      if (!nodeId) return { ok: false, reason: 'NO_RESUME_CONTROL' };
-      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tailor-resume-'));
+      const { nodeId } = await dbg.sendCommand('DOM.querySelector', { nodeId: root.nodeId, selector });
+      if (!nodeId) return { ok: false, reason: `NO_${kind}_CONTROL` };
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `tailor-${kind.toLowerCase()}-`));
       // The file MUST stay on disk until the session closes: Chromium reads it
       // at SUBMIT time, not at attach time. Deleting it here caused every POST
       // to fail mid-upload (chrome-error page, no submission, no email).
       this.tmpDirs.push(tmpDir);
-      const safeName = String(filename || 'resume.pdf').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
+      const safeName = String(filename || `${kind.toLowerCase()}.pdf`).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
       const filePath = path.join(tmpDir, safeName);
       fs.writeFileSync(filePath, buf, { mode: 0o600 });
       // React re-renders can swap the input node between the query and the
       // set — retry with a FRESH node each attempt and reset the input first
       // so a stale file list can never masquerade as 'attached'.
-      const selJson = JSON.stringify(resumeSel);
+      const selJson = JSON.stringify(selector);
       const verify = () => wc.executeJavaScript(
         `(() => { const i = document.querySelector(${selJson}); return i && i.files && i.files.length === 1 ? { name: i.files[0].name, size: i.files[0].size } : null; })()`,
         true
@@ -169,7 +177,7 @@ class Session {
           true
         ).catch(() => {});
         const doc = await dbg.sendCommand('DOM.getDocument');
-        const found = await dbg.sendCommand('DOM.querySelector', { nodeId: doc.root.nodeId, selector: resumeSel });
+        const found = await dbg.sendCommand('DOM.querySelector', { nodeId: doc.root.nodeId, selector });
         if (!found.nodeId) { await new Promise((r) => setTimeout(r, 300)); continue; }
         await dbg.sendCommand('DOM.setFileInputFiles', { files: [filePath], nodeId: found.nodeId });
         await new Promise((r) => setTimeout(r, 250));
@@ -178,19 +186,27 @@ class Session {
         else await new Promise((r) => setTimeout(r, 300));
       }
       if (!attached) {
-        this.emit('RESUME_ATTACHMENT_FAILED', 'verify-failed');
-        return { ok: false, reason: 'RESUME_VERIFY_FAILED' };
+        this.emit(`${kind}_ATTACHMENT_FAILED`, 'verify-failed');
+        return { ok: false, reason: `${kind}_VERIFY_FAILED` };
       }
       // NOTE: DOM.setFileInputFiles already fires native input/change events
       // (trusted) — extra SYNTHETIC events are deliberately NOT dispatched:
       // they trip the passive-listener React errors that break the form's
       // widgets on Greenhouse boards.
-      this.emit('RESUME_ATTACHED', `bytes=${buf.length}`);
+      this.emit(`${kind}_ATTACHED`, `bytes=${buf.length}`);
       return { ok: true };
     } catch (e) {
-      this.emit('RESUME_ATTACHMENT_FAILED', String(e.message || e).slice(0, 80));
-      return { ok: false, reason: 'RESUME_ATTACH_FAILED' };
+      this.emit(`${kind}_ATTACHMENT_FAILED`, String(e.message || e).slice(0, 80));
+      return { ok: false, reason: `${kind}_ATTACH_FAILED` };
     }
+  }
+
+  async attachResume(bytes, expectedSha256, filename) {
+    return this.attachFile(bytes, expectedSha256, filename, { kind: 'RESUME' });
+  }
+
+  async attachCoverLetter(bytes, expectedSha256, filename, ref) {
+    return this.attachFile(bytes, expectedSha256, filename, { kind: 'COVER_LETTER', ref });
   }
 
   async reattachResumeIfNeeded() {
@@ -564,6 +580,11 @@ class Session {
     if (safe.action === 'upload_resume') {
       if (!this.lastResume) return { ok: false, code: 'NO_RESUME_ARTIFACT' };
       const r = await this.attachResume(this.lastResume.bytes, this.lastResume.sha256, this.lastResume.filename);
+      return r.ok ? { ok: true, uploaded: true } : { ok: false, code: r.reason || 'UPLOAD_FAILED' };
+    }
+    if (safe.action === 'upload_cover_letter') {
+      if (!this.lastCoverLetter) return { ok: false, code: 'NO_COVER_LETTER_ARTIFACT' };
+      const r = await this.attachCoverLetter(this.lastCoverLetter.bytes, this.lastCoverLetter.sha256, this.lastCoverLetter.filename, safe.ref);
       return r.ok ? { ok: true, uploaded: true } : { ok: false, code: r.reason || 'UPLOAD_FAILED' };
     }
     try {
@@ -1373,9 +1394,9 @@ class BrowserSessionManager {
   }
 
   /** Create an independent execution session (own view; visible only if first). */
-  createSession({ executionId, userId, attemptId, plan, resumeBytes, resumeSha256, resumeFilename, preAuthorizedSubmit, statusToken, backendBase }) {
+  createSession({ executionId, userId, attemptId, plan, resumeBytes, resumeSha256, resumeFilename, coverLetterBytes, coverLetterSha256, coverLetterFilename, preAuthorizedSubmit, statusToken, backendBase }) {
     this.ensurePartition(userId);
-    const session = new Session(this, { executionId, userId, attemptId, plan, resumeBytes, resumeSha256, resumeFilename, preAuthorizedSubmit });
+    const session = new Session(this, { executionId, userId, attemptId, plan, resumeBytes, resumeSha256, resumeFilename, coverLetterBytes, coverLetterSha256, coverLetterFilename, preAuthorizedSubmit });
     session.statusToken = String(statusToken || '');
     session.backendBase = String(backendBase || '');
     session.view = this.makeView();

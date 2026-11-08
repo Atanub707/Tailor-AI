@@ -607,6 +607,7 @@ function validateAgentAction(action) {
   const ref = String(action.ref || '');
   if (!/^ta[0-9]{1,4}$/.test(ref)) return null;
   if (a === 'upload_resume') return { action: 'upload_resume', ref };
+  if (a === 'upload_cover_letter') return { action: 'upload_cover_letter', ref };
   if (!AGENT_DOM_ACTIONS.includes(a)) return null;
   const out = { action: a, ref };
   if (typeof action.value === 'string') out.value = action.value.slice(0, 5000);

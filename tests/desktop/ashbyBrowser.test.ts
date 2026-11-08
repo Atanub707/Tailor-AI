@@ -69,6 +69,7 @@ describe('Ashby observe + act', () => {
     expect(ash.validateAgentAction({ action: 'type', ref: 'ta1', value: 'x' })).toBeTruthy();
     expect(ash.validateAgentAction({ action: 'check', ref: 'ta2', option: 'Yes' })).toBeTruthy();
     expect(ash.validateAgentAction({ action: 'upload_resume', ref: 'ta3' })).toBeTruthy();
+    expect(ash.validateAgentAction({ action: 'upload_cover_letter', ref: 'ta4' })).toBeTruthy();
     expect(ash.validateAgentAction({ action: 'submit', ref: 'ta1' })).toBeNull();
     expect(ash.validateAgentAction({ action: 'click', ref: '../etc' })).toBeNull();
   });
@@ -144,7 +145,7 @@ describe('Ashby session wiring', () => {
 
   it('resume attach uses the adapter resume selector (Ashby system field)', () => {
     expect(sessionSrc).toContain('resumeSelector');
-    expect(sessionSrc).toContain('NO_RESUME_CONTROL');
+    expect(sessionSrc).toMatch(/NO_\$\{kind\}_CONTROL/);
   });
 
   it('provider gates: engine + policy + readiness + payload all accept ashby', () => {

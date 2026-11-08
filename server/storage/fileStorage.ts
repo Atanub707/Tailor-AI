@@ -4,7 +4,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import Database from 'better-sqlite3';
-import { Job, MasterCv, JobFilterQueryParams } from '../../src/types.js';
+import { CoverLetter, Job, MasterCv, JobFilterQueryParams } from '../../src/types.js';
 import { classifyWorkMode, classifyFromText } from '../scraper/workMode.js';
 import { extractContactsFrom, ContactType } from '../extract/contactExtractor.js';
 
@@ -1506,6 +1506,12 @@ export function updateJobInStorage(updatedJob: Job): Job {
   }
 }
 
+export function saveCoverLetter(jobId: string, letter: CoverLetter): Job | undefined {
+  const job = getJobById(jobId);
+  if (!job) return undefined;
+  return updateJobInStorage({ ...job, coverLetter: letter } as Job);
+}
+
 export function deleteJobFromStorage(id: string): boolean {
   const userId = getCurrentUserId();
   try {
@@ -1606,6 +1612,18 @@ export function queryJobs(params: JobFilterQueryParams) {
     jobs = jobs.filter((j) =>
       j.lowCompetition === true || (j.applicantCount !== undefined && j.applicantCount <= 10)
     );
+  }
+
+  // Cover-letter filter — presence of a generated letter, optionally by
+  // verification state. Unverified drafts are still visible here so the
+  // review queue can be reached from the list.
+  if (params.coverLetterFilter && params.coverLetterFilter !== 'all') {
+    jobs = jobs.filter((j) => {
+      const letter = j.coverLetter;
+      if (params.coverLetterFilter === 'has') return Boolean(letter?.text);
+      if (params.coverLetterFilter === 'verified') return Boolean(letter?.verified && letter.text);
+      return Boolean(letter?.text && !letter.verified);
+    });
   }
 
   // Min/Max Match score filter
